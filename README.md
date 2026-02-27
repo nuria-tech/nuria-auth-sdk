@@ -275,3 +275,18 @@ export function createServerAuth(cookieApi: {
 - OAuth-compatible token endpoints accept JSON payloads.
 - Callback and redirect URI registration is handled externally.
 - Backend may return non-standard payload in whitelabel mode; `mapTokenResponse` covers custom mapping.
+
+## CI/CD (GitHub Packages)
+
+This repository includes `.github/workflows/ci-publish.yml` with:
+
+- PR and `main` push: `npm ci`, `npm test`, `npm run build`
+- Tag `v*` push: publish package to GitHub Packages
+
+### Publish trigger
+
+1. Update package version in `package.json`
+2. Create and push a tag like `v0.1.1`
+3. Workflow publishes `@nuria/auth-sdk` to `https://npm.pkg.github.com`
+
+The workflow publishes using `GITHUB_TOKEN` with `packages: write` permission.
