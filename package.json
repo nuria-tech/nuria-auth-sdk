@@ -1,0 +1,30 @@
+{
+  "name": "@nuria/auth-sdk",
+  "version": "0.1.0",
+  "description": "Nuria frontend authentication SDK",
+  "type": "module",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "tsup": "8.2.4",
+    "typescript": "5.6.3",
+    "vitest": "2.1.3"
+  }
+}
