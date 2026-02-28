@@ -28,7 +28,10 @@ export class FetchAuthTransport implements AuthTransport {
     this.interceptors = options.interceptors ?? [];
   }
 
-  async request<T = unknown>(url: string, req: AuthTransportRequest = {}): Promise<AuthTransportResponse<T>> {
+  async request<T = unknown>(
+    url: string,
+    req: AuthTransportRequest = {},
+  ): Promise<AuthTransportResponse<T>> {
     let request = req;
     for (const i of this.interceptors) {
       if (i.onRequest) request = await i.onRequest(url, request);
@@ -36,10 +39,13 @@ export class FetchAuthTransport implements AuthTransport {
 
     const retries = request.retries ?? this.retries;
     let attempt = 0;
+    // eslint-disable-next-line no-constant-condition
     while (true) {
       const controller = new AbortController();
       const timeout = request.timeoutMs ?? this.timeoutMs;
-      const timer = timeout ? setTimeout(() => controller.abort(), timeout) : undefined;
+      const timer = timeout
+        ? setTimeout(() => controller.abort(), timeout)
+        : undefined;
       try {
         const res = await this.fetchFn(this.withQuery(url, request.query), {
           method: request.method ?? 'GET',
@@ -47,7 +53,10 @@ export class FetchAuthTransport implements AuthTransport {
             'Content-Type': 'application/json',
             ...(request.headers ?? {}),
           },
-          body: request.body !== undefined ? JSON.stringify(request.body) : undefined,
+          body:
+            request.body !== undefined
+              ? JSON.stringify(request.body)
+              : undefined,
           signal: controller.signal,
         });
         const data = await this.parseBody<T>(res);
@@ -58,7 +67,11 @@ export class FetchAuthTransport implements AuthTransport {
           }
           throw new AuthError(AuthErrorCode.HTTP_ERROR, `HTTP ${res.status}`);
         }
-        let out: AuthTransportResponse<T> = { status: res.status, data, headers: res.headers };
+        let out: AuthTransportResponse<T> = {
+          status: res.status,
+          data,
+          headers: res.headers,
+        };
         for (const i of this.interceptors) {
           if (i.onResponse) out = await i.onResponse(out);
         }
@@ -69,14 +82,21 @@ export class FetchAuthTransport implements AuthTransport {
           continue;
         }
         if (cause instanceof AuthError) throw cause;
-        throw new AuthError(AuthErrorCode.NETWORK_ERROR, 'Network request failed', cause);
+        throw new AuthError(
+          AuthErrorCode.NETWORK_ERROR,
+          'Network request failed',
+          cause,
+        );
       } finally {
         if (timer) clearTimeout(timer);
       }
     }
   }
 
-  private withQuery(url: string, query?: Record<string, string | undefined>): string {
+  private withQuery(
+    url: string,
+    query?: Record<string, string | undefined>,
+  ): string {
     if (!query) return url;
     const parsed = new URL(url);
     Object.entries(query).forEach(([k, v]) => {

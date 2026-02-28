@@ -1,4 +1,5 @@
-const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
+const ALPHABET =
+  'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
 
 function getCryptoImpl(): Crypto {
   if (typeof globalThis !== 'undefined' && globalThis.crypto) {
@@ -15,25 +16,27 @@ export function randomString(length = 64): string {
 }
 
 function toBase64Url(bytes: Uint8Array): string {
-  const maybeBuffer = (globalThis as { Buffer?: { from: (input: Uint8Array) => { toString: (encoding: string) => string } } }).Buffer;
-  if (maybeBuffer) {
-    return maybeBuffer
-      .from(bytes)
-      .toString('base64')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=/g, '');
-  }
   let binary = '';
-  bytes.forEach((b) => {
-    binary += String.fromCharCode(b);
-  });
-  return globalThis.btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=/g, '');
+}
+
+function verifierToBytes(verifier: string): Uint8Array {
+  const bytes = new Uint8Array(verifier.length);
+  for (let i = 0; i < verifier.length; i++) {
+    bytes[i] = verifier.charCodeAt(i);
+  }
+  return bytes;
 }
 
 export async function createCodeChallenge(verifier: string): Promise<string> {
   const crypto = getCryptoImpl();
-  const buffer = new TextEncoder().encode(verifier);
+  const buffer = verifierToBytes(verifier);
   const digest = await crypto.subtle.digest('SHA-256', buffer);
   return toBase64Url(new Uint8Array(digest));
 }

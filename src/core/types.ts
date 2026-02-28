@@ -46,12 +46,20 @@ export interface AuthTransportResponse<T = unknown> {
 }
 
 export interface AuthTransport {
-  request<T = unknown>(url: string, req?: AuthTransportRequest): Promise<AuthTransportResponse<T>>;
+  request<T = unknown>(
+    url: string,
+    req?: AuthTransportRequest,
+  ): Promise<AuthTransportResponse<T>>;
 }
 
 export interface TransportInterceptor {
-  onRequest?: (url: string, req: AuthTransportRequest) => Promise<AuthTransportRequest> | AuthTransportRequest;
-  onResponse?: <T>(res: AuthTransportResponse<T>) => Promise<AuthTransportResponse<T>> | AuthTransportResponse<T>;
+  onRequest?: (
+    url: string,
+    req: AuthTransportRequest,
+  ) => Promise<AuthTransportRequest> | AuthTransportRequest;
+  onResponse?: <T>(
+    res: AuthTransportResponse<T>,
+  ) => Promise<AuthTransportResponse<T>> | AuthTransportResponse<T>;
 }
 
 export interface WhitelabelConfig {
@@ -65,7 +73,7 @@ export interface WhitelabelConfig {
     revoke?: string;
     userinfo?: string;
   };
-  mapTokenResponse?: (raw: any) => TokenSet;
+  mapTokenResponse?: (raw: Record<string, unknown>) => TokenSet;
 }
 
 export interface RedirectConfig {
@@ -97,7 +105,7 @@ export interface NuriaAuthClient {
   startLogin(options?: StartLoginOptions): Promise<void>;
   buildAuthorizeUrl(options?: StartLoginOptions): Promise<string>;
   handleRedirectCallback(callbackUrl?: string): Promise<Session>;
-  signIn(credentials: any): Promise<Session>;
+  signIn(credentials: Record<string, unknown>): Promise<Session>;
   exchangeCode(code: string): Promise<Session>;
   getSession(): Session | null;
   getAccessToken(): Promise<string | null>;

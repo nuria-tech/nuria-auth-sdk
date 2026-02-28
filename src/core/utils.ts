@@ -7,44 +7,72 @@ export const STORAGE_KEYS = {
   codeVerifier: 'nuria:oauth:code_verifier',
 };
 
-export function normalizeTokenSet(raw: any, now: () => number): TokenSet {
-  const accessToken = raw?.access_token ?? raw?.accessToken;
+export function normalizeTokenSet(
+  raw: Record<string, unknown>,
+  now: () => number,
+): TokenSet {
+  const accessToken = (raw.access_token ?? raw.accessToken) as string;
   if (!accessToken || typeof accessToken !== 'string') {
-    throw new AuthError(AuthErrorCode.TOKEN_EXCHANGE_FAILED, 'Missing access token in token response');
+    throw new AuthError(
+      AuthErrorCode.TOKEN_EXCHANGE_FAILED,
+      'Missing access token in token response',
+    );
   }
-  const expiresIn = Number(raw?.expires_in ?? raw?.expiresIn ?? 0) || undefined;
+  const expiresIn = Number(raw.expires_in ?? raw.expiresIn ?? 0) || undefined;
   return {
     accessToken,
-    tokenType: raw?.token_type ?? raw?.tokenType,
+    tokenType: (raw.token_type ?? raw.tokenType) as string | undefined,
     expiresIn,
-    refreshToken: raw?.refresh_token ?? raw?.refreshToken,
-    idToken: raw?.id_token ?? raw?.idToken,
-    scope: raw?.scope,
+    refreshToken: (raw.refresh_token ?? raw.refreshToken) as string | undefined,
+    idToken: (raw.id_token ?? raw.idToken) as string | undefined,
+    scope: raw.scope as string | undefined,
     expiresAt: expiresIn ? now() + expiresIn * 1000 : undefined,
   };
 }
 
-export async function safeGet(storage: StorageAdapter, key: string): Promise<string | null> {
+export async function safeGet(
+  storage: StorageAdapter,
+  key: string,
+): Promise<string | null> {
   try {
     return await storage.get(key);
   } catch (cause) {
-    throw new AuthError(AuthErrorCode.STORAGE_ERROR, `Failed reading key: ${key}`, cause);
+    throw new AuthError(
+      AuthErrorCode.STORAGE_ERROR,
+      `Failed reading key: ${key}`,
+      cause,
+    );
   }
 }
 
-export async function safeSet(storage: StorageAdapter, key: string, value: string): Promise<void> {
+export async function safeSet(
+  storage: StorageAdapter,
+  key: string,
+  value: string,
+): Promise<void> {
   try {
     await storage.set(key, value);
   } catch (cause) {
-    throw new AuthError(AuthErrorCode.STORAGE_ERROR, `Failed writing key: ${key}`, cause);
+    throw new AuthError(
+      AuthErrorCode.STORAGE_ERROR,
+      `Failed writing key: ${key}`,
+      cause,
+    );
   }
 }
 
-export async function safeRemove(storage: StorageAdapter, key: string): Promise<void> {
+export async function safeRemove(
+  storage: StorageAdapter,
+  key: string,
+): Promise<void> {
   try {
     await storage.remove(key);
   } catch (cause) {
-    throw new AuthError(AuthErrorCode.STORAGE_ERROR, `Failed removing key: ${key}`, cause);
+    throw new AuthError(
+      AuthErrorCode.STORAGE_ERROR,
+      `Failed removing key: ${key}`,
+      cause,
+    );
   }
 }
 
