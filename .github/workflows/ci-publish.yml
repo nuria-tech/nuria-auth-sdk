@@ -37,12 +37,31 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+<<<<<<< HEAD
           cache: pnpm
           registry-url: https://npm.pkg.github.com
           scope: "@nuria"
+||||||| a029738
+          cache: npm
+          registry-url: https://npm.pkg.github.com
+          scope: "@nuria"
+=======
+          cache: npm
+>>>>>>> origin/main
 
       - name: Install dependencies
+<<<<<<< HEAD
         run: pnpm install --frozen-lockfile
+||||||| a029738
+        run: npm ci
+=======
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install --no-audit --no-fund
+          fi
+>>>>>>> origin/main
 
       - name: Run linting
         run: pnpm lint
@@ -74,12 +93,31 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+<<<<<<< HEAD
           cache: pnpm
           registry-url: https://npm.pkg.github.com
           scope: "@nuria"
+||||||| a029738
+          cache: npm
+          registry-url: https://npm.pkg.github.com
+          scope: "@nuria"
+=======
+          cache: npm
+>>>>>>> origin/main
 
       - name: Install dependencies
+<<<<<<< HEAD
         run: pnpm install --frozen-lockfile
+||||||| a029738
+        run: npm ci
+=======
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install --no-audit --no-fund
+          fi
+>>>>>>> origin/main
 
       - name: Build package
         run: pnpm build
