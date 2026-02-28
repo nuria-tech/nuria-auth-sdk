@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createCodeChallenge } from '../src/core/pkce';
+import { createCodeChallenge, randomString } from '../src/core/pkce';
 
 describe('PKCE', () => {
   it('creates a valid S256 code challenge from a code verifier', async () => {
@@ -23,5 +23,23 @@ describe('PKCE', () => {
     const codeChallenge = await createCodeChallenge(codeVerifier);
 
     expect(codeChallenge).toBe(expectedCodeChallenge);
+  });
+});
+
+describe('randomString', () => {
+  const VALID_CHARS = /^[A-Za-z0-9\-._~]+$/;
+
+  it('generates a string of the requested length', () => {
+    expect(randomString(64)).toHaveLength(64);
+    expect(randomString(32)).toHaveLength(32);
+  });
+
+  it('uses only characters from the allowed alphabet', () => {
+    const s = randomString(200);
+    expect(VALID_CHARS.test(s)).toBe(true);
+  });
+
+  it('produces different strings on each call', () => {
+    expect(randomString(64)).not.toBe(randomString(64));
   });
 });

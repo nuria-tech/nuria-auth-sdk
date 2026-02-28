@@ -39,7 +39,6 @@ export class FetchAuthTransport implements AuthTransport {
 
     const retries = request.retries ?? this.retries;
     let attempt = 0;
-    // eslint-disable-next-line no-constant-condition
     while (true) {
       const controller = new AbortController();
       const timeout = request.timeoutMs ?? this.timeoutMs;
@@ -77,11 +76,11 @@ export class FetchAuthTransport implements AuthTransport {
         }
         return out;
       } catch (cause) {
+        if (cause instanceof AuthError) throw cause;
         if (attempt < retries) {
           attempt += 1;
           continue;
         }
-        if (cause instanceof AuthError) throw cause;
         throw new AuthError(
           AuthErrorCode.NETWORK_ERROR,
           'Network request failed',

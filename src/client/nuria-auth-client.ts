@@ -7,6 +7,7 @@ import {
   safeGet,
   safeRemove,
   safeSet,
+  timingSafeEqual,
   STORAGE_KEYS,
 } from '../core/utils';
 import type {
@@ -34,6 +35,7 @@ const DEFAULTS = {
 
 export class DefaultNuriaAuthClient implements NuriaAuthClient {
   private session: Session | null = null;
+  private refreshPromise: Promise<Session> | null = null;
   private readonly listeners = new Set<(session: Session | null) => void>();
   private readonly storage;
   private readonly transport: AuthTransport;
@@ -153,7 +155,7 @@ export class DefaultNuriaAuthClient implements NuriaAuthClient {
       );
 
     const storedState = await safeGet(this.storage, STORAGE_KEYS.state);
-    if (!storedState || storedState !== state) {
+    if (!storedState || !timingSafeEqual(storedState, state)) {
       throw new AuthError(
         AuthErrorCode.STATE_MISMATCH,
         'State validation failed',
@@ -177,10 +179,10 @@ export class DefaultNuriaAuthClient implements NuriaAuthClient {
       cfg.authBaseUrl ?? DEFAULTS.whitelabelBaseUrl,
       cfg.endpoints?.passwordLogin ?? DEFAULTS.passwordLoginPath,
     );
-    const response = await this.transport.request(url, {
-      method: 'POST',
-      body: credentials,
-    });
+    const response = await this.transport.request<Record<string, unknown>>(
+      url,
+      { method: 'POST', body: credentials },
+    );
     const tokens = cfg.mapTokenResponse
       ? cfg.mapTokenResponse(response.data)
       : normalizeTokenSet(response.data, this.now);
@@ -204,16 +206,19 @@ export class DefaultNuriaAuthClient implements NuriaAuthClient {
         redirect.accountsBaseUrl ?? DEFAULTS.accountsBaseUrl,
         redirect.tokenPath ?? DEFAULTS.tokenPath,
       );
-      const response = await this.transport.request(url, {
-        method: 'POST',
-        body: {
-          grant_type: 'authorization_code',
-          code,
-          code_verifier: verifier,
-          redirect_uri: this.config.redirectUri,
-          client_id: redirect.clientId,
+      const response = await this.transport.request<Record<string, unknown>>(
+        url,
+        {
+          method: 'POST',
+          body: {
+            grant_type: 'authorization_code',
+            code,
+            code_verifier: verifier,
+            redirect_uri: this.config.redirectUri,
+            client_id: redirect.clientId,
+          },
         },
-      });
+      );
       const tokens = normalizeTokenSet(response.data, this.now);
       await safeRemove(this.storage, STORAGE_KEYS.codeVerifier);
       return this.createSession(tokens);
@@ -231,15 +236,18 @@ export class DefaultNuriaAuthClient implements NuriaAuthClient {
         w.authBaseUrl ?? DEFAULTS.whitelabelBaseUrl,
         w.endpoints?.token ?? DEFAULTS.tokenPath,
       );
-      const response = await this.transport.request(url, {
-        method: 'POST',
-        body: {
-          grant_type: 'authorization_code',
-          code,
-          code_verifier: verifier,
-          redirect_uri: this.config.redirectUri,
+      const response = await this.transport.request<Record<string, unknown>>(
+        url,
+        {
+          method: 'POST',
+          body: {
+            grant_type: 'authorization_code',
+            code,
+            code_verifier: verifier,
+            redirect_uri: this.config.redirectUri,
+          },
         },
-      });
+      );
       const tokens = w.mapTokenResponse
         ? w.mapTokenResponse(response.data)
         : normalizeTokenSet(response.data, this.now);
@@ -261,7 +269,12 @@ export class DefaultNuriaAuthClient implements NuriaAuthClient {
     if (!this.session) return null;
     const exp = this.session.tokens.expiresAt;
     if (exp && exp <= this.now() && this.config.enableRefreshToken) {
-      await this.refresh();
+      if (!this.refreshPromise) {
+        this.refreshPromise = this.refresh().finally(() => {
+          this.refreshPromise = null;
+        });
+      }
+      await this.refreshPromise;
     }
     return this.session?.tokens.accessToken ?? null;
   }
@@ -293,14 +306,17 @@ export class DefaultNuriaAuthClient implements NuriaAuthClient {
             this.config.whitelabel?.endpoints?.refresh ?? DEFAULTS.refreshPath,
           );
 
-    const response = await this.transport.request(url, {
-      method: 'POST',
-      body: {
-        grant_type: 'refresh_token',
-        refresh_token: refreshToken,
-        client_id: this.config.redirect?.clientId,
+    const response = await this.transport.request<Record<string, unknown>>(
+      url,
+      {
+        method: 'POST',
+        body: {
+          grant_type: 'refresh_token',
+          refresh_token: refreshToken,
+          client_id: this.config.redirect?.clientId,
+        },
       },
-    });
+    );
     const tokens =
       this.config.mode === 'whitelabel' &&
       this.config.whitelabel?.mapTokenResponse
@@ -310,6 +326,26 @@ export class DefaultNuriaAuthClient implements NuriaAuthClient {
   }
 
   async logout(options?: { returnTo?: string }): Promise<void> {
+    if (this.config.mode === 'whitelabel' && this.session) {
+      const token =
+        this.session.tokens.refreshToken ?? this.session.tokens.accessToken;
+      const tokenTypeHint = this.session.tokens.refreshToken
+        ? 'refresh_token'
+        : 'access_token';
+      const base =
+        this.config.whitelabel?.authBaseUrl ?? DEFAULTS.whitelabelBaseUrl;
+      const revokePath =
+        this.config.whitelabel?.endpoints?.revoke ?? DEFAULTS.revokePath;
+      try {
+        await this.transport.request(resolveUrl(base, revokePath), {
+          method: 'POST',
+          body: { token, token_type_hint: tokenTypeHint },
+        });
+      } catch (err) {
+        this.config.whitelabel?.onRevocationError?.(err);
+      }
+    }
+
     this.session = null;
     await safeRemove(this.storage, STORAGE_KEYS.session);
     await safeRemove(this.storage, STORAGE_KEYS.state);
@@ -324,7 +360,16 @@ export class DefaultNuriaAuthClient implements NuriaAuthClient {
           redirect.logoutPath ?? DEFAULTS.logoutPath,
         ),
       );
-      if (options?.returnTo) url.searchParams.set('returnTo', options.returnTo);
+      if (options?.returnTo) {
+        const returnTo = options.returnTo;
+        if (returnTo.startsWith('//') || !/^https?:\/\//.test(returnTo)) {
+          throw new AuthError(
+            AuthErrorCode.INVALID_CONFIG,
+            'returnTo must be an absolute https:// or http:// URL',
+          );
+        }
+        url.searchParams.set('returnTo', returnTo);
+      }
       if (this.config.onRedirect) {
         await this.config.onRedirect(url.toString());
       } else if (typeof window !== 'undefined') {
@@ -340,6 +385,32 @@ export class DefaultNuriaAuthClient implements NuriaAuthClient {
   onAuthStateChanged(handler: (session: Session | null) => void): () => void {
     this.listeners.add(handler);
     return () => this.listeners.delete(handler);
+  }
+
+  async getUserinfo(): Promise<Record<string, unknown>> {
+    const accessToken = await this.getAccessToken();
+    if (!accessToken) {
+      throw new AuthError(
+        AuthErrorCode.INVALID_CONFIG,
+        'Not authenticated — call signIn or handleRedirectCallback first',
+      );
+    }
+    const url =
+      this.config.mode === 'redirect'
+        ? resolveUrl(
+            this.config.redirect?.accountsBaseUrl ?? DEFAULTS.accountsBaseUrl,
+            DEFAULTS.userinfoPath,
+          )
+        : resolveUrl(
+            this.config.whitelabel?.authBaseUrl ?? DEFAULTS.whitelabelBaseUrl,
+            this.config.whitelabel?.endpoints?.userinfo ??
+              DEFAULTS.userinfoPath,
+          );
+    const response = await this.transport.request<Record<string, unknown>>(
+      url,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    return response.data;
   }
 
   private async createSession(tokens: TokenSet): Promise<Session> {

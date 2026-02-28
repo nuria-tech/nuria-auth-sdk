@@ -74,6 +74,7 @@ export interface WhitelabelConfig {
     userinfo?: string;
   };
   mapTokenResponse?: (raw: Record<string, unknown>) => TokenSet;
+  onRevocationError?: (error: unknown) => void;
 }
 
 export interface RedirectConfig {
@@ -113,4 +114,5 @@ export interface NuriaAuthClient {
   logout(options?: { returnTo?: string }): Promise<void>;
   isAuthenticated(): boolean;
   onAuthStateChanged(handler: (session: Session | null) => void): () => void;
+  getUserinfo(): Promise<Record<string, unknown>>;
 }

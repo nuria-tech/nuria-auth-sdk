@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { createNuriaAuthClient, MemoryStorageAdapter, AuthErrorCode } from '../src';
+import {
+  createNuriaAuthClient,
+  MemoryStorageAdapter,
+  AuthErrorCode,
+  type AuthTransportRequest,
+  type AuthTransportResponse,
+} from '../src';
 
 describe('NuriaAuthClient', () => {
   it('builds authorize URL and applies custom mapper', async () => {
@@ -20,7 +26,10 @@ describe('NuriaAuthClient', () => {
       },
     });
 
-    const url = await client.buildAuthorizeUrl({ provider: 'google', extraParams: { theme: 'dark' } });
+    const url = await client.buildAuthorizeUrl({
+      provider: 'google',
+      extraParams: { theme: 'dark' },
+    });
     const parsed = new URL(url);
 
     expect(parsed.origin).toBe('https://accounts.example.com');
@@ -30,7 +39,6 @@ describe('NuriaAuthClient', () => {
     expect(parsed.searchParams.get('theme')).toBe('dark');
     expect(parsed.searchParams.get('code_challenge_method')).toBe('S256');
   });
-
 
   it('uses whitelabel authorize endpoint for code_exchange authorize URL', async () => {
     const client = createNuriaAuthClient({
@@ -63,7 +71,9 @@ describe('NuriaAuthClient', () => {
     });
 
     await expect(
-      client.handleRedirectCallback('https://app.example.com/callback?code=abc&state=invalid-state'),
+      client.handleRedirectCallback(
+        'https://app.example.com/callback?code=abc&state=invalid-state',
+      ),
     ).rejects.toMatchObject({ code: AuthErrorCode.STATE_MISMATCH });
   });
 
@@ -74,16 +84,19 @@ describe('NuriaAuthClient', () => {
         flow: 'password',
         mapTokenResponse(raw) {
           return {
-            accessToken: raw.jwt,
-            refreshToken: raw.refresh,
+            accessToken: raw.jwt as string,
+            refreshToken: raw.refresh as string,
           };
         },
       },
       transport: {
-        async request() {
+        async request<T = unknown>(
+          _url: string,
+          _req?: AuthTransportRequest,
+        ): Promise<AuthTransportResponse<T>> {
           return {
             status: 200,
-            data: { jwt: 'access', refresh: 'refresh' },
+            data: { jwt: 'access', refresh: 'refresh' } as unknown as T,
             headers: new Headers(),
           };
         },

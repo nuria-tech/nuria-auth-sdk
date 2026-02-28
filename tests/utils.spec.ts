@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeTokenSet, resolveUrl, parseUrl } from '../src/core/utils';
+import { normalizeTokenSet, resolveUrl, parseUrl, timingSafeEqual } from '../src/core/utils';
 import { AuthError, AuthErrorCode } from '../src/errors/auth-error';
 
 describe('Utils', () => {
@@ -22,6 +22,31 @@ describe('Utils', () => {
 
     it('returns path if it is a full URL', () => {
       expect(resolveUrl('http://a.com', 'https://b.com/c')).toBe('https://b.com/c');
+    });
+
+    it('throws INVALID_CONFIG for protocol-relative path (//)', () => {
+      expect(() => resolveUrl('http://a.com', '//evil.com/x')).toThrow(AuthError);
+      expect(() => resolveUrl('http://a.com', '//evil.com/x')).toThrowError(
+        expect.objectContaining({ code: AuthErrorCode.INVALID_CONFIG }),
+      );
+    });
+  });
+
+  describe('timingSafeEqual', () => {
+    it('returns true for identical strings', () => {
+      expect(timingSafeEqual('abc', 'abc')).toBe(true);
+    });
+
+    it('returns false for different strings of same length', () => {
+      expect(timingSafeEqual('abc', 'abd')).toBe(false);
+    });
+
+    it('returns false for strings of different lengths', () => {
+      expect(timingSafeEqual('abc', 'abcd')).toBe(false);
+    });
+
+    it('returns true for empty strings', () => {
+      expect(timingSafeEqual('', '')).toBe(true);
     });
   });
 

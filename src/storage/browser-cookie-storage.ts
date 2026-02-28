@@ -9,19 +9,14 @@ export interface BrowserCookieStorageOptions {
 
 const getCookieValue = (name: string): string | null => {
   if (typeof document === 'undefined') return null;
-  const result = document.cookie.match(`(^|;)\s*${name}\s*=\s*([^;]+)`);
-  return result ? result.pop() ?? null : null;
+  const result = document.cookie.match(`(^|;)\\s*${name}\\s*=\\s*([^;]+)`);
+  return result ? (result.pop() ?? null) : null;
 };
 
 export function createBrowserCookieStorage(
   options: BrowserCookieStorageOptions = {},
 ): StorageAdapter {
-  const {
-    domain,
-    path = '/',
-    sameSite = 'strict',
-    secure = true,
-  } = options;
+  const { domain, path = '/', sameSite = 'strict', secure = true } = options;
 
   const get = (key: string): string | null => {
     return getCookieValue(key);
