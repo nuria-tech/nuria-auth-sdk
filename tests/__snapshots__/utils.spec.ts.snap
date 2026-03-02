@@ -1,5 +1,3 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`Utils > normalizeTokenSet > throws if access_token is missing 1`] = `[AuthError: Missing access token in token response]`;
-
 exports[`Utils > parseUrl > throws on an invalid URL 1`] = `[AuthError: Invalid callback URL]`;

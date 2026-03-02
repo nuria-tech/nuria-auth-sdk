@@ -1,4 +1,4 @@
-name: CI and Publish
+name: CI
 
 on:
   pull_request:
@@ -11,7 +11,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -23,10 +22,7 @@ jobs:
     timeout-minutes: 15
     strategy:
       matrix:
-        node: [18, 20, 22]
-    permissions:
-      contents: read
-      packages: read
+        node: [20, 22]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -41,8 +37,6 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: pnpm
-          registry-url: https://npm.pkg.github.com
-          scope: "@nuria"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -66,7 +60,7 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
-      packages: write
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -81,8 +75,7 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
-          registry-url: https://npm.pkg.github.com
-          scope: "@nuria"
+          registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -99,7 +92,7 @@ jobs:
       - name: Build package
         run: pnpm build
 
-      - name: Publish to GitHub Packages
+      - name: Publish to npm
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: pnpm publish --no-git-checks
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: pnpm publish --no-git-checks --access public

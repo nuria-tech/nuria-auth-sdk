@@ -76,17 +76,6 @@ export async function safeRemove(
   }
 }
 
-export function resolveUrl(base: string, path: string): string {
-  if (path.startsWith('//')) {
-    throw new AuthError(
-      AuthErrorCode.INVALID_CONFIG,
-      'Protocol-relative URLs are not allowed',
-    );
-  }
-  if (/^https?:\/\//.test(path)) return path;
-  return `${base.replace(/\/$/, '')}/${path.replace(/^\//, '')}`;
-}
-
 export function timingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let diff = 0;

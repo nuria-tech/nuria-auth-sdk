@@ -1,6 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createNuriaAuthClient } from '../src/client/create-client';
+import { createAuthClient } from '../src/client/create-client';
 import { AuthError, AuthErrorCode, MemoryStorageAdapter } from '../src';
+
+const BASE_CONFIG = {
+  clientId: 'test-client',
+  authorizationEndpoint: 'https://auth.example.com/authorize',
+  tokenEndpoint: 'https://auth.example.com/token',
+  redirectUri: 'https://app.example.com/callback',
+};
 
 function makeMockTransport(data: Record<string, unknown> = {}) {
   return {
@@ -12,62 +19,89 @@ function makeMockTransport(data: Record<string, unknown> = {}) {
   };
 }
 
-describe('createNuriaAuthClient', () => {
-  it('creates a client with redirect mode', () => {
-    const client = createNuriaAuthClient({ mode: 'redirect' });
+describe('createAuthClient', () => {
+  it('creates a client with all required config fields', () => {
+    const client = createAuthClient(BASE_CONFIG);
     expect(client).toBeDefined();
     expect(typeof client.startLogin).toBe('function');
-    expect(typeof client.isAuthenticated).toBe('function');
-    expect(typeof client.getUserinfo).toBe('function');
+    expect(typeof client.handleRedirectCallback).toBe('function');
+    expect(typeof client.getSession).toBe('function');
+    expect(typeof client.getAccessToken).toBe('function');
+    expect(typeof client.logout).toBe('function');
   });
 
-  it('creates a client with whitelabel mode', () => {
-    const client = createNuriaAuthClient({
-      mode: 'whitelabel',
-      whitelabel: { flow: 'password' },
-    });
-    expect(client).toBeDefined();
+  it('throws INVALID_CONFIG when clientId is missing', () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const bad = { ...BASE_CONFIG, clientId: undefined } as any;
+    expect(() => createAuthClient(bad)).toThrowError(
+      expect.objectContaining({ code: AuthErrorCode.INVALID_CONFIG }),
+    );
   });
 
-  it('throws INVALID_CONFIG when mode is missing', () => {
+  it('throws INVALID_CONFIG when authorizationEndpoint is missing', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect(() => createNuriaAuthClient({} as any)).toThrow(AuthError);
+    const bad = { ...BASE_CONFIG, authorizationEndpoint: undefined } as any;
+    expect(() => createAuthClient(bad)).toThrowError(
+      expect.objectContaining({ code: AuthErrorCode.INVALID_CONFIG }),
+    );
+  });
+
+  it('throws INVALID_CONFIG when tokenEndpoint is missing', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect(() => createNuriaAuthClient({} as any)).toThrowError(
+    const bad = { ...BASE_CONFIG, tokenEndpoint: undefined } as any;
+    expect(() => createAuthClient(bad)).toThrowError(
+      expect.objectContaining({ code: AuthErrorCode.INVALID_CONFIG }),
+    );
+  });
+
+  it('throws INVALID_CONFIG when redirectUri is missing', () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const bad = { ...BASE_CONFIG, redirectUri: undefined } as any;
+    expect(() => createAuthClient(bad)).toThrowError(
       expect.objectContaining({ code: AuthErrorCode.INVALID_CONFIG }),
     );
   });
 
   it('isAuthenticated returns false by default', () => {
-    const client = createNuriaAuthClient({ mode: 'redirect' });
+    const client = createAuthClient(BASE_CONFIG);
     expect(client.isAuthenticated()).toBe(false);
   });
 
   it('getSession returns null by default', () => {
-    const client = createNuriaAuthClient({ mode: 'redirect' });
+    const client = createAuthClient(BASE_CONFIG);
     expect(client.getSession()).toBeNull();
   });
 
   it('getAccessToken returns null when no session', async () => {
-    const client = createNuriaAuthClient({ mode: 'redirect' });
+    const client = createAuthClient(BASE_CONFIG);
     expect(await client.getAccessToken()).toBeNull();
   });
 
-  it('onAuthStateChanged fires on signIn and logout', async () => {
-    const transport = makeMockTransport({
-      access_token: 'tok',
-      refresh_token: 'rtok',
-    });
-    const client = createNuriaAuthClient({
-      mode: 'whitelabel',
-      whitelabel: { flow: 'password' },
-      transport,
-    });
+  it('getAccessToken returns null and clears storage when stored session is malformed', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.set('nuria:session', JSON.stringify({ notTokens: true }));
+
+    const client = createAuthClient({ ...BASE_CONFIG, storage });
+    const token = await client.getAccessToken();
+
+    expect(token).toBeNull();
+    expect(await storage.get('nuria:session')).toBeNull();
+  });
+
+  it('onAuthStateChanged fires after handleRedirectCallback and logout', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.set('nuria:oauth:state', 'st');
+    await storage.set('nuria:oauth:code_verifier', 'vf');
+
+    const transport = makeMockTransport({ access_token: 'tok' });
+    const client = createAuthClient({ ...BASE_CONFIG, storage, transport });
 
     const handler = vi.fn();
     const unsubscribe = client.onAuthStateChanged(handler);
 
-    await client.signIn({ username: 'u', password: 'p' });
+    await client.handleRedirectCallback(
+      'https://app.example.com/callback?code=c&state=st',
+    );
     expect(handler).toHaveBeenCalledWith(
       expect.objectContaining({
         tokens: expect.objectContaining({ accessToken: 'tok' }),
@@ -77,110 +111,112 @@ describe('createNuriaAuthClient', () => {
     await client.logout();
     expect(handler).toHaveBeenLastCalledWith(null);
 
+    // After unsubscribe, no more calls
     unsubscribe();
-    await client.signIn({ username: 'u', password: 'p' });
-    expect(handler).toHaveBeenCalledTimes(2); // no more calls after unsubscribe
-  });
-
-  it('logout calls revoke endpoint for whitelabel mode', async () => {
-    const transport = makeMockTransport({ access_token: 'tok' });
-    const client = createNuriaAuthClient({
-      mode: 'whitelabel',
-      whitelabel: {
-        flow: 'password',
-        authBaseUrl: 'https://auth.example.com',
-        endpoints: { revoke: '/revoke' },
-      },
-      transport,
-    });
-
-    await client.signIn({ username: 'u', password: 'p' });
+    const handler2ndCallCount = handler.mock.calls.length;
     await client.logout();
-
-    const calls = transport.request.mock.calls as Array<[string, unknown]>;
-    const revokeCall = calls.find(([url]) =>
-      url.includes('/revoke'),
-    );
-    expect(revokeCall).toBeDefined();
+    expect(handler.mock.calls.length).toBe(handler2ndCallCount);
   });
 
-  it('logout does not call revoke if not authenticated', async () => {
-    const transport = makeMockTransport();
-    const client = createNuriaAuthClient({
-      mode: 'whitelabel',
-      whitelabel: { flow: 'password' },
+  it('logout clears session and redirects to logoutEndpoint', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.set('nuria:oauth:state', 'st');
+    await storage.set('nuria:oauth:code_verifier', 'vf');
+    const transport = makeMockTransport({ access_token: 'tok' });
+
+    let capturedLogoutUrl = '';
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      storage,
       transport,
+      logoutEndpoint: 'https://auth.example.com/logout',
+      onRedirect: (url) => {
+        capturedLogoutUrl = url;
+      },
     });
 
-    await client.logout(); // no session
-    expect(transport.request).not.toHaveBeenCalled();
+    await client.handleRedirectCallback(
+      'https://app.example.com/callback?code=c&state=st',
+    );
+    await client.logout({ returnTo: 'https://app.example.com' });
+
+    expect(client.getSession()).toBeNull();
+    expect(capturedLogoutUrl).toContain('https://auth.example.com/logout');
+    expect(capturedLogoutUrl).toContain('returnTo=https');
+  });
+
+  it('logout throws INVALID_CONFIG for protocol-relative returnTo', async () => {
+    const client = createAuthClient(BASE_CONFIG);
+    await expect(
+      client.logout({ returnTo: '//evil.com/steal' }),
+    ).rejects.toMatchObject({ code: AuthErrorCode.INVALID_CONFIG });
+  });
+
+  it('logout throws INVALID_CONFIG for non-http returnTo', async () => {
+    const client = createAuthClient(BASE_CONFIG);
+    await expect(
+      client.logout({ returnTo: 'javascript:alert(1)' }),
+    ).rejects.toMatchObject({ code: AuthErrorCode.INVALID_CONFIG });
   });
 
   it('getUserinfo throws when not authenticated', async () => {
-    const client = createNuriaAuthClient({ mode: 'redirect' });
+    const client = createAuthClient(BASE_CONFIG);
     await expect(client.getUserinfo()).rejects.toMatchObject({
       code: AuthErrorCode.INVALID_CONFIG,
     });
   });
 
-  it('getUserinfo fetches from userinfo endpoint', async () => {
+  it('getUserinfo fetches from userinfoEndpoint', async () => {
     const storage = new MemoryStorageAdapter();
-    const transport = {
-      request: vi.fn()
-        .mockResolvedValueOnce({
-          status: 200,
-          data: { access_token: 'tok' },
-          headers: new Headers(),
-        })
-        .mockResolvedValueOnce({
-          status: 200,
-          data: { sub: 'user-123', email: 'user@example.com' },
-          headers: new Headers(),
-        }),
-    };
+    // Hydrate session directly
+    await storage.set(
+      'nuria:session',
+      JSON.stringify({
+        tokens: { accessToken: 'tok' },
+        createdAt: Date.now(),
+      }),
+    );
 
-    const client = createNuriaAuthClient({
-      mode: 'whitelabel',
-      whitelabel: { flow: 'password' },
-      storage,
-      transport,
+    const transport = makeMockTransport({
+      sub: 'user-123',
+      email: 'user@example.com',
     });
 
-    await client.signIn({ username: 'u', password: 'p' });
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      storage,
+      transport,
+      userinfoEndpoint: 'https://auth.example.com/userinfo',
+    });
+
     const userinfo = await client.getUserinfo();
     expect(userinfo).toEqual({ sub: 'user-123', email: 'user@example.com' });
 
     const calls = transport.request.mock.calls as Array<[string, unknown]>;
-    const userinfoCall = calls.find(([url]) => url.includes('userinfo'));
+    const userinfoCall = calls.find(([url]) =>
+      url.includes('userinfo'),
+    );
     expect(userinfoCall).toBeDefined();
   });
 
-  it('refresh throws when not enabled', async () => {
-    const client = createNuriaAuthClient({ mode: 'redirect' });
-    await expect(client.refresh()).rejects.toMatchObject({
-      code: AuthErrorCode.REFRESH_FAILED,
-    });
-  });
+  it('getUserinfo throws INVALID_CONFIG when userinfoEndpoint is not configured', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.set(
+      'nuria:session',
+      JSON.stringify({
+        tokens: { accessToken: 'tok' },
+        createdAt: Date.now(),
+      }),
+    );
 
-  it('buildAuthorizeUrl throws for whitelabel password flow', async () => {
-    const client = createNuriaAuthClient({
-      mode: 'whitelabel',
-      whitelabel: { flow: 'password' },
-    });
-    await expect(client.buildAuthorizeUrl()).rejects.toMatchObject({
-      code: AuthErrorCode.UNSUPPORTED_OPERATION,
-    });
-  });
-
-  it('signIn throws when mode is redirect', async () => {
-    const client = createNuriaAuthClient({ mode: 'redirect' });
-    await expect(client.signIn({ username: 'u' })).rejects.toMatchObject({
-      code: AuthErrorCode.UNSUPPORTED_MODE,
+    const client = createAuthClient({ ...BASE_CONFIG, storage });
+    await expect(client.getUserinfo()).rejects.toMatchObject({
+      code: AuthErrorCode.INVALID_CONFIG,
     });
   });
 
   it('handleRedirectCallback throws on error param', async () => {
-    const client = createNuriaAuthClient({ mode: 'redirect' });
+    const client = createAuthClient(BASE_CONFIG);
     await expect(
       client.handleRedirectCallback(
         'https://app.example.com/cb?error=access_denied',
@@ -188,72 +224,51 @@ describe('createNuriaAuthClient', () => {
     ).rejects.toMatchObject({ code: AuthErrorCode.CALLBACK_ERROR });
   });
 
-  it('logout throws INVALID_CONFIG for protocol-relative returnTo', async () => {
-    const client = createNuriaAuthClient({ mode: 'redirect' });
-    await expect(
-      client.logout({ returnTo: '//evil.com/steal' }),
-    ).rejects.toMatchObject({ code: AuthErrorCode.INVALID_CONFIG });
-  });
-
-  it('logout throws INVALID_CONFIG for non-http returnTo', async () => {
-    const client = createNuriaAuthClient({ mode: 'redirect' });
-    await expect(
-      client.logout({ returnTo: 'javascript:alert(1)' }),
-    ).rejects.toMatchObject({ code: AuthErrorCode.INVALID_CONFIG });
-  });
-
-  it('calls onRevocationError when revocation fails', async () => {
-    const onRevocationError = vi.fn();
-    const transport = {
-      request: vi.fn()
-        .mockResolvedValueOnce({ status: 200, data: { access_token: 'tok' }, headers: new Headers() })
-        .mockRejectedValueOnce(new Error('revocation failed')),
-    };
-    const client = createNuriaAuthClient({
-      mode: 'whitelabel',
-      whitelabel: {
-        flow: 'password',
-        authBaseUrl: 'https://auth.example.com',
-        endpoints: { revoke: '/revoke' },
-        onRevocationError,
-      },
-      transport,
-    });
-
-    await client.signIn({ username: 'u', password: 'p' });
-    await client.logout();
-    expect(onRevocationError).toHaveBeenCalledOnce();
-  });
-
   it('getAccessToken deduplicates concurrent refresh calls', async () => {
     let refreshCount = 0;
     const INITIAL_NOW = 1_000_000_000;
     const now = vi.fn().mockReturnValue(INITIAL_NOW);
+
+    const storage = new MemoryStorageAdapter();
+    await storage.set(
+      'nuria:session',
+      JSON.stringify({
+        tokens: {
+          accessToken: 'initial',
+          refreshToken: 'rt',
+          expiresAt: INITIAL_NOW + 60_000,
+        },
+        createdAt: INITIAL_NOW,
+      }),
+    );
+
     const transport = {
-      request: vi.fn().mockImplementation(async (url: string) => {
-        if (url.includes('/oauth2/token')) {
-          refreshCount++;
-          return { status: 200, data: { access_token: 'refreshed', expires_in: 3600 }, headers: new Headers() };
-        }
-        // signIn response with a 60-second token
-        return { status: 200, data: { access_token: 'initial', refresh_token: 'rt', expires_in: 60 }, headers: new Headers() };
+      request: vi.fn().mockImplementation(async () => {
+        refreshCount++;
+        return {
+          status: 200,
+          data: { access_token: 'refreshed', expires_in: 3600 },
+          headers: new Headers(),
+        };
       }),
     };
-    const client = createNuriaAuthClient({
-      mode: 'whitelabel',
-      whitelabel: { flow: 'password' },
+
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      storage,
       transport,
       enableRefreshToken: true,
       now,
     });
 
-    // Establish a session — expiresAt = INITIAL_NOW + 60_000
-    await client.signIn({ username: 'u', password: 'p' });
     // Advance time past token expiry
     now.mockReturnValue(INITIAL_NOW + 120_000);
 
     // Fire two concurrent getAccessToken calls — should only refresh once
-    const [t1, t2] = await Promise.all([client.getAccessToken(), client.getAccessToken()]);
+    const [t1, t2] = await Promise.all([
+      client.getAccessToken(),
+      client.getAccessToken(),
+    ]);
     expect(t1).toBe(t2);
     expect(refreshCount).toBe(1);
   });

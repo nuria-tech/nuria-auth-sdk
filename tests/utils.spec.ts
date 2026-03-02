@@ -1,37 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeTokenSet, resolveUrl, parseUrl, timingSafeEqual } from '../src/core/utils';
+import { normalizeTokenSet, parseUrl, timingSafeEqual } from '../src/core/utils';
 import { AuthError, AuthErrorCode } from '../src/errors/auth-error';
 
 describe('Utils', () => {
-  describe('resolveUrl', () => {
-    it('joins a base and path', () => {
-      expect(resolveUrl('http://a.com', 'b')).toBe('http://a.com/b');
-    });
-
-    it('handles trailing slash on base', () => {
-      expect(resolveUrl('http://a.com/', 'b')).toBe('http://a.com/b');
-    });
-
-    it('handles leading slash on path', () => {
-      expect(resolveUrl('http://a.com', '/b')).toBe('http://a.com/b');
-    });
-
-    it('handles both slashes', () => {
-      expect(resolveUrl('http://a.com/', '/b')).toBe('http://a.com/b');
-    });
-
-    it('returns path if it is a full URL', () => {
-      expect(resolveUrl('http://a.com', 'https://b.com/c')).toBe('https://b.com/c');
-    });
-
-    it('throws INVALID_CONFIG for protocol-relative path (//)', () => {
-      expect(() => resolveUrl('http://a.com', '//evil.com/x')).toThrow(AuthError);
-      expect(() => resolveUrl('http://a.com', '//evil.com/x')).toThrowError(
-        expect.objectContaining({ code: AuthErrorCode.INVALID_CONFIG }),
-      );
-    });
-  });
-
   describe('timingSafeEqual', () => {
     it('returns true for identical strings', () => {
       expect(timingSafeEqual('abc', 'abc')).toBe(true);
@@ -89,30 +60,32 @@ describe('Utils', () => {
     });
 
     it('handles camelCase input', () => {
-        const raw = {
-            accessToken: 'ac',
-            tokenType: 'Bearer',
-            expiresIn: 3600,
-            refreshToken: 'rt',
-            idToken: 'idt',
-            scope: 'openid',
-          };
-          const normalized = normalizeTokenSet(raw, now);
-          expect(normalized.accessToken).toBe('ac');
-          expect(normalized.refreshToken).toBe('rt');
+      const raw = {
+        accessToken: 'ac',
+        tokenType: 'Bearer',
+        expiresIn: 3600,
+        refreshToken: 'rt',
+        idToken: 'idt',
+        scope: 'openid',
+      };
+      const normalized = normalizeTokenSet(raw, now);
+      expect(normalized.accessToken).toBe('ac');
+      expect(normalized.refreshToken).toBe('rt');
     });
 
     it('throws if access_token is missing', () => {
       expect(() => normalizeTokenSet({}, now)).toThrow(AuthError);
-      expect(() => normalizeTokenSet({}, now)).toThrowErrorMatchingSnapshot();
+      expect(() => normalizeTokenSet({}, now)).toThrowError(
+        expect.objectContaining({ code: AuthErrorCode.TOKEN_EXCHANGE_FAILED }),
+      );
     });
 
     it('handles missing optional fields', () => {
-        const raw = { access_token: 'ac' };
-        const normalized = normalizeTokenSet(raw, now);
-        expect(normalized.accessToken).toBe('ac');
-        expect(normalized.refreshToken).toBeUndefined();
-        expect(normalized.expiresAt).toBeUndefined();
+      const raw = { access_token: 'ac' };
+      const normalized = normalizeTokenSet(raw, now);
+      expect(normalized.accessToken).toBe('ac');
+      expect(normalized.refreshToken).toBeUndefined();
+      expect(normalized.expiresAt).toBeUndefined();
     });
   });
 });

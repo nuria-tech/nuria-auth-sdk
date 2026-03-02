@@ -1,33 +1,16 @@
 # @nuria/auth-sdk
 
-TypeScript authentication SDK for Nuria frontend projects with two official modes:
+A minimal, browser-native TypeScript SDK for OAuth 2.0 Authorization Code flow with PKCE. Redirect-only — no embedded UI, no password flows.
 
-- `whitelabel`: embedded login UI integrated with `ms-auth`
-- `redirect`: redirect-based login integrated with `accounts`
+## Features
 
-## Architecture
-
-### Modules
-
-- `src/client`: public client/factory and mode-specific orchestration.
-- `src/core`: shared types, PKCE utilities, storage helpers, URL/normalization helpers.
-- `src/storage`: pluggable persistence adapters.
-- `src/transport`: configurable HTTP transport (fetch + timeout + retries + interceptors).
-- `src/errors`: typed auth error model and error codes.
-
-### Flow summary
-
-#### Redirect mode (`accounts`)
-
-1. `buildAuthorizeUrl()` generates `state` and PKCE (`code_verifier`, `code_challenge`), persists state + verifier.
-2. `startLogin()` redirects using adapter callback (`onRedirect`) or browser navigation.
-3. `handleRedirectCallback()` parses callback URL, validates `state`, exchanges code for tokens.
-4. Session is normalized and stored via configured storage adapter.
-
-#### Whitelabel mode (`ms-auth`)
-
-- `flow: "password"`: `signIn(credentials)` calls configured password endpoint and maps token response.
-- `flow: "code_exchange"`: `startLogin()` / `buildAuthorizeUrl()` + `exchangeCode(code)` with PKCE.
+- Authorization Code flow + PKCE (S256, mandatory)
+- State parameter generation and validation
+- Token exchange via standard form-encoded request
+- Automatic token refresh (optional)
+- Pluggable storage adapters (memory, sessionStorage, cookies)
+- Configurable HTTP transport with retry and interceptors
+- Zero production dependencies — uses Web Crypto API and fetch
 
 ## Installation
 
@@ -35,141 +18,135 @@ TypeScript authentication SDK for Nuria frontend projects with two official mode
 npm install @nuria/auth-sdk
 ```
 
-## Public API
+## Quick start
 
 ```ts
-import { createNuriaAuthClient } from '@nuria/auth-sdk';
+import { createAuthClient } from '@nuria/auth-sdk';
 
-interface NuriaAuthClient {
-  startLogin(options?: StartLoginOptions): Promise<void>;
-  buildAuthorizeUrl(options?: StartLoginOptions): Promise<string>;
-  handleRedirectCallback(callbackUrl?: string): Promise<Session>;
-  signIn(credentials: any): Promise<Session>;
-  exchangeCode(code: string): Promise<Session>;
-  getSession(): Session | null;
-  getAccessToken(): Promise<string | null>;
-  refresh(): Promise<Session>;
-  logout(options?: { returnTo?: string }): Promise<void>;
-  isAuthenticated(): boolean;
-  onAuthStateChanged(handler: (session: Session | null) => void): () => void;
-}
+const auth = createAuthClient({
+  clientId: 'your-client-id',
+  authorizationEndpoint: 'https://your-auth-server.example.com/authorize',
+  tokenEndpoint: 'https://your-auth-server.example.com/token',
+  redirectUri: 'https://your-app.example.com/callback',
+  scope: 'openid profile email',
+});
+
+// Redirect to login
+await auth.startLogin();
+
+// In your callback page
+const session = await auth.handleRedirectCallback(window.location.href);
+console.log(session.tokens.accessToken);
 ```
-
-Core exported types:
-
-- `NuriaAuthConfig`
-- `Session`
-- `TokenSet`
-- `AuthError` + `AuthErrorCode`
-- `StorageAdapter`
-- `AuthTransport`
 
 ## Configuration
 
-### Redirect mode (`accounts`)
+```ts
+interface AuthConfig {
+  // Required
+  clientId: string;
+  authorizationEndpoint: string;
+  tokenEndpoint: string;
+  redirectUri: string;
+
+  // Optional
+  scope?: string;              // default scope sent with every login
+  logoutEndpoint?: string;     // if set, logout() redirects here
+  userinfoEndpoint?: string;   // required for getUserinfo()
+  storage?: StorageAdapter;    // default: MemoryStorageAdapter
+  transport?: AuthTransport;   // default: FetchAuthTransport
+  onRedirect?: (url: string) => void | Promise<void>;  // override browser redirect
+  enableRefreshToken?: boolean; // enable automatic token refresh
+  now?: () => number;          // override Date.now() for testing
+}
+```
+
+> **Security note:** Do not include `clientSecret` in browser apps. This SDK is designed for public clients (SPAs, mobile). PKCE provides the proof of possession without a client secret.
+
+## Public API
 
 ```ts
-import { createNuriaAuthClient } from '@nuria/auth-sdk';
-
-const auth = createNuriaAuthClient({
-  mode: 'redirect',
-  redirectUri: 'https://app.example.com/callback',
-  enableRefreshToken: true,
-  redirect: {
-    accountsBaseUrl: 'https://accounts.nuria.com.br',
-    clientId: 'your-client-id',
-    scope: ['openid', 'profile', 'email'],
-    authorizePath: '/oauth2/authorize',
-    tokenPath: '/oauth2/token',
-    logoutPath: '/logout',
-    authorizeParamsMapper: (baseParams, options) => ({
-      ...baseParams,
-      ...(options.provider ? { provider: options.provider } : {}),
-    }),
-  },
-});
+interface AuthClient {
+  startLogin(options?: StartLoginOptions): Promise<void>;
+  handleRedirectCallback(callbackUrl?: string): Promise<Session>;
+  getSession(): Session | null;
+  getAccessToken(): Promise<string | null>;
+  logout(options?: { returnTo?: string }): Promise<void>;
+  isAuthenticated(): boolean;
+  onAuthStateChanged(handler: (session: Session | null) => void): () => void;
+  getUserinfo(): Promise<Record<string, unknown>>;
+}
 ```
+
+### `startLogin(options?)`
+
+Generates PKCE `code_verifier` + `code_challenge` (S256), stores them in the configured storage, and redirects to `authorizationEndpoint`. The `state` parameter is always included and validated on callback.
 
 ```ts
 await auth.startLogin({
-  provider: 'google',
-  returnTo: 'https://app.example.com/dashboard',
-  extraParams: { ui: 'compact' },
+  scopes: ['openid', 'profile'],     // overrides config.scope
+  loginHint: 'user@example.com',
+  extraParams: { prompt: 'login' },
 });
 ```
 
-Callback:
+### `handleRedirectCallback(callbackUrl?)`
+
+Parses the callback URL, validates `state`, exchanges `code` for tokens using a form-encoded POST to `tokenEndpoint`, and clears transient PKCE storage. Throws typed `AuthError` on any failure.
 
 ```ts
-await auth.handleRedirectCallback(window.location.href);
+// In your /callback route
+const session = await auth.handleRedirectCallback(window.location.href);
 ```
 
-### Whitelabel mode (`ms-auth`)
+### `getAccessToken()`
 
-#### Password flow
+Returns the current access token. If the token is expired and `enableRefreshToken: true`, automatically refreshes it (concurrent calls are deduplicated).
+
+### `logout(options?)`
+
+Clears the local session. If `logoutEndpoint` is configured, redirects to it. Validates `returnTo` to prevent open redirect attacks.
 
 ```ts
-const auth = createNuriaAuthClient({
-  mode: 'whitelabel',
-  whitelabel: {
-    flow: 'password',
-    authBaseUrl: 'https://ms-auth.nuria.com.br',
-    endpoints: {
-      passwordLogin: '/auth/login',
-      refresh: '/oauth2/token',
-    },
-    mapTokenResponse: (raw) => ({
-      accessToken: raw.access_token ?? raw.jwt,
-      refreshToken: raw.refresh_token ?? raw.refresh,
-      expiresIn: raw.expires_in,
-    }),
-  },
-  enableRefreshToken: true,
-});
-
-await auth.signIn({ username: 'user@example.com', password: '***' });
+await auth.logout({ returnTo: 'https://your-app.example.com' });
 ```
 
-#### Code exchange flow
+### `onAuthStateChanged(handler)`
+
+Subscribes to session changes. Returns an unsubscribe function.
 
 ```ts
-const auth = createNuriaAuthClient({
-  mode: 'whitelabel',
-  redirectUri: 'https://app.example.com/callback',
-  whitelabel: {
-    flow: 'code_exchange',
-    authBaseUrl: 'https://ms-auth.nuria.com.br',
-    endpoints: {
-      authorize: '/oauth2/authorize',
-      token: '/oauth2/token',
-    },
-  },
+const unsubscribe = auth.onAuthStateChanged((session) => {
+  console.log(session ? 'logged in' : 'logged out');
 });
-
-await auth.startLogin();
-// later
-await auth.handleRedirectCallback(window.location.href);
 ```
 
 ## Storage adapters
 
-Default storage is `MemoryStorageAdapter` (secure-by-default for XSS exposure).
+Default is `MemoryStorageAdapter` (most secure for XSS resistance, clears on reload).
 
 ```ts
 import { WebStorageAdapter } from '@nuria/auth-sdk';
 
-const storage = new WebStorageAdapter(window.sessionStorage);
+// sessionStorage: persists per tab, JS-readable
+const auth = createAuthClient({
+  ...config,
+  storage: new WebStorageAdapter(window.sessionStorage),
+});
 ```
 
-Cookie adapter for SSR/custom environments:
+Cookie adapter for SSR:
 
 ```ts
 import { CookieStorageAdapter } from '@nuria/auth-sdk';
 
-const storage = new CookieStorageAdapter({
-  getCookie: async (name) => readCookie(name),
-  setCookie: async (name, value) => writeCookie(name, value),
-  removeCookie: async (name) => deleteCookie(name),
+const auth = createAuthClient({
+  ...config,
+  storage: new CookieStorageAdapter({
+    getCookie: async (name) => getCookieFromRequest(name),
+    setCookie: async (name, value) => setResponseCookie(name, value),
+    removeCookie: async (name) => clearResponseCookie(name),
+  }),
 });
 ```
 
@@ -178,115 +155,112 @@ const storage = new CookieStorageAdapter({
 ```ts
 import { FetchAuthTransport } from '@nuria/auth-sdk';
 
-const transport = new FetchAuthTransport({
-  timeoutMs: 10000,
-  retries: 1,
-  interceptors: [
-    {
-      onRequest: async (_url, req) => ({
-        ...req,
-        headers: { ...(req.headers ?? {}), 'X-App': 'frontend-a' },
-      }),
-    },
-  ],
+const auth = createAuthClient({
+  ...config,
+  transport: new FetchAuthTransport({
+    timeoutMs: 10_000,
+    retries: 1,
+    interceptors: [
+      {
+        onRequest: async (_url, req) => ({
+          ...req,
+          headers: { ...(req.headers ?? {}), 'X-App-Version': '1.0.0' },
+        }),
+      },
+    ],
+  }),
 });
 ```
 
 ## React example
 
 ```tsx
-import { useEffect, useMemo, useState } from 'react';
-import { createNuriaAuthClient } from '@nuria/auth-sdk';
+import { useMemo, useState, useEffect } from 'react';
+import { createAuthClient } from '@nuria/auth-sdk';
 
-export function AuthButton() {
-  const auth = useMemo(
-    () =>
-      createNuriaAuthClient({
-        mode: 'redirect',
-        redirectUri: `${window.location.origin}/callback`,
-        redirect: { clientId: 'web-client' },
-      }),
-    [],
-  );
+const auth = createAuthClient({
+  clientId: 'your-client-id',
+  authorizationEndpoint: 'https://auth.example.com/authorize',
+  tokenEndpoint: 'https://auth.example.com/token',
+  redirectUri: `${window.location.origin}/callback`,
+});
 
-  const [authenticated, setAuthenticated] = useState(auth.isAuthenticated());
+export function App() {
+  const [session, setSession] = useState(auth.getSession());
 
-  useEffect(() => auth.onAuthStateChanged((session) => setAuthenticated(Boolean(session))), [auth]);
+  useEffect(() => auth.onAuthStateChanged(setSession), []);
 
-  if (authenticated) {
-    return <button onClick={() => auth.logout()}>Logout</button>;
+  if (!session) {
+    return <button onClick={() => auth.startLogin()}>Login</button>;
   }
-  return <button onClick={() => auth.startLogin({ provider: 'google' })}>Login</button>;
+  return <button onClick={() => auth.logout()}>Logout</button>;
 }
 ```
 
-## Next.js SSR-safe example
+## Next.js SSR example
 
 ```ts
 // lib/auth.ts
-import { createNuriaAuthClient, CookieStorageAdapter } from '@nuria/auth-sdk';
+import { createAuthClient, CookieStorageAdapter } from '@nuria/auth-sdk';
 
 export function createServerAuth(cookieApi: {
   get: (name: string) => string | undefined;
   set: (name: string, value: string) => void;
   delete: (name: string) => void;
 }) {
-  return createNuriaAuthClient({
-    mode: 'redirect',
-    redirectUri: process.env.NEXT_PUBLIC_AUTH_CALLBACK_URL,
+  return createAuthClient({
+    clientId: process.env.NEXT_PUBLIC_AUTH_CLIENT_ID!,
+    authorizationEndpoint: `${process.env.NEXT_PUBLIC_AUTH_BASE_URL}/authorize`,
+    tokenEndpoint: `${process.env.NEXT_PUBLIC_AUTH_BASE_URL}/token`,
+    redirectUri: process.env.NEXT_PUBLIC_AUTH_CALLBACK_URL!,
     storage: new CookieStorageAdapter({
       getCookie: async (name) => cookieApi.get(name) ?? null,
       setCookie: async (name, value) => cookieApi.set(name, value),
       removeCookie: async (name) => cookieApi.delete(name),
     }),
-    redirect: {
-      accountsBaseUrl: process.env.NEXT_PUBLIC_ACCOUNTS_BASE_URL,
-      clientId: process.env.NEXT_PUBLIC_AUTH_CLIENT_ID,
-    },
+    onRedirect: (url) => { redirect(url); },
   });
 }
 ```
 
-## Security recommendations
+## Security notes
 
-- Default storage is in-memory to reduce persistence/XSS blast radius.
-- Use `sessionStorage` only if UX requires page reload persistence.
-- Avoid `localStorage` for long-lived sensitive tokens.
-- Prefer httpOnly secure cookies for SSR-managed sessions when possible.
-- Validate callback origin/path before invoking callback handling.
-- Keep tokens out of logs, analytics payloads, and error reports.
-- Enable short access token TTL + refresh token rotation server-side.
+- **No secrets:** Never include a `clientSecret` in browser/mobile apps. This SDK supports public clients only.
+- **PKCE is mandatory:** S256 code challenge is always used. Plain PKCE is not supported.
+- **State validation:** State is always generated and validated on callback.
+- **Memory storage default:** Tokens are stored in memory by default to minimize XSS exposure.
+- **Use sessionStorage cautiously:** Survives page reload but is still JS-readable.
+- **Avoid localStorage** for sensitive tokens.
+- **Validate `returnTo`:** The `logout()` method rejects non-`https://` or `http://` `returnTo` values.
 
-### Storage trade-offs
+## Storage trade-offs
 
-- `memory`: safest client-side default, but clears on reload/tab close.
-- `sessionStorage`: survives reload per-tab, still JavaScript-readable.
-- `localStorage`: persistent and high convenience, highest XSS impact.
-- cookies via callbacks: supports SSR and stronger cookie strategies when configured correctly.
+| Adapter | Persists reload | XSS risk | SSR compatible |
+|---------|----------------|----------|----------------|
+| `MemoryStorageAdapter` | No | Lowest | No |
+| `WebStorageAdapter(sessionStorage)` | Per tab | Medium | No |
+| `WebStorageAdapter(localStorage)` | Yes | High | No |
+| `CookieStorageAdapter` | Configurable | Low (httpOnly) | Yes |
 
 ## Troubleshooting
 
-- **Clock skew**: tokens may look expired too early. Mitigate by server-side NTP and optionally refreshing a few seconds before expiry.
-- **State mismatch**: ensure the same storage context/tab is used between `startLogin` and callback; clear stale oauth keys and retry.
-- **Refresh failure**: verify refresh grant support, refresh endpoint mapping, and `enableRefreshToken: true`.
+- **State mismatch:** Ensure the same storage instance/tab is used between `startLogin()` and `handleRedirectCallback()`. Clear `nuria:oauth:state` and retry.
+- **Missing code_verifier:** The `nuria:oauth:code_verifier` key was not found in storage. Ensure `startLogin()` was called before `handleRedirectCallback()`.
+- **Token refresh fails:** Ensure `enableRefreshToken: true` is set and the auth server supports the `refresh_token` grant for your client.
 
-## Assumptions
+## CI/CD
 
-- OAuth-compatible token endpoints accept JSON payloads.
-- Callback and redirect URI registration is handled externally.
-- Backend may return non-standard payload in whitelabel mode; `mapTokenResponse` covers custom mapping.
+This repository uses GitHub Actions (`.github/workflows/ci-publish.yml`):
 
-## CI/CD (GitHub Packages)
+- **PR and `main` push:** typecheck, lint, test (coverage), build — runs on Node 18, 20, 22
+- **Tag `v*` push:** validates tag matches `package.json` version, then publishes
 
-This repository includes `.github/workflows/ci-publish.yml` with:
+### Publishing
 
-- PR and `main` push: `npm ci`, `npm test`, `npm run build`
-- Tag `v*` push: publish package to GitHub Packages
+1. Update `version` in `package.json`
+2. Push a tag: `git tag v1.0.1 && git push --tags`
+3. The workflow validates the version and publishes the package
 
-### Publish trigger
+## License
 
-1. Update package version in `package.json`
-2. Create and push a tag like `v0.1.1`
-3. Workflow publishes `@nuria/auth-sdk` to `https://npm.pkg.github.com`
-
-The workflow publishes using `GITHUB_TOKEN` with `packages: write` permission.
+MIT — see [LICENSE](./LICENSE).

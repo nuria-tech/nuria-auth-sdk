@@ -1,16 +1,16 @@
 {
   "name": "@nuria/auth-sdk",
   "version": "1.0.0",
-  "description": "Nuria Authentication SDK",
+  "description": "Browser OAuth 2.0 Authorization Code + PKCE client SDK — redirect-only, no password flows",
   "license": "MIT",
   "author": "Nuria Tech",
-  "keywords": ["auth", "oauth2", "pkce", "authentication", "sdk"],
+  "keywords": ["auth", "oauth2", "pkce", "oidc", "authentication", "sdk"],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/nuria-tech/nuria-auth-sdk.git"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "type": "module",
   "main": "dist/index.cjs",
@@ -50,8 +50,5 @@
     "tsup": "8.5.1",
     "typescript": "5.9.3",
     "vitest": "4.0.18"
-  },
-  "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
   }
 }

@@ -1,5 +1,3 @@
-export type AuthMode = 'whitelabel' | 'redirect';
-
 export interface TokenSet {
   accessToken: string;
   tokenType?: string;
@@ -12,14 +10,11 @@ export interface TokenSet {
 
 export interface Session {
   tokens: TokenSet;
-  user?: Record<string, unknown>;
   createdAt: number;
 }
 
 export interface StartLoginOptions {
-  provider?: string;
   loginHint?: string;
-  returnTo?: string;
   scopes?: string[];
   extraParams?: Record<string, string>;
 }
@@ -62,55 +57,26 @@ export interface TransportInterceptor {
   ) => Promise<AuthTransportResponse<T>> | AuthTransportResponse<T>;
 }
 
-export interface WhitelabelConfig {
-  authBaseUrl?: string;
-  flow: 'password' | 'code_exchange';
-  endpoints?: {
-    passwordLogin?: string;
-    authorize?: string;
-    token?: string;
-    refresh?: string;
-    revoke?: string;
-    userinfo?: string;
-  };
-  mapTokenResponse?: (raw: Record<string, unknown>) => TokenSet;
-  onRevocationError?: (error: unknown) => void;
-}
-
-export interface RedirectConfig {
-  accountsBaseUrl?: string;
-  clientId?: string;
-  scope?: string[];
-  authorizePath?: string;
-  tokenPath?: string;
-  logoutPath?: string;
-  authorizeParamsMapper?: (
-    baseParams: Record<string, string>,
-    options: StartLoginOptions,
-  ) => Record<string, string>;
-}
-
-export interface NuriaAuthConfig {
-  mode: AuthMode;
+export interface AuthConfig {
+  clientId: string;
+  authorizationEndpoint: string;
+  tokenEndpoint: string;
+  redirectUri: string;
+  scope?: string;
+  logoutEndpoint?: string;
+  userinfoEndpoint?: string;
   storage?: StorageAdapter;
   transport?: AuthTransport;
-  now?: () => number;
-  redirectUri?: string;
-  enableRefreshToken?: boolean;
-  whitelabel?: WhitelabelConfig;
-  redirect?: RedirectConfig;
   onRedirect?: (url: string) => void | Promise<void>;
+  enableRefreshToken?: boolean;
+  now?: () => number;
 }
 
-export interface NuriaAuthClient {
+export interface AuthClient {
   startLogin(options?: StartLoginOptions): Promise<void>;
-  buildAuthorizeUrl(options?: StartLoginOptions): Promise<string>;
   handleRedirectCallback(callbackUrl?: string): Promise<Session>;
-  signIn(credentials: Record<string, unknown>): Promise<Session>;
-  exchangeCode(code: string): Promise<Session>;
   getSession(): Session | null;
   getAccessToken(): Promise<string | null>;
-  refresh(): Promise<Session>;
   logout(options?: { returnTo?: string }): Promise<void>;
   isAuthenticated(): boolean;
   onAuthStateChanged(handler: (session: Session | null) => void): () => void;

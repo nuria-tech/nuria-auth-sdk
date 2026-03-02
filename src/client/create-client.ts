@@ -1,15 +1,31 @@
-import { DefaultNuriaAuthClient } from './nuria-auth-client';
+import { DefaultAuthClient } from './nuria-auth-client';
 import { AuthError, AuthErrorCode } from '../errors/auth-error';
-import type { NuriaAuthClient, NuriaAuthConfig } from '../core/types';
+import type { AuthClient, AuthConfig } from '../core/types';
 
-export function createNuriaAuthClient(
-  config: NuriaAuthConfig,
-): NuriaAuthClient {
-  if (!config || !config.mode) {
+export function createAuthClient(config: AuthConfig): AuthClient {
+  if (!config?.clientId) {
     throw new AuthError(
       AuthErrorCode.INVALID_CONFIG,
-      'config.mode is required',
+      'config.clientId is required',
     );
   }
-  return new DefaultNuriaAuthClient(config);
+  if (!config.authorizationEndpoint) {
+    throw new AuthError(
+      AuthErrorCode.INVALID_CONFIG,
+      'config.authorizationEndpoint is required',
+    );
+  }
+  if (!config.tokenEndpoint) {
+    throw new AuthError(
+      AuthErrorCode.INVALID_CONFIG,
+      'config.tokenEndpoint is required',
+    );
+  }
+  if (!config.redirectUri) {
+    throw new AuthError(
+      AuthErrorCode.INVALID_CONFIG,
+      'config.redirectUri is required',
+    );
+  }
+  return new DefaultAuthClient(config);
 }

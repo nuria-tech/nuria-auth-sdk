@@ -46,15 +46,21 @@ export class FetchAuthTransport implements AuthTransport {
         ? setTimeout(() => controller.abort(), timeout)
         : undefined;
       try {
+        const defaultContentType =
+          typeof request.body === 'string'
+            ? 'application/x-www-form-urlencoded'
+            : 'application/json';
         const res = await this.fetchFn(this.withQuery(url, request.query), {
           method: request.method ?? 'GET',
           headers: {
-            'Content-Type': 'application/json',
+            'Content-Type': defaultContentType,
             ...(request.headers ?? {}),
           },
           body:
             request.body !== undefined
-              ? JSON.stringify(request.body)
+              ? typeof request.body === 'string'
+                ? request.body
+                : JSON.stringify(request.body)
               : undefined,
           signal: controller.signal,
         });
