@@ -1,5 +1,5 @@
 {
-  "name": "@nuria/auth-sdk",
+  "name": "@nuria-tech/auth-sdk",
   "version": "1.0.0",
   "description": "Browser OAuth 2.0 Authorization Code + PKCE client SDK — redirect-only, no password flows",
   "license": "MIT",
@@ -28,6 +28,9 @@
     "dist"
   ],
   "sideEffects": false,
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
   "scripts": {
     "build": "tsup",
     "test": "vitest run",
