@@ -56,8 +56,12 @@ export class DefaultAuthClient implements AuthClient {
     if (options.loginHint) params.login_hint = options.loginHint;
     if (options.extraParams) {
       const RESERVED = new Set([
-        'response_type', 'client_id', 'redirect_uri',
-        'state', 'code_challenge', 'code_challenge_method',
+        'response_type',
+        'client_id',
+        'redirect_uri',
+        'state',
+        'code_challenge',
+        'code_challenge_method',
       ]);
       for (const [k, v] of Object.entries(options.extraParams)) {
         if (!RESERVED.has(k)) params[k] = v;
@@ -99,7 +103,9 @@ export class DefaultAuthClient implements AuthClient {
       const desc = url.searchParams.get('error_description');
       throw new AuthError(
         AuthErrorCode.CALLBACK_ERROR,
-        desc ? `Authorization error: ${error} — ${desc}` : `Authorization error: ${error}`,
+        desc
+          ? `Authorization error: ${error} — ${desc}`
+          : `Authorization error: ${error}`,
       );
     }
 
