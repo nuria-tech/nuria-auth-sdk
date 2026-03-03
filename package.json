@@ -28,9 +28,6 @@
     "dist"
   ],
   "sideEffects": false,
-  "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
-  },
   "scripts": {
     "build": "tsup",
     "test": "vitest run",

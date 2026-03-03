@@ -1,4 +1,4 @@
-# @nuria/auth-sdk
+# @nuria-tech/auth-sdk
 
 A minimal, browser-native TypeScript SDK for OAuth 2.0 Authorization Code flow with PKCE. Redirect-only — no embedded UI, no password flows.
 
@@ -15,13 +15,15 @@ A minimal, browser-native TypeScript SDK for OAuth 2.0 Authorization Code flow w
 ## Installation
 
 ```bash
-npm install @nuria/auth-sdk
+npm install @nuria-tech/auth-sdk
 ```
+
+Published on [npm](https://www.npmjs.com/package/@nuria-tech/auth-sdk).
 
 ## Quick start
 
 ```ts
-import { createAuthClient } from '@nuria/auth-sdk';
+import { createAuthClient } from '@nuria-tech/auth-sdk';
 
 const auth = createAuthClient({
   clientId: 'your-client-id',
@@ -126,7 +128,7 @@ const unsubscribe = auth.onAuthStateChanged((session) => {
 Default is `MemoryStorageAdapter` (most secure for XSS resistance, clears on reload).
 
 ```ts
-import { WebStorageAdapter } from '@nuria/auth-sdk';
+import { WebStorageAdapter } from '@nuria-tech/auth-sdk';
 
 // sessionStorage: persists per tab, JS-readable
 const auth = createAuthClient({
@@ -138,7 +140,7 @@ const auth = createAuthClient({
 Cookie adapter for SSR:
 
 ```ts
-import { CookieStorageAdapter } from '@nuria/auth-sdk';
+import { CookieStorageAdapter } from '@nuria-tech/auth-sdk';
 
 const auth = createAuthClient({
   ...config,
@@ -153,7 +155,7 @@ const auth = createAuthClient({
 ## Transport customization
 
 ```ts
-import { FetchAuthTransport } from '@nuria/auth-sdk';
+import { FetchAuthTransport } from '@nuria-tech/auth-sdk';
 
 const auth = createAuthClient({
   ...config,
@@ -176,7 +178,7 @@ const auth = createAuthClient({
 
 ```tsx
 import { useMemo, useState, useEffect } from 'react';
-import { createAuthClient } from '@nuria/auth-sdk';
+import { createAuthClient } from '@nuria-tech/auth-sdk';
 
 const auth = createAuthClient({
   clientId: 'your-client-id',
@@ -201,7 +203,7 @@ export function App() {
 
 ```ts
 // lib/auth.ts
-import { createAuthClient, CookieStorageAdapter } from '@nuria/auth-sdk';
+import { createAuthClient, CookieStorageAdapter } from '@nuria-tech/auth-sdk';
 
 export function createServerAuth(cookieApi: {
   get: (name: string) => string | undefined;
@@ -252,14 +254,16 @@ export function createServerAuth(cookieApi: {
 
 This repository uses GitHub Actions (`.github/workflows/ci-publish.yml`):
 
-- **PR and `main` push:** typecheck, lint, test (coverage), build — runs on Node 18, 20, 22
-- **Tag `v*` push:** validates tag matches `package.json` version, then publishes
+- **PR and `main` push:** typecheck, lint, test (coverage), build — runs on Node 20, 22
+- **Tag `v*` push:** validates tag matches `package.json` version, then publishes to npm via Trusted Publishing (OIDC — no stored tokens)
 
 ### Publishing
 
 1. Update `version` in `package.json`
-2. Push a tag: `git tag v1.0.1 && git push --tags`
-3. The workflow validates the version and publishes the package
+2. Push a tag: `git tag v1.0.0 && git push --tags`
+3. The workflow validates the version and publishes to npm
+
+> **One-time setup:** after the first manual publish, configure Trusted Publishing at **npmjs.com → package → Settings → Automated Publishing** with repository `nuria-tech/nuria-auth-sdk` and workflow `ci-publish.yml`.
 
 ## License
 
