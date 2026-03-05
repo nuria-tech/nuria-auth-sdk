@@ -240,6 +240,7 @@ export class DefaultAuthClient implements AuthClient {
       this.config.tokenEndpoint,
       {
         method: 'POST',
+        credentials: 'include',
         body: body.toString(),
       },
     );
@@ -250,23 +251,17 @@ export class DefaultAuthClient implements AuthClient {
 
   private async doRefresh(): Promise<Session> {
     const refreshToken = this.session?.tokens.refreshToken;
-    if (!refreshToken) {
-      throw new AuthError(
-        AuthErrorCode.REFRESH_FAILED,
-        'No refresh token available',
-      );
-    }
-
     const body = new URLSearchParams({
       grant_type: 'refresh_token',
-      refresh_token: refreshToken,
       client_id: this.config.clientId,
     });
+    if (refreshToken) body.set('refresh_token', refreshToken);
 
     const response = await this.transport.request<Record<string, unknown>>(
       this.config.tokenEndpoint,
       {
         method: 'POST',
+        credentials: 'include',
         body: body.toString(),
       },
     );
@@ -275,8 +270,14 @@ export class DefaultAuthClient implements AuthClient {
   }
 
   private async createSession(tokens: TokenSet): Promise<Session> {
+    const previousRefreshToken = this.session?.tokens.refreshToken;
+    const mergedTokens: TokenSet = {
+      ...tokens,
+      refreshToken: tokens.refreshToken ?? previousRefreshToken,
+    };
+
     this.session = {
-      tokens,
+      tokens: mergedTokens,
       createdAt: this.now(),
     };
     await safeSet(

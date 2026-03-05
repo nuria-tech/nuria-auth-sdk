@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createAuthClient } from '../src/client/create-client';
 import { AuthError, AuthErrorCode, MemoryStorageAdapter } from '../src';
+import type { AuthTransportRequest } from '../src/core/types';
 
 const BASE_CONFIG = {
   clientId: 'test-client',
@@ -271,5 +272,84 @@ describe('createAuthClient', () => {
     ]);
     expect(t1).toBe(t2);
     expect(refreshCount).toBe(1);
+    const req = (transport.request.mock.calls as Array<[string, AuthTransportRequest]>)[0]![1];
+    expect(req.credentials).toBe('include');
+  });
+
+  it('refresh works without refreshToken in session (cookie-first)', async () => {
+    const INITIAL_NOW = 2_000_000_000;
+    const now = vi.fn().mockReturnValue(INITIAL_NOW + 120_000);
+    const storage = new MemoryStorageAdapter();
+    await storage.set(
+      'nuria:session',
+      JSON.stringify({
+        tokens: {
+          accessToken: 'initial',
+          expiresAt: INITIAL_NOW + 60_000,
+        },
+        createdAt: INITIAL_NOW,
+      }),
+    );
+
+    const transport = {
+      request: vi.fn().mockResolvedValue({
+        status: 200,
+        data: { access_token: 'refreshed', expires_in: 3600 },
+        headers: new Headers(),
+      }),
+    };
+
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      storage,
+      transport,
+      enableRefreshToken: true,
+      now,
+    });
+
+    const token = await client.getAccessToken();
+    expect(token).toBe('refreshed');
+
+    const req = (transport.request.mock.calls as Array<[string, AuthTransportRequest]>)[0]![1];
+    expect(req.credentials).toBe('include');
+    const params = new URLSearchParams(req.body as string);
+    expect(params.get('grant_type')).toBe('refresh_token');
+    expect(params.get('refresh_token')).toBeNull();
+  });
+
+  it('preserves previous refreshToken when refresh response omits it', async () => {
+    const INITIAL_NOW = 3_000_000_000;
+    const now = vi.fn().mockReturnValue(INITIAL_NOW + 120_000);
+    const storage = new MemoryStorageAdapter();
+    await storage.set(
+      'nuria:session',
+      JSON.stringify({
+        tokens: {
+          accessToken: 'initial',
+          refreshToken: 'rt-old',
+          expiresAt: INITIAL_NOW + 60_000,
+        },
+        createdAt: INITIAL_NOW,
+      }),
+    );
+
+    const transport = {
+      request: vi.fn().mockResolvedValue({
+        status: 200,
+        data: { access_token: 'refreshed', expires_in: 3600 },
+        headers: new Headers(),
+      }),
+    };
+
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      storage,
+      transport,
+      enableRefreshToken: true,
+      now,
+    });
+
+    await client.getAccessToken();
+    expect(client.getSession()?.tokens.refreshToken).toBe('rt-old');
   });
 });

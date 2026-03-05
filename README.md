@@ -95,6 +95,7 @@ await auth.startLogin({
 ### `handleRedirectCallback(callbackUrl?)`
 
 Parses the callback URL, validates `state`, exchanges `code` for tokens using a form-encoded POST to `tokenEndpoint`, and clears transient PKCE storage. Throws typed `AuthError` on any failure.
+Token endpoint calls are sent with `credentials: 'include'` to support `HttpOnly` refresh-token cookies.
 
 ```ts
 // In your /callback route
@@ -104,6 +105,8 @@ const session = await auth.handleRedirectCallback(window.location.href);
 ### `getAccessToken()`
 
 Returns the current access token. If the token is expired and `enableRefreshToken: true`, automatically refreshes it (concurrent calls are deduplicated).
+Refresh calls to `tokenEndpoint` are sent with `credentials: 'include'`.
+If no `refresh_token` is available in JS memory/storage, SDK still attempts refresh using cookie-based session (HttpOnly) when the server supports it.
 
 ### `logout(options?)`
 

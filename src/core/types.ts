@@ -28,6 +28,7 @@ export interface StorageAdapter {
 export interface AuthTransportRequest {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   headers?: Record<string, string>;
+  credentials?: RequestCredentials;
   query?: Record<string, string | undefined>;
   body?: unknown;
   timeoutMs?: number;

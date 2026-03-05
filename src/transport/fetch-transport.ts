@@ -52,6 +52,7 @@ export class FetchAuthTransport implements AuthTransport {
             : 'application/json';
         const res = await this.fetchFn(this.withQuery(url, request.query), {
           method: request.method ?? 'GET',
+          credentials: request.credentials,
           headers: {
             'Content-Type': defaultContentType,
             ...(request.headers ?? {}),

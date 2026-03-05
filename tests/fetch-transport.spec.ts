@@ -71,6 +71,16 @@ describe('FetchAuthTransport', () => {
     );
   });
 
+  it('passes credentials to fetch init', async () => {
+    fetchMock.mockResolvedValue(makeResponse(200, {}));
+    const transport = new FetchAuthTransport({ fetchFn: fetchMock });
+    await transport.request('https://example.com/api', {
+      credentials: 'include',
+    });
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(init.credentials).toBe('include');
+  });
+
   it('appends query params and ignores undefined values', async () => {
     fetchMock.mockResolvedValue(makeResponse(200, {}));
     const transport = new FetchAuthTransport({ fetchFn: fetchMock });
