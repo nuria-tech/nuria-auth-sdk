@@ -1,11 +1,16 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createServer, type IncomingMessage, type Server } from 'node:http';
+import {
+  createServer,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from 'node:http';
 import { createAuthClient } from '../src';
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+    req.on('data', (chunk: Buffer | string) => chunks.push(Buffer.from(chunk)));
     req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
     req.on('error', reject);
   });
@@ -19,7 +24,7 @@ describe('e2e oauth flow with mock idp', () => {
   let refreshCalls = 0;
 
   beforeAll(async () => {
-    server = createServer(async (req, res) => {
+    server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
       const requestUrl = new URL(req.url ?? '/', baseUrl);
 
       if (requestUrl.pathname === '/v2/oauth/authorize') {
@@ -108,7 +113,7 @@ describe('e2e oauth flow with mock idp', () => {
 
   afterAll(async () => {
     await new Promise<void>((resolve, reject) => {
-      server.close((err) => (err ? reject(err) : resolve()));
+      server.close((err?: Error) => (err ? reject(err) : resolve()));
     });
   });
 

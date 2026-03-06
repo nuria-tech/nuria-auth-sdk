@@ -138,7 +138,6 @@ export class DefaultAuthClient implements AuthClient {
       );
     }
 
-    await safeRemove(this.storage, STORAGE_KEYS.state);
     return this.exchangeCode(code);
   }
 
@@ -165,11 +164,32 @@ export class DefaultAuthClient implements AuthClient {
 
   async logout(options?: { returnTo?: string }): Promise<void> {
     if (options?.returnTo) {
-      const returnTo = options.returnTo;
-      if (returnTo.startsWith('//') || !/^https?:\/\//.test(returnTo)) {
+      let returnToUrl: URL;
+      try {
+        returnToUrl = new URL(options.returnTo);
+      } catch {
         throw new AuthError(
           AuthErrorCode.INVALID_CONFIG,
-          'returnTo must be an absolute https:// or http:// URL',
+          'returnTo must be a valid absolute URL',
+        );
+      }
+
+      const isHttps = returnToUrl.protocol === 'https:';
+      const isLocalHttp =
+        returnToUrl.protocol === 'http:' &&
+        (returnToUrl.hostname === 'localhost' ||
+          returnToUrl.hostname === '127.0.0.1' ||
+          returnToUrl.hostname === '[::1]');
+      if (!isHttps && !isLocalHttp) {
+        throw new AuthError(
+          AuthErrorCode.INVALID_CONFIG,
+          'returnTo must use https:// (or http:// only for localhost)',
+        );
+      }
+      if (returnToUrl.username || returnToUrl.password) {
+        throw new AuthError(
+          AuthErrorCode.INVALID_CONFIG,
+          'returnTo must not include URL credentials',
         );
       }
     }
@@ -195,7 +215,11 @@ export class DefaultAuthClient implements AuthClient {
   }
 
   isAuthenticated(): boolean {
-    return Boolean(this.session?.tokens.accessToken);
+    const accessToken = this.session?.tokens.accessToken;
+    if (!accessToken) return false;
+    const exp = this.session?.tokens.expiresAt;
+    if (exp && exp <= this.now()) return false;
+    return true;
   }
 
   onAuthStateChanged(handler: (session: Session | null) => void): () => void {
@@ -363,6 +387,7 @@ export class DefaultAuthClient implements AuthClient {
       },
     );
     const tokens = normalizeTokenSet(response.data, this.now);
+    await safeRemove(this.storage, STORAGE_KEYS.state);
     await safeRemove(this.storage, STORAGE_KEYS.codeVerifier);
     return this.createSession(tokens);
   }

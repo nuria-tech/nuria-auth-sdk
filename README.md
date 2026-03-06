@@ -248,7 +248,12 @@ interface AuthConfig {
 - Do not use `clientSecret` in browser/mobile apps.
 - Prefer memory storage when possible.
 - Keep refresh on cookies (`HttpOnly`) server-side when available.
-- Validate `returnTo` on logout redirects.
+- `logout({ returnTo })` accepts `https://` URLs, plus `http://localhost|127.0.0.1|[::1]` for local dev only.
+- `logout({ returnTo })` rejects URLs with embedded credentials (`user:pass@host`).
+- `isAuthenticated()` also checks token expiration (`expiresAt`) when available.
+- Browser cookie storage encodes/decodes values safely (`encodeURIComponent`/`decodeURIComponent`).
+
+Full policy and reporting process: [SECURITY.md](./SECURITY.md).
 
 ## Public API
 

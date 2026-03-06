@@ -97,6 +97,31 @@ describe('createAuthClient', () => {
     expect(client.isAuthenticated()).toBe(false);
   });
 
+  it('isAuthenticated returns false when session token is expired', async () => {
+    const now = vi.fn().mockReturnValue(2_000_000);
+    const storage = new MemoryStorageAdapter();
+    await storage.set(
+      'nuria:session',
+      JSON.stringify({
+        tokens: {
+          accessToken: 'expired-token',
+          expiresAt: 1_000_000,
+        },
+        createdAt: 1_000_000,
+      }),
+    );
+
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      storage,
+      now,
+      enableRefreshToken: false,
+    });
+    await client.getAccessToken();
+
+    expect(client.isAuthenticated()).toBe(false);
+  });
+
   it('getSession returns null by default', () => {
     const client = createAuthClient(BASE_CONFIG);
     expect(client.getSession()).toBeNull();
@@ -221,6 +246,20 @@ describe('createAuthClient', () => {
     await expect(
       client.logout({ returnTo: 'javascript:alert(1)' }),
     ).rejects.toMatchObject({ code: AuthErrorCode.INVALID_CONFIG });
+  });
+
+  it('logout throws INVALID_CONFIG for non-localhost http returnTo', async () => {
+    const client = createAuthClient(BASE_CONFIG);
+    await expect(
+      client.logout({ returnTo: 'http://evil.example.com/path' }),
+    ).rejects.toMatchObject({ code: AuthErrorCode.INVALID_CONFIG });
+  });
+
+  it('logout accepts localhost http returnTo', async () => {
+    const client = createAuthClient(BASE_CONFIG);
+    await expect(
+      client.logout({ returnTo: 'http://localhost:3000/callback' }),
+    ).resolves.toBeUndefined();
   });
 
   it('getUserinfo throws when not authenticated', async () => {

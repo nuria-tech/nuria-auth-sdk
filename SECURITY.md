@@ -45,3 +45,22 @@ This SDK runs entirely in browser/client environments (public OAuth 2.0 client).
 - State parameter generation and validation
 - Redirect URL validation (open redirect prevention)
 - Timing-safe string comparison for state validation
+
+## Security Controls (Current)
+
+- PKCE S256 is always used in OAuth Authorization Code flow.
+- `state` is validated using timing-safe comparison.
+- OAuth callback removes stored `state` only after successful token exchange (improves retry safety on transient failures).
+- `logout({ returnTo })` validation:
+  - accepts `https://` URLs
+  - accepts `http://` only for local development hosts (`localhost`, `127.0.0.1`, `[::1]`)
+  - rejects URLs with embedded credentials
+- Browser cookie storage uses safe encode/decode for values.
+
+## Secure Usage Recommendations
+
+- Prefer `MemoryStorageAdapter` whenever possible.
+- If persistence is required, treat `localStorage`/`sessionStorage`/JS-readable cookies as XSS-sensitive.
+- Prefer server-side `HttpOnly` cookie sessions (BFF pattern) for high-security apps.
+- Never accept `returnTo` from untrusted input without server-side allowlisting.
+- Keep dependencies updated and run `pnpm audit` regularly in CI.

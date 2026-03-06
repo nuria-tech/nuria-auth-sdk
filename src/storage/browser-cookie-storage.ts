@@ -9,8 +9,18 @@ export interface BrowserCookieStorageOptions {
 
 const getCookieValue = (name: string): string | null => {
   if (typeof document === 'undefined') return null;
-  const result = document.cookie.match(`(^|;)\\s*${name}\\s*=\\s*([^;]+)`);
-  return result ? (result.pop() ?? null) : null;
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const result = document.cookie.match(
+    `(^|;)\\s*${escapedName}\\s*=\\s*([^;]+)`,
+  );
+  if (!result) return null;
+  const raw = result.pop() ?? null;
+  if (raw == null) return null;
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
 };
 
 export function createBrowserCookieStorage(
@@ -24,7 +34,7 @@ export function createBrowserCookieStorage(
 
   const set = (key: string, value: string): void => {
     if (typeof document === 'undefined') return;
-    let cookie = `${key}=${value}`;
+    let cookie = `${key}=${encodeURIComponent(value)}`;
     if (path) cookie += `; path=${path}`;
     if (domain) cookie += `; domain=${domain}`;
     if (sameSite) cookie += `; samesite=${sameSite}`;

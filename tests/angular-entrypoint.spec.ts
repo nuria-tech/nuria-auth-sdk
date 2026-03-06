@@ -9,6 +9,36 @@ function createMockAuth() {
 
   const auth: AuthClient = {
     startLogin: vi.fn(async () => {}),
+    startLoginCodeChallenge: vi.fn(async () => ({
+      challengeId: 'challenge-id',
+      channel: 'email',
+      destinationMasked: 'u***@mail.com',
+      expiresAt: Date.now() + 300_000,
+      purpose: 'login',
+    })),
+    verifyLoginCode: vi.fn(async () => ({
+      tokens: { accessToken: 'token-from-code' },
+      createdAt: Date.now(),
+    })),
+    loginWithCodeSent: vi.fn(async () => ({
+      challengeId: 'challenge-id',
+      channel: 'email',
+      destinationMasked: 'u***@mail.com',
+      expiresAt: Date.now() + 300_000,
+      purpose: 'login',
+    })),
+    completeLoginWithCode: vi.fn(async () => ({
+      tokens: { accessToken: 'token-from-code' },
+      createdAt: Date.now(),
+    })),
+    loginWithGoogle: vi.fn(async () => ({
+      tokens: { accessToken: 'token-from-google' },
+      createdAt: Date.now(),
+    })),
+    loginWithPassword: vi.fn(async () => ({
+      tokens: { accessToken: 'token-from-password' },
+      createdAt: Date.now(),
+    })),
     handleRedirectCallback: vi.fn(async () => {
       throw new Error('not used');
     }),

@@ -40,4 +40,11 @@ describe('BrowserCookieStorage', () => {
     storage.set('my-key', 'value2');
     expect(storage.get('my-key')).toBe('value2');
   });
+
+  it('encodes and decodes cookie values with special characters', () => {
+    const storage = createBrowserCookieStorage({ secure: false });
+    const value = 'email+tag@example.com;a=b c';
+    storage.set('special-key', value);
+    expect(storage.get('special-key')).toBe(value);
+  });
 });

@@ -241,4 +241,23 @@ describe('AuthClient', () => {
       ),
     ).rejects.toMatchObject({ code: AuthErrorCode.TOKEN_EXCHANGE_FAILED });
   });
+
+  it('handleRedirectCallback keeps state when token exchange fails', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.set('nuria:oauth:state', 'test-state');
+    await storage.set('nuria:oauth:code_verifier', 'test-verifier');
+    const transport = {
+      request: vi.fn().mockRejectedValue(new Error('network down')),
+    };
+    const client = createAuthClient({ ...BASE_CONFIG, storage, transport });
+
+    await expect(
+      client.handleRedirectCallback(
+        'https://app.example.com/callback?code=abc&state=test-state',
+      ),
+    ).rejects.toThrow('network down');
+
+    expect(await storage.get('nuria:oauth:state')).toBe('test-state');
+    expect(await storage.get('nuria:oauth:code_verifier')).toBe('test-verifier');
+  });
 });
