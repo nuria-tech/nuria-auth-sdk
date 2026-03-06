@@ -14,11 +14,39 @@ TypeScript SDK for OAuth 2.0 Authorization Code + PKCE, focused on browser apps 
 - Storage adapters for browser/SSR scenarios
 - Framework helpers in dedicated entrypoints
 
+## Minimal Requirements
+
+- ECMAScript Target: ES2018
+- Browsers: Any modern browser with support for Fetch API, URLSearchParams, and Web Crypto API
+- Node.js: >= 20.0.0 (required natively by package.json)
+
+### Important note on legacy Node.js (e.g., Node 18 or other past versions)
+
+The Node.js >= 20.0.0 exists because the SDK relies onn the global fetch and crypto (Web Crypto API) objects. Older Node versions lack native support for these APIs.
+
+- If you use SSR: Executing the authentication flow on server using Node < 20.0.0 will cause fatal errors.
+- If you have an SPA or legacy project (Nuxt2, Vue2): If the authentication runs completely in the user's browser, it is safe to use this SDK. Node will be used strictly to compile the project.
+  
+To install the SDK in projects using Node < 20 strictly for build purposes, bypass the npm engine lock using the --ignore-engines flag
+
+### Frameworks and libraries for specific entrypoints (See 'Entrypoints' flag below):
+- React: >= 18.0
+- Vue: >= 3.3
+- Angular: >= 16.0
+- Next.js: >= 13.0
+- Nuxt: >= 3.0
+- RxJS: >= 7.8
+  
 ## Installation
 
 ```bash
 npm install @nuria-tech/auth-sdk
 ```
+
+or for older node versions (Node < 20), strictly for build purposes without SSR:
+```bash
+npm install @nuria-tech/auth-sdk --ignore-engines
+````
 
 Published on [npm](https://www.npmjs.com/package/@nuria-tech/auth-sdk).
 
