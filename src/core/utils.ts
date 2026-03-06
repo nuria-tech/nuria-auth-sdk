@@ -11,7 +11,9 @@ export function normalizeTokenSet(
   raw: Record<string, unknown>,
   now: () => number,
 ): TokenSet {
-  const accessToken = (raw.access_token ?? raw.accessToken) as string;
+  const accessToken = (raw.access_token ??
+    raw.accessToken ??
+    raw.Token) as string;
   if (!accessToken || typeof accessToken !== 'string') {
     throw new AuthError(
       AuthErrorCode.TOKEN_EXCHANGE_FAILED,
@@ -19,14 +21,25 @@ export function normalizeTokenSet(
     );
   }
   const expiresIn = Number(raw.expires_in ?? raw.expiresIn ?? 0) || undefined;
+  const expiresAtFromResponse = Number(raw.ExpiresAt ?? 0) || undefined;
+  const computedExpiresAt =
+    expiresIn != null
+      ? now() + expiresIn * 1000
+      : expiresAtFromResponse
+        ? expiresAtFromResponse
+        : undefined;
   return {
     accessToken,
-    tokenType: (raw.token_type ?? raw.tokenType) as string | undefined,
+    tokenType: (raw.token_type ?? raw.tokenType ?? raw.TokenType) as
+      | string
+      | undefined,
     expiresIn,
-    refreshToken: (raw.refresh_token ?? raw.refreshToken) as string | undefined,
+    refreshToken: (raw.refresh_token ??
+      raw.refreshToken ??
+      raw.RefreshToken) as string | undefined,
     idToken: (raw.id_token ?? raw.idToken) as string | undefined,
     scope: raw.scope as string | undefined,
-    expiresAt: expiresIn ? now() + expiresIn * 1000 : undefined,
+    expiresAt: computedExpiresAt,
   };
 }
 

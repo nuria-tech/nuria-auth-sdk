@@ -14,6 +14,11 @@ import type {
   ResolvedAuthConfig,
   Session,
   StartLoginOptions,
+  LoginCodeChallengeOptions,
+  GoogleLoginOptions,
+  PasswordLoginOptions,
+  VerifyLoginCodeOptions,
+  TwoFactorChallenge,
   TokenSet,
   AuthTransport,
 } from '../core/types';
@@ -217,6 +222,119 @@ export class DefaultAuthClient implements AuthClient {
       { headers: { Authorization: `Bearer ${accessToken}` } },
     );
     return response.data;
+  }
+
+  async startLoginCodeChallenge(
+    options: LoginCodeChallengeOptions,
+  ): Promise<TwoFactorChallenge> {
+    if (!options?.email) {
+      throw new AuthError(
+        AuthErrorCode.INVALID_CONFIG,
+        'email is required for startLoginCodeChallenge',
+      );
+    }
+
+    const response = await this.transport.request<Record<string, unknown>>(
+      `${this.config.baseUrl}/v2/login-code/challenge`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        body: {
+          email: options.email,
+          channel: options.channel ?? 'email',
+          destination: options.destination,
+          purpose: options.purpose ?? 'login',
+        },
+      },
+    );
+
+    return {
+      challengeId: String(response.data.challengeId ?? ''),
+      channel: String(response.data.channel ?? ''),
+      destinationMasked: String(response.data.destinationMasked ?? ''),
+      expiresAt: Number(response.data.expiresAt ?? 0),
+      purpose: String(response.data.purpose ?? 'login'),
+    };
+  }
+
+  async verifyLoginCode(options: VerifyLoginCodeOptions): Promise<Session> {
+    if (!options?.challengeId || !options?.code) {
+      throw new AuthError(
+        AuthErrorCode.INVALID_CONFIG,
+        'challengeId and code are required for verifyLoginCode',
+      );
+    }
+
+    const response = await this.transport.request<Record<string, unknown>>(
+      `${this.config.baseUrl}/v2/2fa/verify-login`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        body: {
+          challengeId: options.challengeId,
+          code: options.code,
+        },
+      },
+    );
+    const tokens = normalizeTokenSet(response.data, this.now);
+    return this.createSession(tokens);
+  }
+
+  async loginWithCodeSent(
+    options: LoginCodeChallengeOptions,
+  ): Promise<TwoFactorChallenge> {
+    return this.startLoginCodeChallenge(options);
+  }
+
+  async completeLoginWithCode(
+    options: VerifyLoginCodeOptions,
+  ): Promise<Session> {
+    return this.verifyLoginCode(options);
+  }
+
+  async loginWithGoogle(options: GoogleLoginOptions): Promise<Session> {
+    if (!options?.idToken) {
+      throw new AuthError(
+        AuthErrorCode.INVALID_CONFIG,
+        'idToken is required for loginWithGoogle',
+      );
+    }
+
+    const response = await this.transport.request<Record<string, unknown>>(
+      `${this.config.baseUrl}/v2/google`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        body: {
+          idToken: options.idToken,
+        },
+      },
+    );
+    const tokens = normalizeTokenSet(response.data, this.now);
+    return this.createSession(tokens);
+  }
+
+  async loginWithPassword(options: PasswordLoginOptions): Promise<Session> {
+    if (!options?.email || !options?.password) {
+      throw new AuthError(
+        AuthErrorCode.INVALID_CONFIG,
+        'email and password are required for loginWithPassword',
+      );
+    }
+
+    const response = await this.transport.request<Record<string, unknown>>(
+      `${this.config.baseUrl}/v2/login`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        body: {
+          email: options.email,
+          password: options.password,
+        },
+      },
+    );
+    const tokens = normalizeTokenSet(response.data, this.now);
+    return this.createSession(tokens);
   }
 
   private async exchangeCode(code: string): Promise<Session> {

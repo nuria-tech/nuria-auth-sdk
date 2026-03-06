@@ -339,6 +339,133 @@ describe('createAuthClient', () => {
     expect(req.credentials).toBe('include');
   });
 
+  it('startLoginCodeChallenge calls /v2/login-code/challenge with email default', async () => {
+    const transport = makeMockTransport({
+      challengeId: 'c1',
+      channel: 'email',
+      destinationMasked: 'u***@mail.com',
+      expiresAt: 999999,
+      purpose: 'login',
+    });
+
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      transport,
+    });
+
+    const challenge = await client.startLoginCodeChallenge({
+      email: 'user@example.com',
+    });
+
+    expect(challenge.channel).toBe('email');
+    const calls = transport.request.mock.calls as Array<
+      [string, AuthTransportRequest]
+    >;
+    expect(calls[0]![0]).toBe('https://auth.example.com/v2/login-code/challenge');
+    expect(calls[0]![1].method).toBe('POST');
+  });
+
+  it('verifyLoginCode creates session from backend token envelope', async () => {
+    const transport = makeMockTransport({
+      Token: 'access-from-2fa',
+      ExpiresAt: Date.now() + 60_000,
+      RefreshToken: 'refresh-from-2fa',
+    });
+
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      transport,
+    });
+
+    const session = await client.verifyLoginCode({
+      challengeId: 'c1',
+      code: '123456',
+    });
+
+    expect(session.tokens.accessToken).toBe('access-from-2fa');
+    expect(session.tokens.refreshToken).toBe('refresh-from-2fa');
+  });
+
+  it('loginWithCodeSent is an alias of startLoginCodeChallenge', async () => {
+    const transport = makeMockTransport({
+      challengeId: 'c2',
+      channel: 'email',
+      destinationMasked: 'u***@mail.com',
+      expiresAt: 999999,
+      purpose: 'login',
+    });
+
+    const client = createAuthClient({ ...BASE_CONFIG, transport });
+    const challenge = await client.loginWithCodeSent({
+      email: 'user@example.com',
+    });
+
+    expect(challenge.challengeId).toBe('c2');
+    const calls = transport.request.mock.calls as Array<
+      [string, AuthTransportRequest]
+    >;
+    expect(calls[0]![0]).toBe('https://auth.example.com/v2/login-code/challenge');
+  });
+
+  it('completeLoginWithCode is an alias of verifyLoginCode', async () => {
+    const transport = makeMockTransport({
+      Token: 'access-from-alias',
+      ExpiresAt: Date.now() + 60_000,
+      RefreshToken: 'refresh-from-alias',
+    });
+
+    const client = createAuthClient({ ...BASE_CONFIG, transport });
+    const session = await client.completeLoginWithCode({
+      challengeId: 'c3',
+      code: '654321',
+    });
+
+    expect(session.tokens.accessToken).toBe('access-from-alias');
+  });
+
+  it('loginWithGoogle calls /v2/google and creates session', async () => {
+    const transport = makeMockTransport({
+      Token: 'google-access',
+      RefreshToken: 'google-refresh',
+      ExpiresAt: Date.now() + 60_000,
+    });
+    const client = createAuthClient({ ...BASE_CONFIG, transport });
+
+    const session = await client.loginWithGoogle({
+      idToken: 'google-id-token',
+    });
+
+    expect(session.tokens.accessToken).toBe('google-access');
+    expect(session.tokens.refreshToken).toBe('google-refresh');
+    const calls = transport.request.mock.calls as Array<
+      [string, AuthTransportRequest]
+    >;
+    expect(calls[0]![0]).toBe('https://auth.example.com/v2/google');
+    expect(calls[0]![1].method).toBe('POST');
+  });
+
+  it('loginWithPassword calls /v2/login and creates session', async () => {
+    const transport = makeMockTransport({
+      Token: 'password-access',
+      RefreshToken: 'password-refresh',
+      ExpiresAt: Date.now() + 60_000,
+    });
+    const client = createAuthClient({ ...BASE_CONFIG, transport });
+
+    const session = await client.loginWithPassword({
+      email: 'user@example.com',
+      password: 'secret',
+    });
+
+    expect(session.tokens.accessToken).toBe('password-access');
+    expect(session.tokens.refreshToken).toBe('password-refresh');
+    const calls = transport.request.mock.calls as Array<
+      [string, AuthTransportRequest]
+    >;
+    expect(calls[0]![0]).toBe('https://auth.example.com/v2/login');
+    expect(calls[0]![1].method).toBe('POST');
+  });
+
   it('refresh works without refreshToken in session (cookie-first)', async () => {
     const INITIAL_NOW = 2_000_000_000;
     const now = vi.fn().mockReturnValue(INITIAL_NOW + 120_000);

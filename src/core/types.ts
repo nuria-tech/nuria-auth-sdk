@@ -19,6 +19,35 @@ export interface StartLoginOptions {
   extraParams?: Record<string, string>;
 }
 
+export interface LoginCodeChallengeOptions {
+  email: string;
+  channel?: 'email' | 'sms';
+  destination?: string;
+  purpose?: string;
+}
+
+export interface GoogleLoginOptions {
+  idToken: string;
+}
+
+export interface PasswordLoginOptions {
+  email: string;
+  password: string;
+}
+
+export interface VerifyLoginCodeOptions {
+  challengeId: string;
+  code: string;
+}
+
+export interface TwoFactorChallenge {
+  challengeId: string;
+  channel: string;
+  destinationMasked: string;
+  expiresAt: number;
+  purpose: string;
+}
+
 export interface StorageAdapter {
   get(key: string): Promise<string | null> | string | null;
   set(key: string, value: string): Promise<void> | void;
@@ -89,4 +118,14 @@ export interface AuthClient {
   isAuthenticated(): boolean;
   onAuthStateChanged(handler: (session: Session | null) => void): () => void;
   getUserinfo(): Promise<Record<string, unknown>>;
+  startLoginCodeChallenge(
+    options: LoginCodeChallengeOptions,
+  ): Promise<TwoFactorChallenge>;
+  verifyLoginCode(options: VerifyLoginCodeOptions): Promise<Session>;
+  loginWithCodeSent(
+    options: LoginCodeChallengeOptions,
+  ): Promise<TwoFactorChallenge>;
+  completeLoginWithCode(options: VerifyLoginCodeOptions): Promise<Session>;
+  loginWithGoogle(options: GoogleLoginOptions): Promise<Session>;
+  loginWithPassword(options: PasswordLoginOptions): Promise<Session>;
 }
