@@ -27,7 +27,7 @@ The Node.js >= 20.0.0 exists because the SDK relies onn the global fetch and cry
 - If you use SSR: Executing the authentication flow on server using Node < 20.0.0 will cause fatal errors.
 - If you have an SPA or legacy project (Nuxt2, Vue2): If the authentication runs completely in the user's browser, it is safe to use this SDK. Node will be used strictly to compile the project.
   
-To install the SDK in projects using Node < 20 strictly for build purposes, bypass the npm engine lock using the --ignore-engines flag
+Because modern framework versions are mapped as optional peer dependencies, modern npm versions (v7+) might throw an ERESOLVE conflict when installing this SDK iln egacy projects. To bypass both the engine lock - using Node < 20 strictly for build purposes - and the peer dependency conflicts, use the --legacy-peer-deps flag.
 
 ### Frameworks and libraries for specific entrypoints (See 'Entrypoints' flag below):
 - React: >= 18.0
@@ -45,7 +45,7 @@ npm install @nuria-tech/auth-sdk
 
 or for older node versions (Node < 20), strictly for build purposes without SSR:
 ```bash
-npm install @nuria-tech/auth-sdk --ignore-engines
+npm install @nuria-tech/auth-sdk --legacy-peer-deps
 ````
 
 Published on [npm](https://www.npmjs.com/package/@nuria-tech/auth-sdk).
