@@ -5,6 +5,7 @@ import type { AuthTransportRequest } from '../src/core/types';
 
 const BASE_CONFIG = {
   clientId: 'test-client',
+  baseUrl: 'https://auth.example.com',
   authorizationEndpoint: 'https://auth.example.com/authorize',
   tokenEndpoint: 'https://auth.example.com/token',
   redirectUri: 'https://app.example.com/callback',
@@ -31,6 +32,20 @@ describe('createAuthClient', () => {
     expect(typeof client.logout).toBe('function');
   });
 
+  it('applies default scope when config.scope is omitted', async () => {
+    let capturedUrl = '';
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      onRedirect: (url) => {
+        capturedUrl = url;
+      },
+    });
+
+    await client.startLogin();
+    const parsed = new URL(capturedUrl);
+    expect(parsed.searchParams.get('scope')).toBe('openid profile email');
+  });
+
   it('throws INVALID_CONFIG when clientId is missing', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const bad = { ...BASE_CONFIG, clientId: undefined } as any;
@@ -39,17 +54,31 @@ describe('createAuthClient', () => {
     );
   });
 
-  it('throws INVALID_CONFIG when authorizationEndpoint is missing', () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const bad = { ...BASE_CONFIG, authorizationEndpoint: undefined } as any;
-    expect(() => createAuthClient(bad)).toThrowError(
-      expect.objectContaining({ code: AuthErrorCode.INVALID_CONFIG }),
+  it('uses default endpoints when authorizationEndpoint/tokenEndpoint are omitted', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.set('nuria:oauth:state', 'st');
+    await storage.set('nuria:oauth:code_verifier', 'vf');
+    const transport = makeMockTransport({ access_token: 'tok' });
+
+    const client = createAuthClient({
+      clientId: 'test-client',
+      baseUrl: 'https://auth.example.com',
+      redirectUri: 'https://app.example.com/callback',
+      storage,
+      transport,
+    });
+
+    await client.handleRedirectCallback(
+      'https://app.example.com/callback?code=c&state=st',
     );
+
+    const calls = transport.request.mock.calls as Array<[string, AuthTransportRequest]>;
+    expect(calls[0]![0]).toBe('https://auth.example.com/v2/oauth/token');
   });
 
-  it('throws INVALID_CONFIG when tokenEndpoint is missing', () => {
+  it('throws INVALID_CONFIG when baseUrl is invalid and endpoints are omitted', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const bad = { ...BASE_CONFIG, tokenEndpoint: undefined } as any;
+    const bad = { ...BASE_CONFIG, baseUrl: 'not-url', authorizationEndpoint: undefined, tokenEndpoint: undefined } as any;
     expect(() => createAuthClient(bad)).toThrowError(
       expect.objectContaining({ code: AuthErrorCode.INVALID_CONFIG }),
     );
@@ -76,6 +105,40 @@ describe('createAuthClient', () => {
   it('getAccessToken returns null when no session', async () => {
     const client = createAuthClient(BASE_CONFIG);
     expect(await client.getAccessToken()).toBeNull();
+  });
+
+  it('enables refresh by default when enableRefreshToken is omitted', async () => {
+    const now = vi.fn().mockReturnValue(1_000_000);
+    const storage = new MemoryStorageAdapter();
+    await storage.set(
+      'nuria:session',
+      JSON.stringify({
+        tokens: {
+          accessToken: 'old',
+          refreshToken: 'rt-old',
+          expiresAt: 999_000,
+        },
+        createdAt: 1_000_000,
+      }),
+    );
+
+    const transport = {
+      request: vi.fn().mockResolvedValue({
+        status: 200,
+        data: { access_token: 'refreshed', expires_in: 3600 },
+        headers: new Headers(),
+      }),
+    };
+
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      storage,
+      transport,
+      now,
+    });
+
+    const token = await client.getAccessToken();
+    expect(token).toBe('refreshed');
   });
 
   it('getAccessToken returns null and clears storage when stored session is malformed', async () => {

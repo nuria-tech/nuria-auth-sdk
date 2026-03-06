@@ -27,10 +27,8 @@ import { createAuthClient } from '@nuria-tech/auth-sdk';
 
 const auth = createAuthClient({
   clientId: 'your-client-id',
-  authorizationEndpoint: 'https://your-auth-server.example.com/authorize',
-  tokenEndpoint: 'https://your-auth-server.example.com/token',
+  baseUrl: 'https://ms-auth-v2.nuria.com.br',
   redirectUri: 'https://your-app.example.com/callback',
-  scope: 'openid profile email',
 });
 
 // Redirect to login
@@ -41,24 +39,49 @@ const session = await auth.handleRedirectCallback(window.location.href);
 console.log(session.tokens.accessToken);
 ```
 
+## Default behavior
+
+When omitted, the SDK uses:
+
+- `baseUrl`: `https://ms-auth-v2.nuria.com.br`
+- `authorizationEndpoint`: `${baseUrl}/v2/oauth/authorize`
+- `tokenEndpoint`: `${baseUrl}/v2/oauth/token`
+- `scope`: `openid profile email`
+- `enableRefreshToken`: `true`
+
+Override example:
+
+```ts
+const auth = createAuthClient({
+  clientId: 'your-client-id',
+  baseUrl: 'https://auth.hml.nuria.com.br',
+  authorizationEndpoint: 'https://auth.hml.nuria.com.br/custom/authorize',
+  tokenEndpoint: 'https://auth.hml.nuria.com.br/custom/token',
+  redirectUri: 'https://your-app.example.com/callback',
+  scope: 'openid profile',
+  enableRefreshToken: false,
+});
+```
+
 ## Configuration
 
 ```ts
 interface AuthConfig {
   // Required
   clientId: string;
-  authorizationEndpoint: string;
-  tokenEndpoint: string;
   redirectUri: string;
 
   // Optional
-  scope?: string;              // default scope sent with every login
+  baseUrl?: string;            // default: https://ms-auth-v2.nuria.com.br
+  authorizationEndpoint?: string; // default: {baseUrl}/v2/oauth/authorize
+  tokenEndpoint?: string;      // default: {baseUrl}/v2/oauth/token
+  scope?: string;              // default: "openid profile email"
   logoutEndpoint?: string;     // if set, logout() redirects here
   userinfoEndpoint?: string;   // required for getUserinfo()
   storage?: StorageAdapter;    // default: MemoryStorageAdapter
   transport?: AuthTransport;   // default: FetchAuthTransport
   onRedirect?: (url: string) => void | Promise<void>;  // override browser redirect
-  enableRefreshToken?: boolean; // enable automatic token refresh
+  enableRefreshToken?: boolean; // default: true
   now?: () => number;          // override Date.now() for testing
 }
 ```
@@ -185,8 +208,7 @@ import { createAuthClient } from '@nuria-tech/auth-sdk';
 
 const auth = createAuthClient({
   clientId: 'your-client-id',
-  authorizationEndpoint: 'https://auth.example.com/authorize',
-  tokenEndpoint: 'https://auth.example.com/token',
+  baseUrl: 'https://ms-auth-v2.nuria.com.br',
   redirectUri: `${window.location.origin}/callback`,
 });
 
@@ -215,8 +237,7 @@ export function createServerAuth(cookieApi: {
 }) {
   return createAuthClient({
     clientId: process.env.NEXT_PUBLIC_AUTH_CLIENT_ID!,
-    authorizationEndpoint: `${process.env.NEXT_PUBLIC_AUTH_BASE_URL}/authorize`,
-    tokenEndpoint: `${process.env.NEXT_PUBLIC_AUTH_BASE_URL}/token`,
+    baseUrl: process.env.NEXT_PUBLIC_AUTH_BASE_URL!,
     redirectUri: process.env.NEXT_PUBLIC_AUTH_CALLBACK_URL!,
     storage: new CookieStorageAdapter({
       getCookie: async (name) => cookieApi.get(name) ?? null,
@@ -267,6 +288,22 @@ This repository uses GitHub Actions (`.github/workflows/ci-publish.yml`):
 3. The workflow validates the version and publishes to npm
 
 > **One-time setup:** after the first manual publish, configure Trusted Publishing at **npmjs.com → package → Settings → Automated Publishing** with repository `nuria-tech/nuria-auth-sdk` and workflow `ci-publish.yml`.
+
+## Endpoint defaults
+
+By default, the SDK assumes `ms-auth` OAuth endpoints:
+
+- `baseUrl`: `https://ms-auth-v2.nuria.com.br`
+- `authorizationEndpoint`: `${baseUrl}/v2/oauth/authorize`
+- `tokenEndpoint`: `${baseUrl}/v2/oauth/token`
+
+You can still override `authorizationEndpoint` and `tokenEndpoint` explicitly when needed.
+
+## SSO strategy for multiple portals/apps
+
+- Storage adapter (memory/session/local) is **per origin** and does not share tokens across different domains.
+- For real SSO between different portals/apps, rely on auth-server session + `HttpOnly` refresh cookie (`__Host-nuria_rt`) and keep token calls with `credentials: 'include'`.
+- Keep `MemoryStorageAdapter` as default to reduce token exposure in JS.
 
 ## License
 

@@ -60,8 +60,9 @@ export interface TransportInterceptor {
 
 export interface AuthConfig {
   clientId: string;
-  authorizationEndpoint: string;
-  tokenEndpoint: string;
+  baseUrl?: string;
+  authorizationEndpoint?: string;
+  tokenEndpoint?: string;
   redirectUri: string;
   scope?: string;
   logoutEndpoint?: string;
@@ -71,6 +72,12 @@ export interface AuthConfig {
   onRedirect?: (url: string) => void | Promise<void>;
   enableRefreshToken?: boolean;
   now?: () => number;
+}
+
+export interface ResolvedAuthConfig extends AuthConfig {
+  baseUrl: string;
+  authorizationEndpoint: string;
+  tokenEndpoint: string;
 }
 
 export interface AuthClient {

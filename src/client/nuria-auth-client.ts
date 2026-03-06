@@ -11,7 +11,7 @@ import {
 } from '../core/utils';
 import type {
   AuthClient,
-  AuthConfig,
+  ResolvedAuthConfig,
   Session,
   StartLoginOptions,
   TokenSet,
@@ -28,7 +28,7 @@ export class DefaultAuthClient implements AuthClient {
   private readonly transport: AuthTransport;
   private readonly now: () => number;
 
-  constructor(private readonly config: AuthConfig) {
+  constructor(private readonly config: ResolvedAuthConfig) {
     this.storage = config.storage ?? new MemoryStorageAdapter();
     this.transport = config.transport ?? new FetchAuthTransport();
     this.now = config.now ?? (() => Date.now());
