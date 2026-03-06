@@ -29,7 +29,11 @@ function normalizeBaseUrl(value?: string): string {
   return parsed.toString().replace(/\/+$/, '');
 }
 
-function resolveEndpoint(baseUrl: string, explicit: string | undefined, fallbackPath: string): string {
+function resolveEndpoint(
+  baseUrl: string,
+  explicit: string | undefined,
+  fallbackPath: string,
+): string {
   if (explicit) {
     try {
       return new URL(explicit).toString();
