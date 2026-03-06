@@ -161,4 +161,63 @@ describe('react hooks integration', () => {
       expect(auth.logout).toHaveBeenCalledTimes(1);
     });
   });
+
+  it('useAuthSession refresh returns null and exposes error when auth fails', async () => {
+    const boom = new Error('refresh failed');
+    const auth = {
+      ...createMockAuthClient(),
+      getAccessToken: vi.fn(async () => {
+        throw boom;
+      }),
+      getSession: vi.fn(() => null),
+    } satisfies AuthClient;
+
+    function TestComponent() {
+      const { refresh, error, isLoading } = useAuthSession(auth);
+      return createElement(
+        'div',
+        {},
+        createElement(
+          'button',
+          {
+            'data-testid': 'refresh',
+            onClick: async () => {
+              await refresh();
+            },
+          },
+          'refresh',
+        ),
+        createElement('span', { 'data-testid': 'loading' }, String(isLoading)),
+        createElement(
+          'span',
+          { 'data-testid': 'error' },
+          error instanceof Error ? error.message : 'none',
+        ),
+      );
+    }
+
+    const view = render(createElement(TestComponent));
+
+    await waitFor(() => {
+      expect(
+        view.container.querySelector('[data-testid="loading"]')?.textContent,
+      ).toBe('false');
+      expect(
+        view.container.querySelector('[data-testid="error"]')?.textContent,
+      ).toBe('refresh failed');
+    });
+
+    fireEvent.click(
+      view.container.querySelector('[data-testid="refresh"]') as Element,
+    );
+
+    await waitFor(() => {
+      expect(
+        view.container.querySelector('[data-testid="error"]')?.textContent,
+      ).toBe('refresh failed');
+      expect(
+        view.container.querySelector('[data-testid="loading"]')?.textContent,
+      ).toBe('false');
+    });
+  });
 });

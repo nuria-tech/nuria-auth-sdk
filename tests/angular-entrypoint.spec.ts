@@ -92,4 +92,37 @@ describe('angular entrypoint', () => {
     facade.destroy();
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
+
+  it('facade login/logout delegates to auth client', async () => {
+    const { auth } = createMockAuth();
+    const facade = createAngularAuthFacade(auth);
+
+    await facade.login();
+    await facade.logout({ returnTo: 'https://app.example.com' });
+
+    expect(auth.startLogin).toHaveBeenCalledTimes(1);
+    expect(auth.logout).toHaveBeenCalledWith({
+      returnTo: 'https://app.example.com',
+    });
+
+    facade.destroy();
+  });
+
+  it('refresh returns null and stores error when getAccessToken fails', async () => {
+    const boom = new Error('refresh-failed');
+    const { auth } = createMockAuth();
+    auth.getAccessToken = vi.fn(async () => {
+      throw boom;
+    });
+    auth.getSession = vi.fn(() => null);
+
+    const facade = createAngularAuthFacade(auth);
+    const result = await facade.refresh();
+
+    expect(result).toBeNull();
+    expect(facade.snapshot().error).toBe(boom);
+    expect(facade.snapshot().isLoading).toBe(false);
+
+    facade.destroy();
+  });
 });
