@@ -1,10 +1,10 @@
-import { AuthError, AuthErrorCode } from '../errors/auth-error';
 import type {
   AuthTransport,
   AuthTransportRequest,
   AuthTransportResponse,
   TransportInterceptor,
 } from '../core/types';
+import { AuthError, AuthErrorCode } from '../errors/auth-error';
 
 export interface FetchTransportOptions {
   fetchFn?: typeof fetch;
@@ -22,7 +22,7 @@ export class FetchAuthTransport implements AuthTransport {
   private readonly interceptors: TransportInterceptor[];
 
   constructor(options: FetchTransportOptions = {}) {
-    this.fetchFn = options.fetchFn ?? fetch;
+    this.fetchFn = options.fetchFn ?? ((input, init) => fetch(input, init));
     this.timeoutMs = options.timeoutMs;
     this.retries = options.retries ?? 0;
     this.interceptors = options.interceptors ?? [];
