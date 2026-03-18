@@ -1,3 +1,22 @@
+export interface TokenClaims {
+  sub?: string;
+  iss?: string;
+  aud?: string | string[];
+  exp?: number;
+  iat?: number;
+  nbf?: number;
+  email?: string;
+  name?: string;
+  given_name?: string;
+  family_name?: string;
+  picture?: string;
+  phone_number?: string;
+  roles?: string | string[];
+  groups?: string | string[];
+  auth_provider?: string;
+  [key: string]: unknown;
+}
+
 export interface TokenSet {
   accessToken: string;
   tokenType?: string;
@@ -6,11 +25,13 @@ export interface TokenSet {
   idToken?: string;
   scope?: string;
   expiresAt?: number;
+  authProvider?: string;
 }
 
 export interface Session {
   tokens: TokenSet;
   createdAt: number;
+  provider?: string;
 }
 
 export interface StartLoginOptions {
@@ -107,9 +128,11 @@ export interface ResolvedAuthConfig extends AuthConfig {
   baseUrl: string;
   authorizationEndpoint: string;
   tokenEndpoint: string;
+  userinfoEndpoint: string;
 }
 
 export interface AuthClient {
+  init(): Promise<void>;
   startLogin(options?: StartLoginOptions): Promise<void>;
   handleRedirectCallback(callbackUrl?: string): Promise<Session>;
   getSession(): Session | null;
@@ -117,6 +140,9 @@ export interface AuthClient {
   logout(options?: { returnTo?: string }): Promise<void>;
   isAuthenticated(): boolean;
   onAuthStateChanged(handler: (session: Session | null) => void): () => void;
+  getClaims(): TokenClaims | null;
+  hasRole(role: string): boolean;
+  hasGroup(group: string): boolean;
   getUserinfo(): Promise<Record<string, unknown>>;
   startLoginCodeChallenge(
     options: LoginCodeChallengeOptions,

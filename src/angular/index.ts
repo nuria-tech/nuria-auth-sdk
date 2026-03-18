@@ -1,4 +1,6 @@
-import { BehaviorSubject, type Observable } from 'rxjs';
+import { BehaviorSubject, from, type Observable } from 'rxjs';
+import { switchMap } from 'rxjs/operators';
+import type { HttpInterceptorFn } from '@angular/common/http';
 import type { AuthClient, Session } from '../core/types';
 
 export interface AngularAuthState {
@@ -28,6 +30,18 @@ function toState(
     isLoading,
     error,
   };
+}
+
+export function createBearerInterceptor(auth: AuthClient): HttpInterceptorFn {
+  return (req, next) =>
+    from(auth.getAccessToken()).pipe(
+      switchMap((token) => {
+        if (!token) return next(req);
+        return next(
+          req.clone({ setHeaders: { Authorization: `Bearer ${token}` } }),
+        );
+      }),
+    );
 }
 
 export function createAngularAuthFacade(auth: AuthClient): AngularAuthFacade {

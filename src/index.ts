@@ -16,6 +16,7 @@ export type {
   AuthClient,
   AuthConfig,
   Session,
+  TokenClaims,
   StartLoginOptions,
   LoginCodeChallengeOptions,
   GoogleLoginOptions,

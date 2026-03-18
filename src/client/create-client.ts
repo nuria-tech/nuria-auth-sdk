@@ -5,6 +5,7 @@ import type { AuthClient, AuthConfig, ResolvedAuthConfig } from '../core/types';
 const DEFAULT_AUTH_BASE_URL = 'https://ms-auth-v2.nuria.com.br';
 const DEFAULT_AUTHORIZATION_PATH = '/v2/oauth/authorize';
 const DEFAULT_TOKEN_PATH = '/v2/oauth/token';
+const DEFAULT_USERINFO_PATH = '/v2/oauth/userinfo';
 const DEFAULT_SCOPE = 'openid profile email';
 
 function normalizeBaseUrl(value?: string): string {
@@ -77,6 +78,11 @@ export function createAuthClient(config: AuthConfig): AuthClient {
       baseUrl,
       config.tokenEndpoint,
       DEFAULT_TOKEN_PATH,
+    ),
+    userinfoEndpoint: resolveEndpoint(
+      baseUrl,
+      config.userinfoEndpoint,
+      DEFAULT_USERINFO_PATH,
     ),
   };
 

@@ -66,6 +66,10 @@ function createMockAuthClient(): AuthClient {
     resetPassword: vi.fn(async () => {}),
     recoverPassword: vi.fn(async () => {}),
     changePassword: vi.fn(async () => {}),
+    init: vi.fn(async () => {}),
+    getClaims: vi.fn(() => null),
+    hasRole: vi.fn(() => false),
+    hasGroup: vi.fn(() => false),
   };
 }
 

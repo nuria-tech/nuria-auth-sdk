@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
+import { from } from 'rxjs';
+import { firstValueFrom } from 'rxjs';
 import type { AuthClient, Session } from '../src/core/types';
-import { createAngularAuthFacade } from '../src/angular';
+import { createAngularAuthFacade, createBearerInterceptor } from '../src/angular';
 
 function createMockAuth() {
   let session: Session | null = null;
@@ -62,6 +64,10 @@ function createMockAuth() {
         listeners.delete(handler);
       };
     }),
+    init: vi.fn(async () => {}),
+    getClaims: vi.fn(() => null),
+    hasRole: vi.fn(() => false),
+    hasGroup: vi.fn(() => false),
     getUserinfo: vi.fn(async () => ({})),
     resetPassword: vi.fn(async () => {}),
     recoverPassword: vi.fn(async () => {}),
@@ -127,5 +133,40 @@ describe('angular entrypoint', () => {
     expect(facade.snapshot().isLoading).toBe(false);
 
     facade.destroy();
+  });
+});
+
+describe('createBearerInterceptor', () => {
+  function makeReq(url = 'https://api.example.com/data') {
+    return { url, clone: vi.fn((updates: { setHeaders: Record<string, string> }) => ({ ...updates, url })) } as unknown as Parameters<ReturnType<typeof createBearerInterceptor>>[0];
+  }
+
+  it('attaches Authorization header when token is available', async () => {
+    const { auth } = createMockAuth();
+    auth.getAccessToken = vi.fn(async () => 'my-access-token');
+
+    const interceptor = createBearerInterceptor(auth);
+    const req = makeReq();
+    const next = vi.fn((r: unknown) => from([{ type: 'response', body: r }]));
+
+    await firstValueFrom(interceptor(req, next as never));
+
+    expect(req.clone).toHaveBeenCalledWith({
+      setHeaders: { Authorization: 'Bearer my-access-token' },
+    });
+  });
+
+  it('passes request through unchanged when no token', async () => {
+    const { auth } = createMockAuth();
+    auth.getAccessToken = vi.fn(async () => null);
+
+    const interceptor = createBearerInterceptor(auth);
+    const req = makeReq();
+    const next = vi.fn((r: unknown) => from([{ type: 'response', body: r }]));
+
+    await firstValueFrom(interceptor(req, next as never));
+
+    expect(req.clone).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledWith(req);
   });
 });

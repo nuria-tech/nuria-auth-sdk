@@ -48,6 +48,7 @@ export function normalizeTokenSet(
     idToken: (raw.id_token ?? raw.idToken) as string | undefined,
     scope: raw.scope as string | undefined,
     expiresAt: computedExpiresAt,
+    authProvider: (raw.auth_provider ?? raw.authProvider) as string | undefined,
   };
 }
 

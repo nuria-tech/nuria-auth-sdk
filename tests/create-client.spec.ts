@@ -122,6 +122,23 @@ describe('createAuthClient', () => {
     expect(client.isAuthenticated()).toBe(false);
   });
 
+  it('isAuthenticated returns true when token is expired but enableRefreshToken is true', async () => {
+    const now = vi.fn().mockReturnValue(2_000_000);
+    const storage = new MemoryStorageAdapter();
+    await storage.set(
+      'nuria:session',
+      JSON.stringify({
+        tokens: { accessToken: 'expired-token', expiresAt: 1_000_000 },
+        createdAt: 1_000_000,
+      }),
+    );
+
+    const client = createAuthClient({ ...BASE_CONFIG, storage, now, enableRefreshToken: true });
+    await client.init();
+
+    expect(client.isAuthenticated()).toBe(true);
+  });
+
   it('getSession returns null by default', () => {
     const client = createAuthClient(BASE_CONFIG);
     expect(client.getSession()).toBeNull();
@@ -302,7 +319,7 @@ describe('createAuthClient', () => {
     expect(userinfoCall).toBeDefined();
   });
 
-  it('getUserinfo throws INVALID_CONFIG when userinfoEndpoint is not configured', async () => {
+  it('getUserinfo uses default userinfoEndpoint when none is provided', async () => {
     const storage = new MemoryStorageAdapter();
     await storage.set(
       'nuria:session',
@@ -312,10 +329,29 @@ describe('createAuthClient', () => {
       }),
     );
 
-    const client = createAuthClient({ ...BASE_CONFIG, storage });
-    await expect(client.getUserinfo()).rejects.toMatchObject({
-      code: AuthErrorCode.INVALID_CONFIG,
+    const transport = {
+      request: vi.fn().mockResolvedValue({
+        status: 200,
+        data: { sub: 'user-1' },
+        headers: new Headers(),
+      }),
+    };
+
+    // BASE_CONFIG has explicit tokenEndpoint/authorizationEndpoint but no userinfoEndpoint
+    // createAuthClient should default to baseUrl + /v2/oauth/userinfo
+    const client = createAuthClient({
+      clientId: 'test-client',
+      baseUrl: 'https://ms-auth-v2.nuria.com.br',
+      redirectUri: 'https://app.example.com/callback',
+      storage,
+      transport,
     });
+
+    const result = await client.getUserinfo();
+    expect(result).toEqual({ sub: 'user-1' });
+
+    const calls = transport.request.mock.calls as Array<[string, unknown]>;
+    expect(calls[0]![0]).toBe('https://ms-auth-v2.nuria.com.br/v2/oauth/userinfo');
   });
 
   it('handleRedirectCallback throws on error param', async () => {

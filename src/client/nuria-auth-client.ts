@@ -19,11 +19,14 @@ import type {
   PasswordLoginOptions,
   VerifyLoginCodeOptions,
   TwoFactorChallenge,
+  TokenClaims,
   TokenSet,
   AuthTransport,
 } from '../core/types';
 import { MemoryStorageAdapter } from '../storage/memory-storage-adapter';
 import { FetchAuthTransport } from '../transport/fetch-transport';
+
+const BROADCAST_CHANNEL_NAME = 'nuria:auth:sync';
 
 export class DefaultAuthClient implements AuthClient {
   private session: Session | null = null;
@@ -32,11 +35,29 @@ export class DefaultAuthClient implements AuthClient {
   private readonly storage;
   private readonly transport: AuthTransport;
   private readonly now: () => number;
+  private readonly channel: BroadcastChannel | null;
 
   constructor(private readonly config: ResolvedAuthConfig) {
     this.storage = config.storage ?? new MemoryStorageAdapter();
     this.transport = config.transport ?? new FetchAuthTransport();
     this.now = config.now ?? (() => Date.now());
+    this.channel =
+      typeof BroadcastChannel !== 'undefined'
+        ? new BroadcastChannel(BROADCAST_CHANNEL_NAME)
+        : null;
+    if (this.channel) {
+      this.channel.onmessage = (e: MessageEvent) => {
+        if (e.data?.type === 'SESSION_SYNC') {
+          this.session = e.data.session;
+          this.notify(false); // don't re-broadcast — already synced from another tab
+        }
+      };
+    }
+  }
+
+  async init(): Promise<void> {
+    await this.hydrateSession();
+    this.notify(false); // local hydration only — don't broadcast to other tabs
   }
 
   async startLogin(options: StartLoginOptions = {}): Promise<void> {
@@ -224,8 +245,31 @@ export class DefaultAuthClient implements AuthClient {
     const accessToken = this.session?.tokens.accessToken;
     if (!accessToken) return false;
     const exp = this.session?.tokens.expiresAt;
-    if (exp && exp <= this.now()) return false;
-    return true;
+    if (!exp || exp > this.now()) return true;
+    // Token expired — still considered authenticated if refresh is enabled,
+    // because getAccessToken() will silently renew it.
+    return this.config.enableRefreshToken === true;
+  }
+
+  getClaims(): TokenClaims | null {
+    const token = this.session?.tokens.accessToken;
+    if (!token) return null;
+    try {
+      const payload = token.split('.')[1];
+      if (!payload) return null;
+      const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+      return JSON.parse(atob(base64)) as TokenClaims;
+    } catch {
+      return null;
+    }
+  }
+
+  hasRole(role: string): boolean {
+    return this.parseClaim(this.getClaims()?.roles).includes(role);
+  }
+
+  hasGroup(group: string): boolean {
+    return this.parseClaim(this.getClaims()?.groups).includes(group);
   }
 
   onAuthStateChanged(handler: (session: Session | null) => void): () => void {
@@ -474,6 +518,15 @@ export class DefaultAuthClient implements AuthClient {
     return this.createSession(tokens);
   }
 
+  private parseClaim(claim: string | string[] | undefined): string[] {
+    if (!claim) return [];
+    if (Array.isArray(claim)) return claim.map((s) => s.trim()).filter(Boolean);
+    return claim
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+
   private async createSession(tokens: TokenSet): Promise<Session> {
     const previousRefreshToken = this.session?.tokens.refreshToken;
     const mergedTokens: TokenSet = {
@@ -484,6 +537,7 @@ export class DefaultAuthClient implements AuthClient {
     this.session = {
       tokens: mergedTokens,
       createdAt: this.now(),
+      provider: tokens.authProvider ?? this.session?.provider,
     };
     await safeSet(
       this.storage,
@@ -494,8 +548,14 @@ export class DefaultAuthClient implements AuthClient {
     return this.session;
   }
 
-  private notify(): void {
+  private notify(broadcast = true): void {
     this.listeners.forEach((handler) => handler(this.session));
+    if (broadcast) {
+      this.channel?.postMessage({
+        type: 'SESSION_SYNC',
+        session: this.session,
+      });
+    }
   }
 
   private async hydrateSession(): Promise<void> {

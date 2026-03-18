@@ -260,4 +260,250 @@ describe('AuthClient', () => {
     expect(await storage.get('nuria:oauth:state')).toBe('test-state');
     expect(await storage.get('nuria:oauth:code_verifier')).toBe('test-verifier');
   });
+
+  // ---------------------------------------------------------------------------
+  // getClaims
+  // ---------------------------------------------------------------------------
+
+  function makeJwt(payload: Record<string, unknown>): string {
+    const header = btoa(JSON.stringify({ alg: 'RS256', typ: 'JWT' }))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    const body = btoa(JSON.stringify(payload))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    return `${header}.${body}.fake-sig`;
+  }
+
+  it('getClaims returns null when not authenticated', () => {
+    const client = createAuthClient({ ...BASE_CONFIG });
+    expect(client.getClaims()).toBeNull();
+  });
+
+  it('getClaims decodes JWT claims from access token', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.set('nuria:oauth:state', 'st');
+    await storage.set('nuria:oauth:code_verifier', 'vf');
+
+    const claims = { sub: 'user-1', email: 'user@example.com', roles: 'admin,editor', exp: 9999999999 };
+    const transport = makeMockTransport({ access_token: makeJwt(claims) });
+    const client = createAuthClient({ ...BASE_CONFIG, storage, transport });
+
+    await client.handleRedirectCallback('https://app.example.com/callback?code=c&state=st');
+    const decoded = client.getClaims();
+
+    expect(decoded?.sub).toBe('user-1');
+    expect(decoded?.email).toBe('user@example.com');
+    expect(decoded?.roles).toBe('admin,editor');
+  });
+
+  it('getClaims returns null for malformed access token', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.set('nuria:oauth:state', 'st');
+    await storage.set('nuria:oauth:code_verifier', 'vf');
+
+    const transport = makeMockTransport({ access_token: 'not.a.valid-jwt-payload' });
+    const client = createAuthClient({ ...BASE_CONFIG, storage, transport });
+
+    await client.handleRedirectCallback('https://app.example.com/callback?code=c&state=st');
+    expect(client.getClaims()).toBeNull();
+  });
+
+  // ---------------------------------------------------------------------------
+  // hasRole / hasGroup
+  // ---------------------------------------------------------------------------
+
+  it('hasRole returns true when role is in comma-separated string', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.set('nuria:oauth:state', 'st');
+    await storage.set('nuria:oauth:code_verifier', 'vf');
+
+    const token = makeJwt({ roles: 'admin,editor,viewer' });
+    const transport = makeMockTransport({ access_token: token });
+    const client = createAuthClient({ ...BASE_CONFIG, storage, transport });
+
+    await client.handleRedirectCallback('https://app.example.com/callback?code=c&state=st');
+    expect(client.hasRole('admin')).toBe(true);
+    expect(client.hasRole('editor')).toBe(true);
+    expect(client.hasRole('superuser')).toBe(false);
+  });
+
+  it('hasRole returns true when roles claim is an array', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.set('nuria:oauth:state', 'st');
+    await storage.set('nuria:oauth:code_verifier', 'vf');
+
+    const token = makeJwt({ roles: ['admin', 'editor'] });
+    const transport = makeMockTransport({ access_token: token });
+    const client = createAuthClient({ ...BASE_CONFIG, storage, transport });
+
+    await client.handleRedirectCallback('https://app.example.com/callback?code=c&state=st');
+    expect(client.hasRole('admin')).toBe(true);
+    expect(client.hasRole('superuser')).toBe(false);
+  });
+
+  it('hasRole returns false when not authenticated', () => {
+    const client = createAuthClient({ ...BASE_CONFIG });
+    expect(client.hasRole('admin')).toBe(false);
+  });
+
+  it('hasGroup returns true when group is in comma-separated string', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.set('nuria:oauth:state', 'st');
+    await storage.set('nuria:oauth:code_verifier', 'vf');
+
+    const token = makeJwt({ groups: 'rsd-users,rsd-admins' });
+    const transport = makeMockTransport({ access_token: token });
+    const client = createAuthClient({ ...BASE_CONFIG, storage, transport });
+
+    await client.handleRedirectCallback('https://app.example.com/callback?code=c&state=st');
+    expect(client.hasGroup('rsd-users')).toBe(true);
+    expect(client.hasGroup('rsd-admins')).toBe(true);
+    expect(client.hasGroup('other-group')).toBe(false);
+  });
+
+  it('hasGroup returns true when groups claim is an array', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.set('nuria:oauth:state', 'st');
+    await storage.set('nuria:oauth:code_verifier', 'vf');
+
+    const token = makeJwt({ groups: ['rsd-users', 'rsd-admins'] });
+    const transport = makeMockTransport({ access_token: token });
+    const client = createAuthClient({ ...BASE_CONFIG, storage, transport });
+
+    await client.handleRedirectCallback('https://app.example.com/callback?code=c&state=st');
+    expect(client.hasGroup('rsd-users')).toBe(true);
+    expect(client.hasGroup('other-group')).toBe(false);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Session.provider from auth_provider
+  // ---------------------------------------------------------------------------
+
+  it('session.provider is set from auth_provider in token response', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.set('nuria:oauth:state', 'st');
+    await storage.set('nuria:oauth:code_verifier', 'vf');
+
+    const transport = makeMockTransport({ access_token: 'tok', auth_provider: 'google' });
+    const client = createAuthClient({ ...BASE_CONFIG, storage, transport });
+
+    const session = await client.handleRedirectCallback(
+      'https://app.example.com/callback?code=c&state=st',
+    );
+    expect(session.provider).toBe('google');
+  });
+
+  it('session.provider is set from authProvider (camelCase) in token response', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.set('nuria:oauth:state', 'st');
+    await storage.set('nuria:oauth:code_verifier', 'vf');
+
+    const transport = makeMockTransport({ access_token: 'tok', authProvider: 'password' });
+    const client = createAuthClient({ ...BASE_CONFIG, storage, transport });
+
+    const session = await client.handleRedirectCallback(
+      'https://app.example.com/callback?code=c&state=st',
+    );
+    expect(session.provider).toBe('password');
+  });
+
+  // ---------------------------------------------------------------------------
+  // init()
+  // ---------------------------------------------------------------------------
+
+  it('init() hydrates session from storage and notifies listeners', async () => {
+    const storage = new MemoryStorageAdapter();
+    const storedSession = {
+      tokens: { accessToken: 'stored-tok', tokenType: 'Bearer' },
+      createdAt: Date.now(),
+      provider: 'google',
+    };
+    await storage.set('nuria:session', JSON.stringify(storedSession));
+
+    const client = createAuthClient({ ...BASE_CONFIG, storage });
+    const handler = vi.fn();
+    client.onAuthStateChanged(handler);
+
+    await client.init();
+
+    expect(client.getSession()?.tokens.accessToken).toBe('stored-tok');
+    expect(client.getSession()?.provider).toBe('google');
+    expect(handler).toHaveBeenCalledWith(expect.objectContaining({ tokens: expect.objectContaining({ accessToken: 'stored-tok' }) }));
+  });
+
+  it('init() notifies listeners with null when storage is empty', async () => {
+    const client = createAuthClient({ ...BASE_CONFIG });
+    const handler = vi.fn();
+    client.onAuthStateChanged(handler);
+
+    await client.init();
+
+    expect(client.getSession()).toBeNull();
+    expect(handler).toHaveBeenCalledWith(null);
+  });
+
+  it('init() ignores malformed session in storage', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.set('nuria:session', 'not-valid-json{{{');
+
+    const client = createAuthClient({ ...BASE_CONFIG, storage });
+    await client.init();
+
+    expect(client.getSession()).toBeNull();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Cross-tab sync (BroadcastChannel)
+  // ---------------------------------------------------------------------------
+
+  it('broadcasts SESSION_SYNC after login', async () => {
+    const postMessage = vi.spyOn(BroadcastChannel.prototype, 'postMessage');
+
+    const storage = new MemoryStorageAdapter();
+    await storage.set('nuria:oauth:state', 'st');
+    await storage.set('nuria:oauth:code_verifier', 'vf');
+
+    const transport = makeMockTransport({ access_token: 'tok' });
+    const client = createAuthClient({ ...BASE_CONFIG, storage, transport });
+
+    await client.handleRedirectCallback('https://app.example.com/callback?code=c&state=st');
+
+    expect(postMessage).toHaveBeenCalledWith({
+      type: 'SESSION_SYNC',
+      session: expect.objectContaining({ tokens: expect.objectContaining({ accessToken: 'tok' }) }),
+    });
+
+    postMessage.mockRestore();
+  });
+
+  it('init() does not broadcast session to other tabs', async () => {
+    const postMessage = vi.spyOn(BroadcastChannel.prototype, 'postMessage');
+
+    const storage = new MemoryStorageAdapter();
+    await storage.set('nuria:session', JSON.stringify({ tokens: { accessToken: 'tok' }, createdAt: Date.now() }));
+
+    const client = createAuthClient({ ...BASE_CONFIG, storage });
+    await client.init();
+
+    expect(postMessage).not.toHaveBeenCalled();
+
+    postMessage.mockRestore();
+  });
+
+  it('updates session when SESSION_SYNC received from another tab', async () => {
+    const client = createAuthClient({ ...BASE_CONFIG });
+    const handler = vi.fn();
+    client.onAuthStateChanged(handler);
+
+    // Simulate a message arriving from another tab
+    const channel = new BroadcastChannel('nuria:auth:sync');
+    const incomingSession = { tokens: { accessToken: 'from-other-tab' }, createdAt: Date.now() };
+    channel.postMessage({ type: 'SESSION_SYNC', session: incomingSession });
+
+    // BroadcastChannel delivers async — allow microtasks to flush
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(client.getSession()?.tokens.accessToken).toBe('from-other-tab');
+    expect(handler).toHaveBeenCalledWith(expect.objectContaining({ tokens: expect.objectContaining({ accessToken: 'from-other-tab' }) }));
+    channel.close();
+  });
 });

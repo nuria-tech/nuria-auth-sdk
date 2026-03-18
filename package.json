@@ -1,6 +1,6 @@
 {
   "name": "@nuria-tech/auth-sdk",
-  "version": "1.0.7",
+  "version": "1.1.0",
   "description": "Browser OAuth 2.0 Authorization Code + PKCE client SDK — redirect-only, no password flows",
   "license": "MIT",
   "author": "Nuria Tech",
@@ -71,12 +71,13 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "react": ">=18",
-    "rxjs": ">=7.8",
-    "vue": ">=3.3",
+    "@angular/common": ">=16.0.0",
     "@angular/core": ">=16.0.0",
     "next": ">=13.0.0",
-    "nuxt": ">=3.0.0"
+    "nuxt": ">=3.0.0",
+    "react": ">=18",
+    "rxjs": ">=7.8",
+    "vue": ">=3.3"
   },
   "peerDependenciesMeta": {
     "react": {
@@ -91,6 +92,9 @@
     "@angular/core": {
       "optional": true
     },
+    "@angular/common": {
+      "optional": true
+    },
     "next": {
       "optional": true
     },
@@ -99,12 +103,13 @@
     }
   },
   "devDependencies": {
+    "@angular/common": "21.2.2",
     "@testing-library/react": "16.3.0",
-    "@typescript-eslint/eslint-plugin": "8.56.1",
-    "@typescript-eslint/parser": "8.56.1",
+    "@types/node": "24.3.2",
     "@types/react": "19.2.2",
     "@types/react-dom": "19.2.2",
-    "@types/node": "24.3.2",
+    "@typescript-eslint/eslint-plugin": "8.56.1",
+    "@typescript-eslint/parser": "8.56.1",
     "@vitest/coverage-v8": "4.0.18",
     "eslint": "10.0.2",
     "eslint-config-prettier": "10.1.8",
