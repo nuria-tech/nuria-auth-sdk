@@ -9,7 +9,7 @@ TypeScript SDK for OAuth 2.0 Authorization Code + PKCE, focused on browser apps 
 ## Why this SDK
 
 - PKCE S256 + state validation by default
-- Redirect-only flow (no embedded credential UI)
+- Redirect (PKCE) and direct credential flows (password, Google, code)
 - Optional automatic refresh with concurrency dedupe
 - Storage adapters for browser/SSR scenarios
 - Framework helpers in dedicated entrypoints
@@ -66,6 +66,9 @@ Published on [npm](https://www.npmjs.com/package/@nuria-tech/auth-sdk).
 | Google | `POST /v2/google` | `loginWithGoogle(...)` | `Session` tokens |
 | Login + password | `POST /v2/login` | `loginWithPassword(...)` | `Session` tokens |
 | Code sent (default) | `POST /v2/login-code/challenge` + `POST /v2/2fa/verify-login` | `loginWithCodeSent(...)` + `completeLoginWithCode(...)` | `Session` tokens after code verify |
+| Password reset request | `POST /v2/password/reset` | `resetPassword({ email })` | `void` — sends reset email |
+| Password recovery | `POST /v2/password/recover` | `recoverPassword({ token, newPassword })` | `void` — resets password using token |
+| Change password | `PATCH /v2/me/password` | `changePassword({ oldPassword, newPassword })` | `void` — requires active session |
 
 ## Example apps
 
@@ -301,6 +304,9 @@ interface AuthClient {
   completeLoginWithCode(options: VerifyLoginCodeOptions): Promise<Session>;
   loginWithGoogle(options: GoogleLoginOptions): Promise<Session>;
   loginWithPassword(options: PasswordLoginOptions): Promise<Session>;
+  resetPassword(options: { email: string }): Promise<void>;
+  recoverPassword(options: { token: string; newPassword: string }): Promise<void>;
+  changePassword(options: { oldPassword: string; newPassword: string }): Promise<void>;
 }
 ```
 
