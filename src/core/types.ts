@@ -5,6 +5,7 @@ export interface TokenClaims {
   exp?: number;
   iat?: number;
   nbf?: number;
+  nonce?: string;
   email?: string;
   name?: string;
   given_name?: string;

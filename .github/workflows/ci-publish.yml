@@ -50,6 +50,9 @@ jobs:
       - name: Run tests with coverage
         run: pnpm test:coverage
 
+      - name: Security audit
+        run: pnpm audit --audit-level=moderate
+
       - name: Build package
         run: pnpm build
 
@@ -75,6 +78,7 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+          registry-url: 'https://registry.npmjs.org'
 
       - name: Update npm for OIDC support
         run: npm install -g npm@latest
@@ -96,3 +100,5 @@ jobs:
 
       - name: Publish to npm
         run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

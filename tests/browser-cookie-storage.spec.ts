@@ -47,4 +47,34 @@ describe('BrowserCookieStorage', () => {
     storage.set('special-key', value);
     expect(storage.get('special-key')).toBe(value);
   });
+
+  it('correctly reads cookie values that contain "=" characters', () => {
+    const storage = createBrowserCookieStorage({ secure: false });
+    // Base64-encoded strings frequently contain '=' padding
+    const value = 'eyJhbGciOiJSUzI1NiJ9==';
+    storage.set('token-key', value);
+    expect(storage.get('token-key')).toBe(value);
+  });
+
+  it('remove() clears the cookie (samesite consistency)', () => {
+    const storage = createBrowserCookieStorage({ secure: false, sameSite: 'lax' });
+    storage.set('k', 'v');
+    expect(storage.get('k')).toBe('v');
+    storage.remove('k');
+    expect(storage.get('k')).toBeNull();
+  });
+
+  it('handles empty cookie value', () => {
+    const storage = createBrowserCookieStorage({ secure: false });
+    storage.set('empty-key', '');
+    expect(storage.get('empty-key')).toBe('');
+  });
+
+  it('does not match a cookie whose name is a prefix of another', () => {
+    const storage = createBrowserCookieStorage({ secure: false });
+    storage.set('token', 'short');
+    storage.set('token-extra', 'long');
+    expect(storage.get('token')).toBe('short');
+    expect(storage.get('token-extra')).toBe('long');
+  });
 });

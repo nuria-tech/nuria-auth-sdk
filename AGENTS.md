@@ -84,20 +84,25 @@ tests/                            # Vitest test suite (*.spec.ts)
 | Key | Content |
 |-----|---------|
 | `nuria:session` | `Session` JSON `{ tokens: { accessToken, ... }, createdAt }` |
-| `nuria:oauth:state` | PKCE state string (cleared after callback) |
-| `nuria:oauth:code_verifier` | PKCE verifier (cleared after callback) |
+| `nuria:oauth:state` | PKCE state string (cleared after callback, always via `finally`) |
+| `nuria:oauth:code_verifier` | PKCE verifier (cleared after callback, always via `finally`) |
+| `nuria:oauth:nonce` | OIDC nonce string (cleared after callback, always via `finally`) |
 
 ## Architecture Rules
 
-- **PKCE is mandatory** — cannot be disabled
+- **PKCE is mandatory** — cannot be disabled; `randomString()` uses rejection sampling to eliminate modulo bias (threshold = `256 - 256 % 66 = 204`)
+- **All endpoints and `redirectUri` must use `https://`** — `http://` is only accepted for `localhost`, `127.0.0.1`, and `[::1]` (enforced in `createAuthClient`)
+- **Nonce is always generated** in `startLogin()` and included in the authorization request; validated (timing-safe) against the `nonce` claim in the returned token when the server includes it
+- **PKCE artifacts** (`state`, `nonce`, `codeVerifier`) are always cleaned from storage via `finally` — even when token exchange fails, nonce validation fails, or a network error occurs
 - `init()` must be called once at app startup (e.g. `provideAppInitializer`) to hydrate session from storage before routing
 - `isAuthenticated()` returns `true` when token is expired but `enableRefreshToken: true` — callers should use `getAccessToken()` to get an always-valid token
-- `getClaims()` decodes the JWT payload via `atob()` — no signature verification (trust the server)
+- `getClaims()` decodes the JWT payload client-side for UI convenience only — **JWT signature is NOT verified**; never use these claims for server-side authorization decisions
 - `hasRole()`/`hasGroup()` support both comma-separated string and array claims
-- `getAccessToken()` triggers proactive refresh **30s before expiry** (not after) when `enableRefreshToken: true`
+- `getAccessToken()` triggers proactive refresh **30s before expiry** when `enableRefreshToken: true`; refresh requests have a 10s timeout
+- If `enableRefreshToken: false` and the token is **actually expired** (`expiresAt <= now`), `getAccessToken()` clears the session and returns `null` — it never returns an expired token
 - If refresh fails (e.g. 401 from backend), session is cleared and `null` is returned — no crash
 - Concurrent refresh calls are deduplicated via `refreshPromise`
-- Cross-tab sync via `BroadcastChannel('nuria:auth:sync')` — fires on login/logout; `init()` does NOT broadcast
+- Cross-tab sync via `BroadcastChannel('nuria:auth:sync')` — fires on login/logout; `init()` does NOT broadcast; incoming messages are shape-validated before being applied
 - `logout({ returnTo })` only accepts `https://` URLs (or `http://localhost`)
 
 ## Adding a New Framework Integration

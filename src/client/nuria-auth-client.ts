@@ -48,8 +48,13 @@ export class DefaultAuthClient implements AuthClient {
     if (this.channel) {
       this.channel.onmessage = (e: MessageEvent) => {
         if (e.data?.type === 'SESSION_SYNC') {
-          this.session = e.data.session;
-          this.notify(false); // don't re-broadcast — already synced from another tab
+          const incoming: unknown = e.data.session;
+          // Validate shape before accepting — any same-origin script can post
+          // to this channel, so we must not blindly trust the payload.
+          if (incoming === null || this.isValidSession(incoming)) {
+            this.session = incoming as Session | null;
+            this.notify(false); // don't re-broadcast — already synced from another tab
+          }
         }
       };
     }
@@ -62,10 +67,12 @@ export class DefaultAuthClient implements AuthClient {
 
   async startLogin(options: StartLoginOptions = {}): Promise<void> {
     const state = randomString(32);
+    const nonce = randomString(32);
     const codeVerifier = randomString(96);
     const codeChallenge = await createCodeChallenge(codeVerifier);
 
     await safeSet(this.storage, STORAGE_KEYS.state, state);
+    await safeSet(this.storage, STORAGE_KEYS.nonce, nonce);
     await safeSet(this.storage, STORAGE_KEYS.codeVerifier, codeVerifier);
 
     const params: Record<string, string> = {
@@ -73,6 +80,7 @@ export class DefaultAuthClient implements AuthClient {
       client_id: this.config.clientId,
       redirect_uri: this.config.redirectUri,
       state,
+      nonce,
       code_challenge: codeChallenge,
       code_challenge_method: 'S256',
     };
@@ -85,7 +93,9 @@ export class DefaultAuthClient implements AuthClient {
         'response_type',
         'client_id',
         'redirect_uri',
+        'scope',
         'state',
+        'nonce',
         'code_challenge',
         'code_challenge_method',
       ]);
@@ -172,15 +182,22 @@ export class DefaultAuthClient implements AuthClient {
     }
     if (!this.session) return null;
     const exp = this.session.tokens.expiresAt;
-    if (exp && exp - 30_000 <= this.now() && this.config.enableRefreshToken) {
-      if (!this.refreshPromise) {
-        this.refreshPromise = this.doRefresh().finally(() => {
-          this.refreshPromise = null;
-        });
-      }
-      try {
-        await this.refreshPromise;
-      } catch {
+    if (exp && exp - 30_000 <= this.now()) {
+      if (this.config.enableRefreshToken) {
+        if (!this.refreshPromise) {
+          this.refreshPromise = this.doRefresh().finally(() => {
+            this.refreshPromise = null;
+          });
+        }
+        try {
+          await this.refreshPromise;
+        } catch {
+          this.session = null;
+          await safeRemove(this.storage, STORAGE_KEYS.session);
+          return null;
+        }
+      } else if (exp <= this.now()) {
+        // Token is actually expired and refresh is disabled — clear session
         this.session = null;
         await safeRemove(this.storage, STORAGE_KEYS.session);
         return null;
@@ -224,6 +241,7 @@ export class DefaultAuthClient implements AuthClient {
     this.session = null;
     await safeRemove(this.storage, STORAGE_KEYS.session);
     await safeRemove(this.storage, STORAGE_KEYS.state);
+    await safeRemove(this.storage, STORAGE_KEYS.nonce);
     await safeRemove(this.storage, STORAGE_KEYS.codeVerifier);
     this.notify();
 
@@ -251,11 +269,22 @@ export class DefaultAuthClient implements AuthClient {
     return this.config.enableRefreshToken === true;
   }
 
+  /**
+   * Decodes and returns the claims from the access token payload.
+   *
+   * **Security note**: This is a client-side convenience only — the JWT
+   * signature is NOT verified here. Never use these claims for server-side
+   * authorization decisions. Always validate the token server-side.
+   * Use these claims solely for UI rendering (e.g. displaying the user's name).
+   */
   getClaims(): TokenClaims | null {
     const token = this.session?.tokens.accessToken;
     if (!token) return null;
     try {
-      const payload = token.split('.')[1];
+      const parts = token.split('.');
+      // A valid JWT must have exactly 3 parts: header.payload.signature
+      if (parts.length !== 3) return null;
+      const payload = parts[1];
       if (!payload) return null;
       const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
       return JSON.parse(atob(base64)) as TokenClaims;
@@ -474,6 +503,8 @@ export class DefaultAuthClient implements AuthClient {
       );
     }
 
+    const storedNonce = await safeGet(this.storage, STORAGE_KEYS.nonce);
+
     const body = new URLSearchParams({
       grant_type: 'authorization_code',
       code,
@@ -482,18 +513,54 @@ export class DefaultAuthClient implements AuthClient {
       client_id: this.config.clientId,
     });
 
-    const response = await this.transport.request<Record<string, unknown>>(
-      this.config.tokenEndpoint,
-      {
-        method: 'POST',
-        credentials: 'include',
-        body: body.toString(),
-      },
-    );
-    const tokens = normalizeTokenSet(response.data, this.now);
-    await safeRemove(this.storage, STORAGE_KEYS.state);
-    await safeRemove(this.storage, STORAGE_KEYS.codeVerifier);
-    return this.createSession(tokens);
+    try {
+      const response = await this.transport.request<Record<string, unknown>>(
+        this.config.tokenEndpoint,
+        {
+          method: 'POST',
+          credentials: 'include',
+          body: body.toString(),
+        },
+      );
+      const tokens = normalizeTokenSet(response.data, this.now);
+
+      // Validate nonce from the returned token to prevent replay attacks.
+      // The server must include the nonce claim in the access or ID token.
+      if (storedNonce) {
+        const claimsNonce = this.decodeTokenNonce(tokens.accessToken);
+        const idClaimsNonce = tokens.idToken
+          ? this.decodeTokenNonce(tokens.idToken)
+          : null;
+        const tokenNonce = claimsNonce ?? idClaimsNonce;
+        if (tokenNonce !== null && !timingSafeEqual(storedNonce, tokenNonce)) {
+          throw new AuthError(
+            AuthErrorCode.TOKEN_EXCHANGE_FAILED,
+            'Nonce validation failed — possible token replay attack',
+          );
+        }
+      }
+
+      return this.createSession(tokens);
+    } finally {
+      // Always clean up PKCE artifacts — whether the exchange succeeds, nonce
+      // validation fails, or a network error occurs. Leaving them in storage
+      // would allow a stale verifier to be reused in a subsequent exchange.
+      await safeRemove(this.storage, STORAGE_KEYS.state);
+      await safeRemove(this.storage, STORAGE_KEYS.nonce);
+      await safeRemove(this.storage, STORAGE_KEYS.codeVerifier);
+    }
+  }
+
+  private decodeTokenNonce(token: string): string | null {
+    try {
+      const parts = token.split('.');
+      if (parts.length !== 3) return null;
+      const base64 = parts[1]!.replace(/-/g, '+').replace(/_/g, '/');
+      const payload = JSON.parse(atob(base64)) as Record<string, unknown>;
+      return typeof payload.nonce === 'string' ? payload.nonce : null;
+    } catch {
+      return null;
+    }
   }
 
   private async doRefresh(): Promise<Session> {
@@ -512,10 +579,23 @@ export class DefaultAuthClient implements AuthClient {
         method: 'POST',
         credentials: 'include',
         body: body.toString(),
+        timeoutMs: 10_000,
       },
     );
     const tokens = normalizeTokenSet(response.data, this.now);
     return this.createSession(tokens);
+  }
+
+  private isValidSession(value: unknown): value is Session {
+    if (typeof value !== 'object' || value === null || Array.isArray(value))
+      return false;
+    const s = value as Record<string, unknown>;
+    return (
+      typeof s.createdAt === 'number' &&
+      typeof s.tokens === 'object' &&
+      s.tokens !== null &&
+      typeof (s.tokens as Record<string, unknown>).accessToken === 'string'
+    );
   }
 
   private parseClaim(claim: string | string[] | undefined): string[] {
@@ -562,8 +642,8 @@ export class DefaultAuthClient implements AuthClient {
     const raw = await safeGet(this.storage, STORAGE_KEYS.session);
     if (!raw) return;
     try {
-      const parsed = JSON.parse(raw) as Session;
-      if (typeof parsed?.tokens?.accessToken !== 'string') {
+      const parsed: unknown = JSON.parse(raw);
+      if (!this.isValidSession(parsed)) {
         await safeRemove(this.storage, STORAGE_KEYS.session);
         return;
       }

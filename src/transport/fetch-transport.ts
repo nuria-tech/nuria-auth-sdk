@@ -113,9 +113,14 @@ export class FetchAuthTransport implements AuthTransport {
 
   private async parseBody<T>(res: Response): Promise<T> {
     const contentType = res.headers.get('content-type') ?? '';
-    if (contentType.includes('application/json')) {
-      return (await res.json()) as T;
+    const text = await res.text();
+    if (contentType.includes('application/json') || contentType === '') {
+      try {
+        return JSON.parse(text) as T;
+      } catch {
+        // Fall through to return raw text if JSON parsing fails
+      }
     }
-    return (await res.text()) as unknown as T;
+    return text as unknown as T;
   }
 }

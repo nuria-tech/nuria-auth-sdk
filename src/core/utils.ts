@@ -5,6 +5,7 @@ export const STORAGE_KEYS = {
   session: 'nuria:session',
   state: 'nuria:oauth:state',
   codeVerifier: 'nuria:oauth:code_verifier',
+  nonce: 'nuria:oauth:nonce',
 };
 
 export function normalizeTokenSet(

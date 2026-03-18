@@ -8,6 +8,17 @@ const DEFAULT_TOKEN_PATH = '/v2/oauth/token';
 const DEFAULT_USERINFO_PATH = '/v2/oauth/userinfo';
 const DEFAULT_SCOPE = 'openid profile email';
 
+function isSecureUrl(url: URL): boolean {
+  if (url.protocol === 'https:') return true;
+  // Allow http:// only for localhost in development
+  return (
+    url.protocol === 'http:' &&
+    (url.hostname === 'localhost' ||
+      url.hostname === '127.0.0.1' ||
+      url.hostname === '[::1]')
+  );
+}
+
 function normalizeBaseUrl(value?: string): string {
   const raw = String(value ?? DEFAULT_AUTH_BASE_URL).trim();
   if (!raw) {
@@ -27,6 +38,13 @@ function normalizeBaseUrl(value?: string): string {
     );
   }
 
+  if (!isSecureUrl(parsed)) {
+    throw new AuthError(
+      AuthErrorCode.INVALID_CONFIG,
+      'config.baseUrl must use https:// (or http:// only for localhost)',
+    );
+  }
+
   return parsed.toString().replace(/\/+$/, '');
 }
 
@@ -36,14 +54,22 @@ function resolveEndpoint(
   fallbackPath: string,
 ): string {
   if (explicit) {
+    let parsed: URL;
     try {
-      return new URL(explicit).toString();
+      parsed = new URL(explicit);
     } catch {
       throw new AuthError(
         AuthErrorCode.INVALID_CONFIG,
         'OAuth endpoints must be valid absolute URLs',
       );
     }
+    if (!isSecureUrl(parsed)) {
+      throw new AuthError(
+        AuthErrorCode.INVALID_CONFIG,
+        'OAuth endpoints must use https:// (or http:// only for localhost)',
+      );
+    }
+    return parsed.toString();
   }
 
   return new URL(fallbackPath, `${baseUrl}/`).toString();
@@ -60,6 +86,21 @@ export function createAuthClient(config: AuthConfig): AuthClient {
     throw new AuthError(
       AuthErrorCode.INVALID_CONFIG,
       'config.redirectUri is required',
+    );
+  }
+  let redirectUriParsed: URL;
+  try {
+    redirectUriParsed = new URL(config.redirectUri);
+  } catch {
+    throw new AuthError(
+      AuthErrorCode.INVALID_CONFIG,
+      'config.redirectUri must be a valid absolute URL',
+    );
+  }
+  if (!isSecureUrl(redirectUriParsed)) {
+    throw new AuthError(
+      AuthErrorCode.INVALID_CONFIG,
+      'config.redirectUri must use https:// (or http:// only for localhost)',
     );
   }
 

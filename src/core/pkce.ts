@@ -11,7 +11,7 @@ function getCryptoImpl(): Crypto {
 export function randomString(length = 64): string {
   const crypto = getCryptoImpl();
   // Rejection sampling: discard bytes >= threshold to eliminate modulo bias.
-  // ALPHABET.length = 66; threshold = 256 - (256 % 66) = 204
+  // ALPHABET.length = 66; threshold = 256 - (256 % 66) = 198
   const THRESHOLD = 256 - (256 % ALPHABET.length);
   const result: string[] = [];
   while (result.length < length) {

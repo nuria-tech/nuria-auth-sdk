@@ -93,6 +93,19 @@ describe('AuthClient', () => {
     expect(parsed.searchParams.get('prompt')).toBe('login');
   });
 
+  it('startLogin ignores scope in extraParams (scope is reserved)', async () => {
+    let capturedUrl = '';
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      scope: 'openid email',
+      onRedirect: (url) => { capturedUrl = url; },
+    });
+
+    await client.startLogin({ extraParams: { scope: 'hacked' } });
+    const parsed = new URL(capturedUrl);
+    expect(parsed.searchParams.get('scope')).toBe('openid email');
+  });
+
   it('startLogin applies loginHint', async () => {
     let capturedUrl = '';
     const client = createAuthClient({
@@ -242,7 +255,7 @@ describe('AuthClient', () => {
     ).rejects.toMatchObject({ code: AuthErrorCode.TOKEN_EXCHANGE_FAILED });
   });
 
-  it('handleRedirectCallback keeps state when token exchange fails', async () => {
+  it('handleRedirectCallback clears PKCE artifacts even when token exchange fails', async () => {
     const storage = new MemoryStorageAdapter();
     await storage.set('nuria:oauth:state', 'test-state');
     await storage.set('nuria:oauth:code_verifier', 'test-verifier');
@@ -257,8 +270,9 @@ describe('AuthClient', () => {
       ),
     ).rejects.toThrow('network down');
 
-    expect(await storage.get('nuria:oauth:state')).toBe('test-state');
-    expect(await storage.get('nuria:oauth:code_verifier')).toBe('test-verifier');
+    // PKCE artifacts are always cleaned up (finally block) to prevent verifier reuse
+    expect(await storage.get('nuria:oauth:state')).toBeNull();
+    expect(await storage.get('nuria:oauth:code_verifier')).toBeNull();
   });
 
   // ---------------------------------------------------------------------------
@@ -505,5 +519,253 @@ describe('AuthClient', () => {
     expect(client.getSession()?.tokens.accessToken).toBe('from-other-tab');
     expect(handler).toHaveBeenCalledWith(expect.objectContaining({ tokens: expect.objectContaining({ accessToken: 'from-other-tab' }) }));
     channel.close();
+  });
+
+  it('ignores SESSION_SYNC with malformed session shape', async () => {
+    const client = createAuthClient({ ...BASE_CONFIG });
+    const handler = vi.fn();
+    client.onAuthStateChanged(handler);
+
+    const channel = new BroadcastChannel('nuria:auth:sync');
+    // Malformed — missing createdAt and tokens.accessToken
+    channel.postMessage({ type: 'SESSION_SYNC', session: { evil: true } });
+
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(client.getSession()).toBeNull();
+    expect(handler).not.toHaveBeenCalled();
+    channel.close();
+  });
+
+  it('accepts SESSION_SYNC with null session (logout sync)', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.set('nuria:session', JSON.stringify({ tokens: { accessToken: 'tok' }, createdAt: Date.now() }));
+    const client = createAuthClient({ ...BASE_CONFIG, storage });
+    await client.init();
+
+    expect(client.getSession()).not.toBeNull();
+
+    const channel = new BroadcastChannel('nuria:auth:sync');
+    channel.postMessage({ type: 'SESSION_SYNC', session: null });
+
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(client.getSession()).toBeNull();
+    channel.close();
+  });
+
+  // ---------------------------------------------------------------------------
+  // nonce (OIDC replay protection)
+  // ---------------------------------------------------------------------------
+
+  it('startLogin includes nonce in authorization URL', async () => {
+    let capturedUrl = '';
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      onRedirect: (url) => { capturedUrl = url; },
+    });
+
+    await client.startLogin();
+    const parsed = new URL(capturedUrl);
+    expect(parsed.searchParams.get('nonce')).toBeTruthy();
+  });
+
+  it('startLogin stores nonce in storage', async () => {
+    const storage = new MemoryStorageAdapter();
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      storage,
+      onRedirect: () => {},
+    });
+
+    await client.startLogin();
+    expect(await storage.get('nuria:oauth:nonce')).toBeTruthy();
+  });
+
+  it('handleRedirectCallback accepts token without nonce claim when nonce was stored', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.set('nuria:oauth:state', 'st');
+    await storage.set('nuria:oauth:code_verifier', 'vf');
+    await storage.set('nuria:oauth:nonce', 'my-nonce');
+
+    // Server returns a plain token with no nonce claim — should succeed (graceful)
+    const transport = makeMockTransport({ access_token: 'plain-token' });
+    const client = createAuthClient({ ...BASE_CONFIG, storage, transport });
+
+    const session = await client.handleRedirectCallback(
+      'https://app.example.com/callback?code=c&state=st',
+    );
+    expect(session.tokens.accessToken).toBe('plain-token');
+  });
+
+  it('handleRedirectCallback rejects when token nonce does not match stored nonce', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.set('nuria:oauth:state', 'st');
+    await storage.set('nuria:oauth:code_verifier', 'vf');
+    await storage.set('nuria:oauth:nonce', 'expected-nonce');
+
+    const token = makeJwt({ sub: 'user-1', nonce: 'different-nonce' });
+    const transport = makeMockTransport({ access_token: token });
+    const client = createAuthClient({ ...BASE_CONFIG, storage, transport });
+
+    await expect(
+      client.handleRedirectCallback('https://app.example.com/callback?code=c&state=st'),
+    ).rejects.toMatchObject({ code: AuthErrorCode.TOKEN_EXCHANGE_FAILED });
+  });
+
+  it('handleRedirectCallback accepts token when nonce matches stored nonce', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.set('nuria:oauth:state', 'st');
+    await storage.set('nuria:oauth:code_verifier', 'vf');
+    await storage.set('nuria:oauth:nonce', 'correct-nonce');
+
+    const token = makeJwt({ sub: 'user-1', nonce: 'correct-nonce' });
+    const transport = makeMockTransport({ access_token: token });
+    const client = createAuthClient({ ...BASE_CONFIG, storage, transport });
+
+    const session = await client.handleRedirectCallback(
+      'https://app.example.com/callback?code=c&state=st',
+    );
+    expect(session.tokens.accessToken).toBe(token);
+    expect(await storage.get('nuria:oauth:nonce')).toBeNull();
+  });
+
+  it('handleRedirectCallback clears nonce from storage after success', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.set('nuria:oauth:state', 'st');
+    await storage.set('nuria:oauth:code_verifier', 'vf');
+    await storage.set('nuria:oauth:nonce', 'n1');
+
+    const transport = makeMockTransport({ access_token: 'tok' });
+    const client = createAuthClient({ ...BASE_CONFIG, storage, transport });
+
+    await client.handleRedirectCallback('https://app.example.com/callback?code=c&state=st');
+    expect(await storage.get('nuria:oauth:nonce')).toBeNull();
+  });
+
+  it('handleRedirectCallback validates nonce from id_token when access token has no nonce claim', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.set('nuria:oauth:state', 'st');
+    await storage.set('nuria:oauth:code_verifier', 'vf');
+    await storage.set('nuria:oauth:nonce', 'correct-nonce');
+
+    const accessToken = makeJwt({ sub: 'user-1' }); // no nonce claim
+    const idToken = makeJwt({ sub: 'user-1', nonce: 'correct-nonce' });
+    const transport = makeMockTransport({ access_token: accessToken, id_token: idToken });
+    const client = createAuthClient({ ...BASE_CONFIG, storage, transport });
+
+    const session = await client.handleRedirectCallback(
+      'https://app.example.com/callback?code=c&state=st',
+    );
+    expect(session.tokens.accessToken).toBe(accessToken);
+    expect(await storage.get('nuria:oauth:nonce')).toBeNull();
+  });
+
+  it('handleRedirectCallback rejects when id_token nonce does not match and access token has no nonce', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.set('nuria:oauth:state', 'st');
+    await storage.set('nuria:oauth:code_verifier', 'vf');
+    await storage.set('nuria:oauth:nonce', 'expected-nonce');
+
+    const accessToken = makeJwt({ sub: 'user-1' }); // no nonce claim
+    const idToken = makeJwt({ sub: 'user-1', nonce: 'wrong-nonce' });
+    const transport = makeMockTransport({ access_token: accessToken, id_token: idToken });
+    const client = createAuthClient({ ...BASE_CONFIG, storage, transport });
+
+    await expect(
+      client.handleRedirectCallback('https://app.example.com/callback?code=c&state=st'),
+    ).rejects.toMatchObject({ code: AuthErrorCode.TOKEN_EXCHANGE_FAILED });
+  });
+
+  // ---------------------------------------------------------------------------
+  // HTTPS enforcement
+  // ---------------------------------------------------------------------------
+
+  it('createAuthClient throws INVALID_CONFIG for http baseUrl (non-localhost)', () => {
+    expect(() =>
+      createAuthClient({
+        ...BASE_CONFIG,
+        baseUrl: 'http://evil.example.com',
+        authorizationEndpoint: undefined,
+        tokenEndpoint: undefined,
+      } as never),
+    ).toThrowError(expect.objectContaining({ code: AuthErrorCode.INVALID_CONFIG }));
+  });
+
+  it('createAuthClient accepts http://localhost as baseUrl', () => {
+    expect(() =>
+      createAuthClient({
+        ...BASE_CONFIG,
+        baseUrl: 'http://localhost:4000',
+        authorizationEndpoint: 'http://localhost:4000/authorize',
+        tokenEndpoint: 'http://localhost:4000/token',
+      }),
+    ).not.toThrow();
+  });
+
+  it('createAuthClient throws INVALID_CONFIG for http explicit endpoint (non-localhost)', () => {
+    expect(() =>
+      createAuthClient({
+        ...BASE_CONFIG,
+        tokenEndpoint: 'http://evil.example.com/token',
+      }),
+    ).toThrowError(expect.objectContaining({ code: AuthErrorCode.INVALID_CONFIG }));
+  });
+
+  it('createAuthClient throws INVALID_CONFIG for non-URL redirectUri', () => {
+    expect(() =>
+      createAuthClient({ ...BASE_CONFIG, redirectUri: 'not-a-url' }),
+    ).toThrowError(expect.objectContaining({ code: AuthErrorCode.INVALID_CONFIG }));
+  });
+
+  it('createAuthClient throws INVALID_CONFIG for http redirectUri (non-localhost)', () => {
+    expect(() =>
+      createAuthClient({ ...BASE_CONFIG, redirectUri: 'http://evil.example.com/callback' }),
+    ).toThrowError(expect.objectContaining({ code: AuthErrorCode.INVALID_CONFIG }));
+  });
+
+  it('createAuthClient accepts http://localhost redirectUri', () => {
+    expect(() =>
+      createAuthClient({ ...BASE_CONFIG, redirectUri: 'http://localhost:3000/callback' }),
+    ).not.toThrow();
+  });
+
+  // ---------------------------------------------------------------------------
+  // getAccessToken — expiry when refresh disabled
+  // ---------------------------------------------------------------------------
+
+  it('getAccessToken returns null for expired token when enableRefreshToken is false', async () => {
+    const storage = new MemoryStorageAdapter();
+    const now = Date.now();
+    const expiredSession = {
+      tokens: { accessToken: 'expired-tok', expiresAt: now - 1000 },
+      createdAt: now - 5000,
+    };
+    await storage.set('nuria:session', JSON.stringify(expiredSession));
+
+    const client = createAuthClient({ ...BASE_CONFIG, storage, enableRefreshToken: false });
+    await client.init();
+
+    const token = await client.getAccessToken();
+    expect(token).toBeNull();
+    // Session should be cleared
+    expect(client.getSession()).toBeNull();
+  });
+
+  it('getAccessToken returns valid token near expiry when enableRefreshToken is false', async () => {
+    const storage = new MemoryStorageAdapter();
+    const now = Date.now();
+    // Token expires in 10s (within 30s window but not yet expired)
+    const session = {
+      tokens: { accessToken: 'almost-expired-tok', expiresAt: now + 10_000 },
+      createdAt: now,
+    };
+    await storage.set('nuria:session', JSON.stringify(session));
+
+    const client = createAuthClient({ ...BASE_CONFIG, storage, enableRefreshToken: false });
+    await client.init();
+
+    const token = await client.getAccessToken();
+    expect(token).toBe('almost-expired-tok');
   });
 });

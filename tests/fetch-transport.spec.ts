@@ -15,12 +15,15 @@ function makeResponse(
   contentType = 'application/json',
 ): Response {
   const headers = new Headers({ 'content-type': contentType });
+  const textBody = contentType.includes('application/json')
+    ? JSON.stringify(body)
+    : String(body);
   return {
     ok: status >= 200 && status < 300,
     status,
     headers,
     json: vi.fn().mockResolvedValue(body),
-    text: vi.fn().mockResolvedValue(String(body)),
+    text: vi.fn().mockResolvedValue(textBody),
   } as unknown as Response;
 }
 
@@ -97,6 +100,30 @@ describe('FetchAuthTransport', () => {
     const transport = new FetchAuthTransport({ fetchFn: fetchMock });
     const result = await transport.request('https://example.com/api');
     expect(result.data).toBe('plain text');
+  });
+
+  it('parses JSON when content-type is absent (empty string)', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': '' }),
+      text: vi.fn().mockResolvedValue(JSON.stringify({ value: 42 })),
+    } as unknown as Response);
+    const transport = new FetchAuthTransport({ fetchFn: fetchMock });
+    const result = await transport.request<{ value: number }>('https://example.com/api');
+    expect(result.data).toEqual({ value: 42 });
+  });
+
+  it('falls back to raw text when content-type is absent and body is not valid JSON', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': '' }),
+      text: vi.fn().mockResolvedValue('not-json'),
+    } as unknown as Response);
+    const transport = new FetchAuthTransport({ fetchFn: fetchMock });
+    const result = await transport.request('https://example.com/api');
+    expect(result.data).toBe('not-json');
   });
 
   it('throws HTTP_ERROR for non-ok status without retries', async () => {

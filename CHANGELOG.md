@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.1.1] - 2026-03-18
+
+### Security
+
+- **PKCE modulo bias eliminated** — `randomString()` now uses rejection sampling (threshold = `256 − 256 % 66 = 204`) so all 66 characters in the alphabet are selected with equal probability. The previous modulo approach produced a measurable, though low-impact, statistical bias.
+- **Timing-safe state validation** — `handleRedirectCallback()` and `exchangeCode()` now compare OAuth `state` and `nonce` values with `timingSafeEqual()`, a constant-time XOR comparison, preventing timing side-channel attacks.
+- **Concurrent refresh deduplicated** — simultaneous `getAccessToken()` calls when the token is expired now share a single in-flight refresh request via `refreshPromise`. Previously, two concurrent callers could both trigger independent refresh requests, leading to a race condition.
+
 ## [1.1.0] - 2026-03-18
 
 ### Added
