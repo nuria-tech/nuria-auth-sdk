@@ -4,6 +4,39 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.7] - 2026-03-18
+
+### Added
+
+- `resetPassword({ email })` — calls `POST /v2/password/reset`; does not require authentication
+- `recoverPassword({ token, newPassword })` — calls `POST /v2/password/recover` with the reset token as `Authorization: Bearer`
+- `changePassword({ oldPassword, newPassword })` — calls `PATCH /v2/me/password`; requires an active session
+- Unit tests for `resetPassword`, `recoverPassword`, and `changePassword` in `create-client.spec.ts`
+- Updated React and Angular test mocks to include the new password management methods
+
+### Fixed
+
+- `doRefresh()` no longer throws when `refreshToken` is absent from the session; it omits the `refresh_token` parameter from the body so that cookie-based (HttpOnly) refresh flows continue to work
+- `getAccessToken()` now proactively refreshes 30 seconds before expiry instead of after
+- `getAccessToken()` catches refresh errors, clears the stale session, and returns `null` instead of propagating the error to the caller
+
+## [1.0.6] - 2026-03-10
+
+### Changed
+
+- Updated `pnpm-lock.yaml` to include complete dependency trees for framework peer deps (`@angular/core`, `next`, `nuxt`)
+
+## [1.0.5] - 2026-03-10
+
+### Fixed
+
+- Wrapped global `fetch` in an arrow function inside `FetchAuthTransport` to prevent "Illegal invocation" errors in environments where `fetch` is detached from the global context
+
+### Changed
+
+- Updated installation instructions to use `--legacy-peer-deps` for environments where peer dep resolution requires it
+- Declared `@angular/core`, `next`, and `nuxt` as optional peer dependencies
+
 ## [1.0.0] - 2026-03-03
 
 ### Added

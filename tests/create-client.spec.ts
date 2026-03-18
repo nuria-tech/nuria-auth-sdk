@@ -581,4 +581,66 @@ describe('createAuthClient', () => {
     await client.getAccessToken();
     expect(client.getSession()?.tokens.refreshToken).toBe('rt-old');
   });
+
+  it('resetPassword calls POST /v2/password/reset with email', async () => {
+    const transport = makeMockTransport();
+    const client = createAuthClient({ ...BASE_CONFIG, transport });
+
+    await client.resetPassword({ email: 'user@example.com' });
+
+    const [url, req] = transport.request.mock.calls[0] as [string, AuthTransportRequest];
+    expect(url).toBe('https://auth.example.com/v2/password/reset');
+    expect(req.method).toBe('POST');
+    expect((req.body as Record<string, unknown>).email).toBe('user@example.com');
+  });
+
+  it('resetPassword throws when email is missing', async () => {
+    const client = createAuthClient({ ...BASE_CONFIG, transport: makeMockTransport() });
+    await expect(client.resetPassword({ email: '' })).rejects.toThrow(AuthError);
+  });
+
+  it('recoverPassword calls POST /v2/password/recover with Bearer token', async () => {
+    const transport = makeMockTransport();
+    const client = createAuthClient({ ...BASE_CONFIG, transport });
+
+    await client.recoverPassword({ token: 'reset-token', newPassword: 'NewPass1!' });
+
+    const [url, req] = transport.request.mock.calls[0] as [string, AuthTransportRequest];
+    expect(url).toBe('https://auth.example.com/v2/password/recover');
+    expect(req.method).toBe('POST');
+    expect(req.headers?.Authorization).toBe('Bearer reset-token');
+    expect((req.body as Record<string, unknown>).newPassword).toBe('NewPass1!');
+  });
+
+  it('recoverPassword throws when token or newPassword is missing', async () => {
+    const client = createAuthClient({ ...BASE_CONFIG, transport: makeMockTransport() });
+    await expect(client.recoverPassword({ token: '', newPassword: 'x' })).rejects.toThrow(AuthError);
+    await expect(client.recoverPassword({ token: 'tk', newPassword: '' })).rejects.toThrow(AuthError);
+  });
+
+  it('changePassword calls PATCH /v2/me/password with Bearer access token', async () => {
+    const transport = makeMockTransport({ access_token: 'active-token', expires_in: 3600 });
+    const storage = new MemoryStorageAdapter();
+    await storage.set('nuria:session', JSON.stringify({
+      tokens: { accessToken: 'active-token', expiresAt: Date.now() + 3_600_000 },
+      createdAt: Date.now(),
+    }));
+    const client = createAuthClient({ ...BASE_CONFIG, transport, storage });
+
+    await client.changePassword({ oldPassword: 'OldPass1!', newPassword: 'NewPass2!' });
+
+    const [url, req] = transport.request.mock.calls[0] as [string, AuthTransportRequest];
+    expect(url).toBe('https://auth.example.com/v2/me/password');
+    expect(req.method).toBe('PATCH');
+    expect(req.headers?.Authorization).toBe('Bearer active-token');
+    expect((req.body as Record<string, unknown>).oldPassword).toBe('OldPass1!');
+    expect((req.body as Record<string, unknown>).newPassword).toBe('NewPass2!');
+  });
+
+  it('changePassword throws NOT_AUTHENTICATED when not logged in', async () => {
+    const client = createAuthClient({ ...BASE_CONFIG, transport: makeMockTransport() });
+    await expect(
+      client.changePassword({ oldPassword: 'OldPass1!', newPassword: 'NewPass2!' })
+    ).rejects.toThrow(AuthError);
+  });
 });
