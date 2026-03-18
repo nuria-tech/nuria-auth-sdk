@@ -13,7 +13,8 @@ export function normalizeTokenSet(
 ): TokenSet {
   const accessToken = (raw.access_token ??
     raw.accessToken ??
-    raw.Token) as string;
+    raw.Token ??
+    raw.token) as string;
   if (!accessToken || typeof accessToken !== 'string') {
     throw new AuthError(
       AuthErrorCode.TOKEN_EXCHANGE_FAILED,
@@ -21,7 +22,14 @@ export function normalizeTokenSet(
     );
   }
   const expiresIn = Number(raw.expires_in ?? raw.expiresIn ?? 0) || undefined;
-  const expiresAtFromResponse = Number(raw.ExpiresAt ?? 0) || undefined;
+  const expiresAtFromResponse = (() => {
+    const v = raw.ExpiresAt ?? raw.expiresAt;
+    if (!v) return undefined;
+    const n = Number(v);
+    if (!isNaN(n) && n > 0) return n;
+    const d = new Date(String(v)).getTime();
+    return isNaN(d) ? undefined : d;
+  })();
   const computedExpiresAt =
     expiresIn != null
       ? now() + expiresIn * 1000

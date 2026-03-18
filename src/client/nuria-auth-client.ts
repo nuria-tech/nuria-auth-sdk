@@ -151,13 +151,19 @@ export class DefaultAuthClient implements AuthClient {
     }
     if (!this.session) return null;
     const exp = this.session.tokens.expiresAt;
-    if (exp && exp <= this.now() && this.config.enableRefreshToken) {
+    if (exp && exp - 30_000 <= this.now() && this.config.enableRefreshToken) {
       if (!this.refreshPromise) {
         this.refreshPromise = this.doRefresh().finally(() => {
           this.refreshPromise = null;
         });
       }
-      await this.refreshPromise;
+      try {
+        await this.refreshPromise;
+      } catch {
+        this.session = null;
+        await safeRemove(this.storage, STORAGE_KEYS.session);
+        return null;
+      }
     }
     return this.session?.tokens.accessToken ?? null;
   }
@@ -394,11 +400,17 @@ export class DefaultAuthClient implements AuthClient {
 
   private async doRefresh(): Promise<Session> {
     const refreshToken = this.session?.tokens.refreshToken;
+    if (!refreshToken) {
+      throw new AuthError(
+        AuthErrorCode.TOKEN_EXCHANGE_FAILED,
+        'No refresh token available',
+      );
+    }
     const body = new URLSearchParams({
       grant_type: 'refresh_token',
       client_id: this.config.clientId,
+      refresh_token: refreshToken,
     });
-    if (refreshToken) body.set('refresh_token', refreshToken);
 
     const response = await this.transport.request<Record<string, unknown>>(
       this.config.tokenEndpoint,
