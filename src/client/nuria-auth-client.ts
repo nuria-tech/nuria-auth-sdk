@@ -344,6 +344,48 @@ export class DefaultAuthClient implements AuthClient {
     return this.createSession(tokens);
   }
 
+  async resetPassword(options: { email: string }): Promise<void> {
+    if (!options?.email) {
+      throw new AuthError(AuthErrorCode.INVALID_CONFIG, 'email is required for resetPassword');
+    }
+    await this.transport.request(`${this.config.baseUrl}/v2/password/reset`, {
+      method: 'POST',
+      body: { email: options.email },
+    });
+  }
+
+  async recoverPassword(options: { token: string; newPassword: string }): Promise<void> {
+    if (!options?.token || !options?.newPassword) {
+      throw new AuthError(
+        AuthErrorCode.INVALID_CONFIG,
+        'token and newPassword are required for recoverPassword',
+      );
+    }
+    await this.transport.request(`${this.config.baseUrl}/v2/password/recover`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${options.token}` },
+      body: { newPassword: options.newPassword },
+    });
+  }
+
+  async changePassword(options: { oldPassword: string; newPassword: string }): Promise<void> {
+    if (!options?.oldPassword || !options?.newPassword) {
+      throw new AuthError(
+        AuthErrorCode.INVALID_CONFIG,
+        'oldPassword and newPassword are required for changePassword',
+      );
+    }
+    const accessToken = await this.getAccessToken();
+    if (!accessToken) {
+      throw new AuthError(AuthErrorCode.INVALID_CONFIG, 'Not authenticated');
+    }
+    await this.transport.request(`${this.config.baseUrl}/v2/me/password`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${accessToken}` },
+      body: { oldPassword: options.oldPassword, newPassword: options.newPassword },
+    });
+  }
+
   async loginWithPassword(options: PasswordLoginOptions): Promise<Session> {
     if (!options?.email || !options?.password) {
       throw new AuthError(

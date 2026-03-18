@@ -128,4 +128,7 @@ export interface AuthClient {
   completeLoginWithCode(options: VerifyLoginCodeOptions): Promise<Session>;
   loginWithGoogle(options: GoogleLoginOptions): Promise<Session>;
   loginWithPassword(options: PasswordLoginOptions): Promise<Session>;
+  resetPassword(options: { email: string }): Promise<void>;
+  recoverPassword(options: { token: string; newPassword: string }): Promise<void>;
+  changePassword(options: { oldPassword: string; newPassword: string }): Promise<void>;
 }

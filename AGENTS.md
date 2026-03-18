@@ -74,6 +74,9 @@ tests/                            # Vitest test suite (*.spec.ts)
 | `loginWithPassword({ email, password })` | `POST /v2/login` | Direct |
 | `loginWithGoogle({ idToken })` | `POST /v2/google` | Google ID token |
 | `loginWithCodeSent()` + `completeLoginWithCode()` | `/v2/login-code/challenge` → `/v2/2fa/verify-login` | 2FA |
+| `resetPassword({ email })` | `POST /v2/password/reset` | Public — sends reset email |
+| `recoverPassword({ token, newPassword })` | `POST /v2/password/recover` | Recovery token in `Authorization: Bearer` header |
+| `changePassword({ oldPassword, newPassword })` | `PATCH /v2/me/password` | Requires active session |
 
 ## Storage Keys (localStorage / cookie)
 
@@ -87,7 +90,9 @@ tests/                            # Vitest test suite (*.spec.ts)
 
 - **PKCE is mandatory** — cannot be disabled
 - `isAuthenticated()` is synchronous but requires prior `getAccessToken()` call to hydrate session
-- `getAccessToken()` triggers automatic refresh if token is expired and `enableRefreshToken: true`
+- `getAccessToken()` triggers proactive refresh **30s before expiry** (not after) when `enableRefreshToken: true`
+- If refresh fails (e.g. 401 from backend), session is cleared and `null` is returned — no crash
+- `doRefresh()` throws immediately if no `refreshToken` is available (never sends a blank request)
 - Concurrent refresh calls are deduplicated via `refreshPromise`
 - `logout({ returnTo })` only accepts `https://` URLs (or `http://localhost`)
 
@@ -105,12 +110,15 @@ The SDK reads backend responses flexibly:
 
 | Token field | Accepted keys |
 |------------|--------------|
-| `accessToken` | `access_token`, `accessToken`, `Token` |
+| `accessToken` | `access_token`, `accessToken`, `Token`, `token` |
 | `refreshToken` | `refresh_token`, `refreshToken`, `RefreshToken` |
-| `expiresAt` | computed from `expires_in` (seconds) or `ExpiresAt` (Unix ms) |
+| `expiresAt` | computed from `expires_in` (seconds), or `ExpiresAt`/`expiresAt` (Unix ms **or** ISO string) |
 
-> ⚠️ `ExpiresAt` as an ISO string (returned by .NET `DateTime`) is not parsed — `Number("2026-...")` = NaN.
-> Use `expires_in` (seconds) in backend responses for correct expiry tracking.
+`expiresAt` resolution order:
+1. If `expires_in` present → `now + expires_in * 1000`
+2. Else if `ExpiresAt`/`expiresAt` is a number → use directly
+3. Else if it's an ISO string → `new Date(v).getTime()`
+4. Else → `undefined` (no expiry tracking)
 
 ## Publishing
 
