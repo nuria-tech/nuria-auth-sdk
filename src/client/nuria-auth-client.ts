@@ -346,7 +346,10 @@ export class DefaultAuthClient implements AuthClient {
 
   async resetPassword(options: { email: string }): Promise<void> {
     if (!options?.email) {
-      throw new AuthError(AuthErrorCode.INVALID_CONFIG, 'email is required for resetPassword');
+      throw new AuthError(
+        AuthErrorCode.INVALID_CONFIG,
+        'email is required for resetPassword',
+      );
     }
     await this.transport.request(`${this.config.baseUrl}/v2/password/reset`, {
       method: 'POST',
@@ -354,7 +357,10 @@ export class DefaultAuthClient implements AuthClient {
     });
   }
 
-  async recoverPassword(options: { token: string; newPassword: string }): Promise<void> {
+  async recoverPassword(options: {
+    token: string;
+    newPassword: string;
+  }): Promise<void> {
     if (!options?.token || !options?.newPassword) {
       throw new AuthError(
         AuthErrorCode.INVALID_CONFIG,
@@ -368,7 +374,10 @@ export class DefaultAuthClient implements AuthClient {
     });
   }
 
-  async changePassword(options: { oldPassword: string; newPassword: string }): Promise<void> {
+  async changePassword(options: {
+    oldPassword: string;
+    newPassword: string;
+  }): Promise<void> {
     if (!options?.oldPassword || !options?.newPassword) {
       throw new AuthError(
         AuthErrorCode.INVALID_CONFIG,
@@ -382,7 +391,10 @@ export class DefaultAuthClient implements AuthClient {
     await this.transport.request(`${this.config.baseUrl}/v2/me/password`, {
       method: 'PATCH',
       headers: { Authorization: `Bearer ${accessToken}` },
-      body: { oldPassword: options.oldPassword, newPassword: options.newPassword },
+      body: {
+        oldPassword: options.oldPassword,
+        newPassword: options.newPassword,
+      },
     });
   }
 
