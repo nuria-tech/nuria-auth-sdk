@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.1.0] - 2026-03-18
+
+### Added
+
+- `init()` — hydrates session from storage and notifies listeners; use with `APP_INITIALIZER` / `provideAppInitializer` to avoid re-login on page reload
+- `getClaims()` — decodes the JWT access token payload via native `atob()`, no external dependency; returns `TokenClaims | null`
+- `hasRole(role)` — checks the `roles` claim; supports comma-separated string and array
+- `hasGroup(group)` — checks the `groups` claim; supports comma-separated string and array
+- `TokenClaims` interface: standard OIDC claims + `roles`, `groups`, `auth_provider`, index signature
+- `TokenSet.authProvider` — extracted from `auth_provider` or `authProvider` in the token response
+- `Session.provider` — persisted from `tokens.authProvider`; preserved across silent refresh
+- `userinfoEndpoint` now has a default (`${baseUrl}/v2/oauth/userinfo`); no longer throws when omitted
+- Cross-tab sync via `BroadcastChannel('nuria:auth:sync')` — login/logout in one tab automatically updates all other open tabs; `init()` does not broadcast (local hydration only)
+- Angular entrypoint: `createBearerInterceptor(auth)` — returns an `HttpInterceptorFn` that attaches `Authorization: Bearer <token>` and triggers silent refresh if needed
+- `@angular/common >= 16` added as optional peer dependency (required for `HttpInterceptorFn` types)
+- CI: pnpm upgraded from v9 to v10 to match local development environment
+
+### Fixed
+
+- `isAuthenticated()` now returns `true` when the access token is expired but `enableRefreshToken: true`, because `getAccessToken()` will silently renew it. Previously it returned `false`, causing guards to redirect to login unnecessarily.
+
+### Changed
+
+- `ResolvedAuthConfig.userinfoEndpoint` is now `string` (required) — always resolved with a default, no longer `string | undefined`
+
 ## [1.0.7] - 2026-03-18
 
 ### Added

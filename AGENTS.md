@@ -41,7 +41,7 @@ src/
   vue/                            # useAuthSession (Vue 3 composable)
   nuxt/                           # createNuxtAuthClient(), createNuxtCookieStorageAdapter()
   next/                           # createNextAuthClient(), createNextCookieStorageAdapter()
-  angular/                        # createAngularAuthFacade() — RxJS facade
+  angular/                        # createAngularAuthFacade() — RxJS facade; createBearerInterceptor() — HttpInterceptorFn
 tests/                            # Vitest test suite (*.spec.ts)
 ```
 
@@ -54,7 +54,7 @@ tests/                            # Vitest test suite (*.spec.ts)
 | `@nuria-tech/auth-sdk/vue` | `dist/vue.js` | `useAuthSession` |
 | `@nuria-tech/auth-sdk/nuxt` | `dist/nuxt.js` | `createNuxtAuthClient`, `createNuxtCookieStorageAdapter` |
 | `@nuria-tech/auth-sdk/next` | `dist/next.js` | `createNextAuthClient`, `createNextCookieStorageAdapter` |
-| `@nuria-tech/auth-sdk/angular` | `dist/angular.js` | `createAngularAuthFacade` |
+| `@nuria-tech/auth-sdk/angular` | `dist/angular.js` | `createAngularAuthFacade`, `createBearerInterceptor` |
 
 ## Default Backend Endpoints
 
@@ -63,6 +63,7 @@ tests/                            # Vitest test suite (*.spec.ts)
 | `baseUrl` | `https://ms-auth-v2.nuria.com.br` |
 | `authorizationEndpoint` | `${baseUrl}/v2/oauth/authorize` |
 | `tokenEndpoint` | `${baseUrl}/v2/oauth/token` |
+| `userinfoEndpoint` | `${baseUrl}/v2/oauth/userinfo` |
 | `scope` | `openid profile email` |
 | `enableRefreshToken` | `true` |
 
@@ -89,11 +90,14 @@ tests/                            # Vitest test suite (*.spec.ts)
 ## Architecture Rules
 
 - **PKCE is mandatory** — cannot be disabled
-- `isAuthenticated()` is synchronous but requires prior `getAccessToken()` call to hydrate session
+- `init()` must be called once at app startup (e.g. `provideAppInitializer`) to hydrate session from storage before routing
+- `isAuthenticated()` returns `true` when token is expired but `enableRefreshToken: true` — callers should use `getAccessToken()` to get an always-valid token
+- `getClaims()` decodes the JWT payload via `atob()` — no signature verification (trust the server)
+- `hasRole()`/`hasGroup()` support both comma-separated string and array claims
 - `getAccessToken()` triggers proactive refresh **30s before expiry** (not after) when `enableRefreshToken: true`
 - If refresh fails (e.g. 401 from backend), session is cleared and `null` is returned — no crash
-- `doRefresh()` throws immediately if no `refreshToken` is available (never sends a blank request)
 - Concurrent refresh calls are deduplicated via `refreshPromise`
+- Cross-tab sync via `BroadcastChannel('nuria:auth:sync')` — fires on login/logout; `init()` does NOT broadcast
 - `logout({ returnTo })` only accepts `https://` URLs (or `http://localhost`)
 
 ## Adding a New Framework Integration
@@ -112,6 +116,7 @@ The SDK reads backend responses flexibly:
 |------------|--------------|
 | `accessToken` | `access_token`, `accessToken`, `Token`, `token` |
 | `refreshToken` | `refresh_token`, `refreshToken`, `RefreshToken` |
+| `authProvider` | `auth_provider`, `authProvider` |
 | `expiresAt` | computed from `expires_in` (seconds), or `ExpiresAt`/`expiresAt` (Unix ms **or** ISO string) |
 
 `expiresAt` resolution order:

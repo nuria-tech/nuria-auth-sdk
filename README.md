@@ -57,7 +57,7 @@ Published on [npm](https://www.npmjs.com/package/@nuria-tech/auth-sdk).
 - `@nuria-tech/auth-sdk/vue`: `useAuthSession` composable
 - `@nuria-tech/auth-sdk/nuxt`: Nuxt cookie adapter helpers
 - `@nuria-tech/auth-sdk/next`: Next cookie adapter helpers
-- `@nuria-tech/auth-sdk/angular`: RxJS auth facade for Angular services/components
+- `@nuria-tech/auth-sdk/angular`: `createAngularAuthFacade` (RxJS facade) + `createBearerInterceptor` (HttpInterceptorFn)
 
 ## Auth flows matrix
 
@@ -242,6 +242,7 @@ Full Angular example (service + guard + callback route + status component):
 - `baseUrl`: `https://ms-auth-v2.nuria.com.br`
 - `authorizationEndpoint`: `${baseUrl}/v2/oauth/authorize`
 - `tokenEndpoint`: `${baseUrl}/v2/oauth/token`
+- `userinfoEndpoint`: `${baseUrl}/v2/oauth/userinfo`
 - `scope`: `openid profile email`
 - `enableRefreshToken`: `true`
 
@@ -281,7 +282,8 @@ interface AuthConfig {
 - Keep refresh on cookies (`HttpOnly`) server-side when available.
 - `logout({ returnTo })` accepts `https://` URLs, plus `http://localhost|127.0.0.1|[::1]` for local dev only.
 - `logout({ returnTo })` rejects URLs with embedded credentials (`user:pass@host`).
-- `isAuthenticated()` also checks token expiration (`expiresAt`) when available.
+- `isAuthenticated()` returns `true` when the token is expired but `enableRefreshToken: true` — `getAccessToken()` will silently renew it.
+- `getClaims()` decodes the JWT payload client-side via `atob()` without verifying the signature — trust comes from the server that issued the token.
 - Browser cookie storage encodes/decodes values safely (`encodeURIComponent`/`decodeURIComponent`).
 
 Full policy and reporting process: [SECURITY.md](./SECURITY.md).
@@ -290,6 +292,7 @@ Full policy and reporting process: [SECURITY.md](./SECURITY.md).
 
 ```ts
 interface AuthClient {
+  init(): Promise<void>;
   startLogin(options?: StartLoginOptions): Promise<void>;
   handleRedirectCallback(callbackUrl?: string): Promise<Session>;
   getSession(): Session | null;
@@ -297,6 +300,9 @@ interface AuthClient {
   logout(options?: { returnTo?: string }): Promise<void>;
   isAuthenticated(): boolean;
   onAuthStateChanged(handler: (session: Session | null) => void): () => void;
+  getClaims(): TokenClaims | null;
+  hasRole(role: string): boolean;
+  hasGroup(group: string): boolean;
   getUserinfo(): Promise<Record<string, unknown>>;
   startLoginCodeChallenge(options: LoginCodeChallengeOptions): Promise<TwoFactorChallenge>;
   verifyLoginCode(options: VerifyLoginCodeOptions): Promise<Session>;
