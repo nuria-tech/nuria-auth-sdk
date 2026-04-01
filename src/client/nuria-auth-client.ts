@@ -327,6 +327,23 @@ export class DefaultAuthClient implements AuthClient {
     return response.data;
   }
 
+  async checkSession(): Promise<boolean> {
+    const accessToken = await this.getAccessToken();
+    if (!accessToken) return false;
+    if (!this.config.userinfoEndpoint) return this.isAuthenticated();
+    try {
+      await this.transport.request(this.config.userinfoEndpoint, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      return true;
+    } catch {
+      this.session = null;
+      await safeRemove(this.storage, STORAGE_KEYS.session);
+      this.notify();
+      return false;
+    }
+  }
+
   async startLoginCodeChallenge(
     options: LoginCodeChallengeOptions,
   ): Promise<TwoFactorChallenge> {
@@ -532,7 +549,7 @@ export class DefaultAuthClient implements AuthClient {
           ? this.decodeTokenNonce(tokens.idToken)
           : null;
         const tokenNonce = claimsNonce ?? idClaimsNonce;
-        if (tokenNonce !== null && !timingSafeEqual(storedNonce, tokenNonce)) {
+        if (tokenNonce === null || !timingSafeEqual(storedNonce, tokenNonce)) {
           throw new AuthError(
             AuthErrorCode.TOKEN_EXCHANGE_FAILED,
             'Nonce validation failed — possible token replay attack',

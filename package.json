@@ -1,6 +1,6 @@
 {
   "name": "@nuria-tech/auth-sdk",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "Browser OAuth 2.0 Authorization Code + PKCE client SDK with support for password, Google, and 2FA login flows",
   "license": "MIT",
   "author": "Nuria Tech",

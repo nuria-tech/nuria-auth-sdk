@@ -69,6 +69,7 @@ function createMockAuth() {
     hasRole: vi.fn(() => false),
     hasGroup: vi.fn(() => false),
     getUserinfo: vi.fn(async () => ({})),
+    checkSession: vi.fn(async () => true),
     resetPassword: vi.fn(async () => {}),
     recoverPassword: vi.fn(async () => {}),
     changePassword: vi.fn(async () => {}),

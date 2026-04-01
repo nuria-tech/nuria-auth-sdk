@@ -354,6 +354,65 @@ describe('createAuthClient', () => {
     expect(calls[0]![0]).toBe('https://ms-auth-v2.nuria.com.br/v2/oauth/userinfo');
   });
 
+  it('checkSession returns false when not authenticated', async () => {
+    const client = createAuthClient(BASE_CONFIG);
+    expect(await client.checkSession()).toBe(false);
+  });
+
+  it('checkSession returns true when server responds 200', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.set(
+      'nuria:session',
+      JSON.stringify({ tokens: { accessToken: 'tok' }, createdAt: Date.now() }),
+    );
+    const transport = makeMockTransport({ sub: 'user-123' });
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      storage,
+      transport,
+      userinfoEndpoint: 'https://auth.example.com/userinfo',
+    });
+    expect(await client.checkSession()).toBe(true);
+  });
+
+  it('checkSession clears session and returns false when server rejects token', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.set(
+      'nuria:session',
+      JSON.stringify({ tokens: { accessToken: 'tok' }, createdAt: Date.now() }),
+    );
+    const transport = {
+      request: vi.fn().mockRejectedValue(new Error('Unauthorized')),
+    };
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      storage,
+      transport,
+      userinfoEndpoint: 'https://auth.example.com/userinfo',
+    });
+    expect(await client.checkSession()).toBe(false);
+    expect(client.isAuthenticated()).toBe(false);
+    expect(client.getSession()).toBeNull();
+  });
+
+  it('checkSession falls back to isAuthenticated when no userinfoEndpoint', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.set(
+      'nuria:session',
+      JSON.stringify({ tokens: { accessToken: 'tok', expiresAt: Date.now() + 60_000 }, createdAt: Date.now() }),
+    );
+    const client = createAuthClient({
+      clientId: 'test-client',
+      baseUrl: 'https://auth.example.com',
+      authorizationEndpoint: 'https://auth.example.com/authorize',
+      tokenEndpoint: 'https://auth.example.com/token',
+      redirectUri: 'https://app.example.com/callback',
+      userinfoEndpoint: undefined,
+      storage,
+    });
+    expect(await client.checkSession()).toBe(true);
+  });
+
   it('handleRedirectCallback throws on error param', async () => {
     const client = createAuthClient(BASE_CONFIG);
     await expect(

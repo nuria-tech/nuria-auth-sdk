@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.2.0] - 2026-04-01
+
+### Added
+
+- `checkSession()` — validates the current session against the server via `userinfoEndpoint`. Clears the local session and notifies `onAuthStateChanged` listeners if the server rejects the token. Falls back to `isAuthenticated()` when `userinfoEndpoint` is not configured. Useful for detecting server-side revocation or deactivated users without waiting for a 401 on a regular API call.
+
+### Fixed
+
+- **Nonce validation bypass**: when `storedNonce` was present but neither the access token nor the ID token contained a nonce claim, the validation was silently skipped. It now throws `TOKEN_EXCHANGE_FAILED` if the nonce is missing from the server response, preventing potential token replay attacks.
+
+---
+
 ## [1.1.1] - 2026-03-18
 
 ### Security

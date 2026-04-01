@@ -275,6 +275,29 @@ interface AuthConfig {
 | `WebStorageAdapter(localStorage)` | Yes | Yes | No |
 | `CookieStorageAdapter` | Configurable | Depends on cookie flags | Yes |
 
+## Session health check
+
+`checkSession()` validates the current session against the server by calling the `userinfoEndpoint`. Use it to detect revoked tokens or deactivated users without waiting for a 401 on a regular request.
+
+```ts
+const valid = await auth.checkSession();
+if (!valid) {
+  // session was invalidated server-side — redirect to login
+}
+```
+
+If the server rejects the token, the local session is cleared and `onAuthStateChanged` listeners are notified. If `userinfoEndpoint` is not configured, falls back to `isAuthenticated()`.
+
+Typical usage: poll every few minutes to catch server-side revocation.
+
+```ts
+setInterval(async () => {
+  if (!auth.isAuthenticated()) return;
+  const valid = await auth.checkSession();
+  if (!valid) router.navigate(['/signin']);
+}, 5 * 60 * 1000);
+```
+
 ## Security notes
 
 - Do not use `clientSecret` in browser/mobile apps.
@@ -304,6 +327,7 @@ interface AuthClient {
   hasRole(role: string): boolean;
   hasGroup(group: string): boolean;
   getUserinfo(): Promise<Record<string, unknown>>;
+  checkSession(): Promise<boolean>;
   startLoginCodeChallenge(options: LoginCodeChallengeOptions): Promise<TwoFactorChallenge>;
   verifyLoginCode(options: VerifyLoginCodeOptions): Promise<Session>;
   loginWithCodeSent(options: LoginCodeChallengeOptions): Promise<TwoFactorChallenge>;

@@ -145,6 +145,7 @@ export interface AuthClient {
   hasRole(role: string): boolean;
   hasGroup(group: string): boolean;
   getUserinfo(): Promise<Record<string, unknown>>;
+  checkSession(): Promise<boolean>;
   startLoginCodeChallenge(
     options: LoginCodeChallengeOptions,
   ): Promise<TwoFactorChallenge>;
