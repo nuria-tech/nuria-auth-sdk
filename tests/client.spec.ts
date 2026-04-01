@@ -582,20 +582,19 @@ describe('AuthClient', () => {
     expect(await storage.get('nuria:oauth:nonce')).toBeTruthy();
   });
 
-  it('handleRedirectCallback accepts token without nonce claim when nonce was stored', async () => {
+  it('handleRedirectCallback rejects token without nonce claim when nonce was stored', async () => {
     const storage = new MemoryStorageAdapter();
     await storage.set('nuria:oauth:state', 'st');
     await storage.set('nuria:oauth:code_verifier', 'vf');
     await storage.set('nuria:oauth:nonce', 'my-nonce');
 
-    // Server returns a plain token with no nonce claim — should succeed (graceful)
+    // Server returns a plain token with no nonce claim — must be rejected
     const transport = makeMockTransport({ access_token: 'plain-token' });
     const client = createAuthClient({ ...BASE_CONFIG, storage, transport });
 
-    const session = await client.handleRedirectCallback(
-      'https://app.example.com/callback?code=c&state=st',
-    );
-    expect(session.tokens.accessToken).toBe('plain-token');
+    await expect(
+      client.handleRedirectCallback('https://app.example.com/callback?code=c&state=st'),
+    ).rejects.toMatchObject({ code: AuthErrorCode.TOKEN_EXCHANGE_FAILED });
   });
 
   it('handleRedirectCallback rejects when token nonce does not match stored nonce', async () => {
@@ -636,7 +635,8 @@ describe('AuthClient', () => {
     await storage.set('nuria:oauth:code_verifier', 'vf');
     await storage.set('nuria:oauth:nonce', 'n1');
 
-    const transport = makeMockTransport({ access_token: 'tok' });
+    const token = makeJwt({ sub: 'user-1', nonce: 'n1' });
+    const transport = makeMockTransport({ access_token: token });
     const client = createAuthClient({ ...BASE_CONFIG, storage, transport });
 
     await client.handleRedirectCallback('https://app.example.com/callback?code=c&state=st');

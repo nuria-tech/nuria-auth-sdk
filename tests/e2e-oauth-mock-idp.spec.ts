@@ -7,6 +7,12 @@ import {
 } from 'node:http';
 import { createAuthClient } from '../src';
 
+function makeJwt(payload: Record<string, unknown>): string {
+  const enc = (obj: unknown) =>
+    Buffer.from(JSON.stringify(obj)).toString('base64url');
+  return `${enc({ alg: 'none', typ: 'JWT' })}.${enc(payload)}.`;
+}
+
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -21,6 +27,7 @@ describe('e2e oauth flow with mock idp', () => {
   let baseUrl = '';
   let redirectUrl = '';
   let latestCode = '';
+  let latestNonce = '';
   let refreshCalls = 0;
 
   beforeAll(async () => {
@@ -36,6 +43,7 @@ describe('e2e oauth flow with mock idp', () => {
           return;
         }
 
+        latestNonce = requestUrl.searchParams.get('nonce') ?? '';
         latestCode = `code-${Date.now()}`;
         const callback = new URL(redirectUri);
         callback.searchParams.set('code', latestCode);
@@ -62,7 +70,7 @@ describe('e2e oauth flow with mock idp', () => {
           res.setHeader('content-type', 'application/json');
           res.end(
             JSON.stringify({
-              access_token: 'access-initial',
+              access_token: makeJwt({ sub: 'e2e-user', nonce: latestNonce }),
               refresh_token: 'refresh-initial',
               token_type: 'Bearer',
               expires_in: 1,
@@ -148,7 +156,7 @@ describe('e2e oauth flow with mock idp', () => {
     expect(callbackUrl).toContain('/app/callback');
 
     await auth.handleRedirectCallback(callbackUrl ?? '');
-    expect(auth.getSession()?.tokens.accessToken).toBe('access-initial');
+    expect(auth.getSession()?.tokens.accessToken).toBeTruthy();
 
     now = 3_000;
     const refreshedToken = await auth.getAccessToken();

@@ -395,20 +395,21 @@ describe('createAuthClient', () => {
     expect(client.getSession()).toBeNull();
   });
 
-  it('checkSession falls back to isAuthenticated when no userinfoEndpoint', async () => {
+  it('checkSession returns true when session is valid and userinfo succeeds', async () => {
     const storage = new MemoryStorageAdapter();
     await storage.set(
       'nuria:session',
       JSON.stringify({ tokens: { accessToken: 'tok', expiresAt: Date.now() + 60_000 }, createdAt: Date.now() }),
     );
+    const transport = makeMockTransport({});
     const client = createAuthClient({
       clientId: 'test-client',
       baseUrl: 'https://auth.example.com',
       authorizationEndpoint: 'https://auth.example.com/authorize',
       tokenEndpoint: 'https://auth.example.com/token',
       redirectUri: 'https://app.example.com/callback',
-      userinfoEndpoint: undefined,
       storage,
+      transport,
     });
     expect(await client.checkSession()).toBe(true);
   });
