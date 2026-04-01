@@ -13,7 +13,7 @@ export default defineConfig({
   target: 'es2018',
   dts: true,
   clean: true,
-  sourcemap: true,
+  sourcemap: false,
   treeshake: true,
   splitting: false,
 });
