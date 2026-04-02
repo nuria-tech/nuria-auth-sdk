@@ -1,28 +1,28 @@
-import { AuthError, AuthErrorCode } from '../errors/auth-error';
 import { createCodeChallenge, randomString } from '../core/pkce';
+import type {
+  AuthClient,
+  AuthTransport,
+  GoogleLoginOptions,
+  LoginCodeChallengeOptions,
+  PasswordLoginOptions,
+  ResolvedAuthConfig,
+  Session,
+  StartLoginOptions,
+  TokenClaims,
+  TokenSet,
+  TwoFactorChallenge,
+  VerifyLoginCodeOptions,
+} from '../core/types';
 import {
   normalizeTokenSet,
   parseUrl,
   safeGet,
   safeRemove,
   safeSet,
-  timingSafeEqual,
   STORAGE_KEYS,
+  timingSafeEqual,
 } from '../core/utils';
-import type {
-  AuthClient,
-  ResolvedAuthConfig,
-  Session,
-  StartLoginOptions,
-  LoginCodeChallengeOptions,
-  GoogleLoginOptions,
-  PasswordLoginOptions,
-  VerifyLoginCodeOptions,
-  TwoFactorChallenge,
-  TokenClaims,
-  TokenSet,
-  AuthTransport,
-} from '../core/types';
+import { AuthError, AuthErrorCode } from '../errors/auth-error';
 import { MemoryStorageAdapter } from '../storage/memory-storage-adapter';
 import { FetchAuthTransport } from '../transport/fetch-transport';
 
@@ -36,6 +36,8 @@ export class DefaultAuthClient implements AuthClient {
   private readonly transport: AuthTransport;
   private readonly now: () => number;
   private readonly channel: BroadcastChannel | null;
+  private silentRefreshTimer: ReturnType<typeof setInterval> | null = null;
+  private removeVisibilityListener: (() => void) | null = null;
 
   constructor(private readonly config: ResolvedAuthConfig) {
     this.storage = config.storage ?? new MemoryStorageAdapter();
@@ -63,6 +65,9 @@ export class DefaultAuthClient implements AuthClient {
   async init(): Promise<void> {
     await this.hydrateSession();
     this.notify(false); // local hydration only — don't broadcast to other tabs
+    if (this.config.enableRefreshToken && typeof setInterval !== 'undefined') {
+      this.startSilentRefresh();
+    }
   }
 
   async startLogin(options: StartLoginOptions = {}): Promise<void> {
@@ -182,7 +187,7 @@ export class DefaultAuthClient implements AuthClient {
     }
     if (!this.session) return null;
     const exp = this.session.tokens.expiresAt;
-    if (exp && exp - 30_000 <= this.now()) {
+    if (exp && exp - 120_000 <= this.now()) {
       if (this.config.enableRefreshToken) {
         if (!this.refreshPromise) {
           this.refreshPromise = this.doRefresh().finally(() => {
@@ -207,6 +212,7 @@ export class DefaultAuthClient implements AuthClient {
   }
 
   async logout(): Promise<void> {
+    this.stopSilentRefresh();
     this.session = null;
     await safeRemove(this.storage, STORAGE_KEYS.session);
     await safeRemove(this.storage, STORAGE_KEYS.state);
@@ -465,6 +471,40 @@ export class DefaultAuthClient implements AuthClient {
       headers: { Authorization: `Bearer ${options.token}` },
       body: { newPassword: options.newPassword },
     });
+  }
+
+  startSilentRefresh(intervalMs?: number): void {
+    this.stopSilentRefresh();
+
+    const ms = intervalMs ?? this.config.silentRefreshIntervalMs ?? 60_000;
+
+    this.silentRefreshTimer = setInterval(() => {
+      if (this.session) {
+        this.getAccessToken().catch(() => {
+          // silent fail
+        });
+      }
+    }, ms);
+
+    if (typeof document !== 'undefined') {
+      const handler = () => {
+        if (document.visibilityState === 'visible' && this.session) {
+          this.getAccessToken().catch(() => {});
+        }
+      };
+      document.addEventListener('visibilitychange', handler);
+      this.removeVisibilityListener = () =>
+        document.removeEventListener('visibilitychange', handler);
+    }
+  }
+
+  stopSilentRefresh(): void {
+    if (this.silentRefreshTimer !== null) {
+      clearInterval(this.silentRefreshTimer);
+      this.silentRefreshTimer = null;
+    }
+    this.removeVisibilityListener?.();
+    this.removeVisibilityListener = null;
   }
 
   async changePassword(options: {

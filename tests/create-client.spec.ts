@@ -399,7 +399,7 @@ describe('createAuthClient', () => {
     const storage = new MemoryStorageAdapter();
     await storage.set(
       'nuria:session',
-      JSON.stringify({ tokens: { accessToken: 'tok', expiresAt: Date.now() + 60_000 }, createdAt: Date.now() }),
+      JSON.stringify({ tokens: { accessToken: 'tok', expiresAt: Date.now() + 300_000 }, createdAt: Date.now() }),
     );
     const transport = makeMockTransport({});
     const client = createAuthClient({
