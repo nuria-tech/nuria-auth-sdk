@@ -1,8 +1,10 @@
+import { firstValueFrom, from } from 'rxjs';
 import { describe, expect, it, vi } from 'vitest';
-import { from } from 'rxjs';
-import { firstValueFrom } from 'rxjs';
+import {
+  createAngularAuthFacade,
+  createBearerInterceptor,
+} from '../src/angular';
 import type { AuthClient, Session } from '../src/core/types';
-import { createAngularAuthFacade, createBearerInterceptor } from '../src/angular';
 
 function createMockAuth() {
   let session: Session | null = null;
@@ -77,6 +79,8 @@ function createMockAuth() {
     resetPassword: vi.fn(async () => {}),
     recoverPassword: vi.fn(async () => {}),
     changePassword: vi.fn(async () => {}),
+    startSilentRefresh: vi.fn(),
+    stopSilentRefresh: vi.fn(),
   };
 
   return { auth, unsubscribe };
@@ -89,11 +93,17 @@ describe('angular entrypoint', () => {
 
     const events: string[] = [];
     const sub = facade.state$.subscribe((state) => {
-      events.push(state.isLoading ? 'loading' : state.session?.tokens.accessToken ?? 'none');
+      events.push(
+        state.isLoading
+          ? 'loading'
+          : (state.session?.tokens.accessToken ?? 'none'),
+      );
     });
 
     await facade.refresh();
-    expect(facade.snapshot().session?.tokens.accessToken).toBe('token-from-refresh');
+    expect(facade.snapshot().session?.tokens.accessToken).toBe(
+      'token-from-refresh',
+    );
     expect(events).toContain('token-from-refresh');
 
     sub.unsubscribe();
@@ -145,7 +155,13 @@ describe('angular entrypoint', () => {
 
 describe('createBearerInterceptor', () => {
   function makeReq(url = 'https://api.example.com/data') {
-    return { url, clone: vi.fn((updates: { setHeaders: Record<string, string> }) => ({ ...updates, url })) } as unknown as Parameters<ReturnType<typeof createBearerInterceptor>>[0];
+    return {
+      url,
+      clone: vi.fn((updates: { setHeaders: Record<string, string> }) => ({
+        ...updates,
+        url,
+      })),
+    } as unknown as Parameters<ReturnType<typeof createBearerInterceptor>>[0];
   }
 
   it('attaches Authorization header when token is available', async () => {

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import React, { createElement } from 'react';
+import { createElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { AuthClient, Session } from '../src/core/types';
 import { AuthProvider, useAuth, useAuthSession } from '../src/react';
@@ -75,6 +75,8 @@ function createMockAuthClient(): AuthClient {
     getClaims: vi.fn(() => null),
     hasRole: vi.fn(() => false),
     hasGroup: vi.fn(() => false),
+    startSilentRefresh: vi.fn(),
+    stopSilentRefresh: vi.fn(),
   };
 }
 
@@ -100,7 +102,9 @@ describe('react hooks integration', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('loading').textContent).toBe('false');
-      expect(screen.getByTestId('token').textContent).toBe('token-from-hydrate');
+      expect(screen.getByTestId('token').textContent).toBe(
+        'token-from-hydrate',
+      );
     });
 
     await auth.logout();
@@ -159,10 +163,10 @@ describe('react hooks integration', () => {
     }
 
     render(
-      createElement(
-        AuthProvider,
-        { auth, children: createElement(TestComponent) },
-      ),
+      createElement(AuthProvider, {
+        auth,
+        children: createElement(TestComponent),
+      }),
     );
 
     fireEvent.click(screen.getByTestId('login'));
