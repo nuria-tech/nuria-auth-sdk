@@ -12,7 +12,7 @@
     "resolveJsonModule": true,
     "types": ["node"],
     "noUncheckedIndexedAccess": true,
-    //"ignoreDeprecations": "6.0",
+    "ignoreDeprecations": "6.0",
     "outDir": "dist"
   },
   "include": ["src", "tests"]
