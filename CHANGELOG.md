@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.1] - 2026-04-02
+
+### Changed
+
+- Production package build is now minified for all public runtime entrypoints.
+- Added packaging verification in CI to assert published entrypoints are emitted, minified, and packed without `src/`, `tests/`, or coverage artifacts.
+- Aligned repository package metadata for the `2.x` line by updating the npm lockfile version from the stale `1.2.1` value.
+
+---
+
 ## [2.0.0] - 2026-04-01
 
 ### Breaking Changes
