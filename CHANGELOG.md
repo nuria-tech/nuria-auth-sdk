@@ -4,6 +4,47 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.0] - 2026-04-01
+
+### Breaking Changes
+
+- **`logout()` no longer accepts options or calls the server.** It now only clears the local session (storage + in-memory state) and notifies `onAuthStateChanged` listeners. No network call is made. No redirect happens.
+- **`globalLogout(options?)` is the new method for full sign-out.** It calls `logout()` first, then calls the `logoutEndpoint` (if configured) and redirects. `returnTo` validation rules are unchanged (https-only, localhost exception).
+
+  Migration guide:
+
+  ```ts
+  // Before (v1.x)
+  await auth.logout({ returnTo: 'https://app.example.com' }); // called server + redirect
+
+  // After (v2.0.0)
+  await auth.logout();                                          // local only
+  await auth.globalLogout({ returnTo: 'https://app.example.com' }); // server + redirect
+  ```
+
+### Added
+
+- `globalLogout(options?: { returnTo?: string }): Promise<void>` — clears the local session and calls the configured `logoutEndpoint`, then redirects. Accepts the same `returnTo` validation as the old `logout()`.
+- `extractRoles(...sources)` — extracts role strings from JWT claims or verify-context objects; handles comma-separated strings, arrays, and MS WS-Federation schema variants. Exported from the main entrypoint.
+- `extractCompanyOrigin(...sources)` — extracts the company origin ID string from JWT claims or verify-context objects. Returns `string` (empty string when absent). Exported from the main entrypoint.
+- `buildOAuthAuthorizeUrl(params)` — builds a `/v2/oauth/authorize` URL with a `session_token` parameter for IdP-side redirect flows. Exported from the main entrypoint.
+- Google OAuth utilities exported from the main entrypoint:
+  - `startGoogleLogin(options)` — generates a nonce, persists it to `sessionStorage`, and redirects to Google's OAuth endpoint.
+  - `parseGoogleHashCallback(hash)` — extracts `id_token` from a URL hash fragment and stores it as `pendingIdToken` in `sessionStorage`.
+  - `consumePendingGoogleIdToken()` — reads and removes the pending Google ID token from `sessionStorage`.
+  - `GOOGLE_STORAGE_KEYS` — constant storage key names used by the Google utilities.
+
+### Deprecated
+
+- **`loginWithPassword()`** — use `startLoginCodeChallenge()` + `verifyLoginCode()` (or their aliases `loginWithCodeSent()` / `completeLoginWithCode()`) instead. The method remains functional but is marked `@deprecated` and will be removed in a future major version.
+
+### Changed
+
+- Angular facade (`createAngularAuthFacade`): `logout()` delegates to local-only `auth.logout()`; new `globalLogout(options?)` delegates to `auth.globalLogout(options)`.
+- React facade (`AuthProvider` / `useAuth`): same split — `logout()` is local only; `globalLogout(options?)` calls the server.
+
+---
+
 ## [1.2.1] - 2026-04-01
 
 ### Fixed

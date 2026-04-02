@@ -138,7 +138,10 @@ export interface AuthClient {
   handleRedirectCallback(callbackUrl?: string): Promise<Session>;
   getSession(): Session | null;
   getAccessToken(): Promise<string | null>;
-  logout(options?: { returnTo?: string }): Promise<void>;
+  /** Clears the local session only (storage + in-memory). No server call, no redirect. */
+  logout(): Promise<void>;
+  /** Clears the local session AND calls the server logout endpoint, then redirects. */
+  globalLogout(options?: { returnTo?: string }): Promise<void>;
   isAuthenticated(): boolean;
   onAuthStateChanged(handler: (session: Session | null) => void): () => void;
   getClaims(): TokenClaims | null;
@@ -155,6 +158,7 @@ export interface AuthClient {
   ): Promise<TwoFactorChallenge>;
   completeLoginWithCode(options: VerifyLoginCodeOptions): Promise<Session>;
   loginWithGoogle(options: GoogleLoginOptions): Promise<Session>;
+  /** @deprecated Use `loginWithCodeSent` / `startLoginCodeChallenge` instead. */
   loginWithPassword(options: PasswordLoginOptions): Promise<Session>;
   resetPassword(options: { email: string }): Promise<void>;
   recoverPassword(options: {

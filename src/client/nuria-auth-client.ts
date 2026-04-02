@@ -206,7 +206,16 @@ export class DefaultAuthClient implements AuthClient {
     return this.session?.tokens.accessToken ?? null;
   }
 
-  async logout(options?: { returnTo?: string }): Promise<void> {
+  async logout(): Promise<void> {
+    this.session = null;
+    await safeRemove(this.storage, STORAGE_KEYS.session);
+    await safeRemove(this.storage, STORAGE_KEYS.state);
+    await safeRemove(this.storage, STORAGE_KEYS.nonce);
+    await safeRemove(this.storage, STORAGE_KEYS.codeVerifier);
+    this.notify();
+  }
+
+  async globalLogout(options?: { returnTo?: string }): Promise<void> {
     if (options?.returnTo) {
       let returnToUrl: URL;
       try {
@@ -217,7 +226,6 @@ export class DefaultAuthClient implements AuthClient {
           'returnTo must be a valid absolute URL',
         );
       }
-
       const isHttps = returnToUrl.protocol === 'https:';
       const isLocalHttp =
         returnToUrl.protocol === 'http:' &&
@@ -238,12 +246,7 @@ export class DefaultAuthClient implements AuthClient {
       }
     }
 
-    this.session = null;
-    await safeRemove(this.storage, STORAGE_KEYS.session);
-    await safeRemove(this.storage, STORAGE_KEYS.state);
-    await safeRemove(this.storage, STORAGE_KEYS.nonce);
-    await safeRemove(this.storage, STORAGE_KEYS.codeVerifier);
-    this.notify();
+    await this.logout();
 
     if (this.config.logoutEndpoint) {
       const url = new URL(this.config.logoutEndpoint);
@@ -488,6 +491,7 @@ export class DefaultAuthClient implements AuthClient {
     });
   }
 
+  /** @deprecated Use `loginWithCodeSent` / `startLoginCodeChallenge` instead. */
   async loginWithPassword(options: PasswordLoginOptions): Promise<Session> {
     if (!options?.email || !options?.password) {
       throw new AuthError(

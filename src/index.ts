@@ -9,6 +9,19 @@ export {
 export { FetchAuthTransport } from './transport/fetch-transport';
 export { AuthError, AuthErrorCode } from './errors/auth-error';
 
+export { extractRoles, extractCompanyOrigin } from './utils/claims';
+export {
+  buildOAuthAuthorizeUrl,
+  type OAuthAuthorizeParams,
+} from './utils/oauth';
+export {
+  startGoogleLogin,
+  parseGoogleHashCallback,
+  consumePendingGoogleIdToken,
+  GOOGLE_STORAGE_KEYS,
+  type StartGoogleLoginOptions,
+} from './utils/google';
+
 export type {
   AuthTransport,
   AuthTransportRequest,

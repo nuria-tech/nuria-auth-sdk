@@ -4,7 +4,8 @@
 
 | Version | Supported |
 |---------|-----------|
-| 1.x     | Yes       |
+| 2.x     | Yes       |
+| 1.x     | No        |
 
 ## Reporting a Vulnerability
 
@@ -62,7 +63,8 @@ This SDK runs entirely in browser/client environments (public OAuth 2.0 client).
 ### Endpoint and URL Security
 
 - All endpoints (`baseUrl`, `authorizationEndpoint`, `tokenEndpoint`, `userinfoEndpoint`) and `redirectUri` must use `https://`. HTTP is only permitted for `localhost`, `127.0.0.1`, and `[::1]` (enforced in `createAuthClient`). An invalid or non-https `redirectUri` throws `INVALID_CONFIG` at construction time.
-- `logout({ returnTo })`:
+- `logout()` — clears local session only (storage + in-memory); no server call, no redirect. Safe to call at any time.
+- `globalLogout({ returnTo })` — calls `logout()`, then calls the configured `logoutEndpoint` and redirects. `returnTo` validation:
   - accepts `https://` URLs
   - accepts `http://` only for local development hosts (`localhost`, `127.0.0.1`, `[::1]`)
   - rejects protocol-relative URLs, `javascript:` URLs, and URLs with embedded credentials

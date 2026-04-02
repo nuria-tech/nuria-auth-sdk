@@ -37,6 +37,10 @@ src/
     cookie-storage-adapter.ts     # Cookie-based (for SSR)
     browser-cookie-storage.ts     # Browser cookie helpers
   transport/fetch-transport.ts    # FetchAuthTransport (fetch + retries)
+  utils/
+    claims.ts                     # extractRoles(), extractCompanyOrigin()
+    oauth.ts                      # buildOAuthAuthorizeUrl()
+    google.ts                     # startGoogleLogin(), parseGoogleHashCallback(), consumePendingGoogleIdToken(), GOOGLE_STORAGE_KEYS
   react/                          # useAuthSession, AuthProvider, useAuth
   vue/                            # useAuthSession (Vue 3 composable)
   nuxt/                           # createNuxtAuthClient(), createNuxtCookieStorageAdapter()
@@ -49,7 +53,7 @@ tests/                            # Vitest test suite (*.spec.ts)
 
 | Import | File | Contents |
 |--------|------|----------|
-| `@nuria-tech/auth-sdk` | `dist/index.js` | `createAuthClient`, storage adapters, transport, errors, types |
+| `@nuria-tech/auth-sdk` | `dist/index.js` | `createAuthClient`, storage adapters, transport, errors, types, `extractRoles`, `extractCompanyOrigin`, `buildOAuthAuthorizeUrl`, Google OAuth helpers |
 | `@nuria-tech/auth-sdk/react` | `dist/react.js` | `useAuthSession`, `AuthProvider`, `useAuth` |
 | `@nuria-tech/auth-sdk/vue` | `dist/vue.js` | `useAuthSession` |
 | `@nuria-tech/auth-sdk/nuxt` | `dist/nuxt.js` | `createNuxtAuthClient`, `createNuxtCookieStorageAdapter` |
@@ -72,12 +76,14 @@ tests/                            # Vitest test suite (*.spec.ts)
 | Method | Backend endpoint | Input |
 |--------|-----------------|-------|
 | `startLogin()` + `handleRedirectCallback()` | `/v2/oauth/authorize` → `/v2/oauth/token` | PKCE redirect |
-| `loginWithPassword({ email, password })` | `POST /v2/login` | Direct |
+| ~~`loginWithPassword({ email, password })`~~ _(deprecated)_ | `POST /v2/login` | Direct |
 | `loginWithGoogle({ idToken })` | `POST /v2/google` | Google ID token |
 | `loginWithCodeSent()` + `completeLoginWithCode()` | `/v2/login-code/challenge` → `/v2/2fa/verify-login` | 2FA |
 | `resetPassword({ email })` | `POST /v2/password/reset` | Public — sends reset email |
 | `recoverPassword({ token, newPassword })` | `POST /v2/password/recover` | Recovery token in `Authorization: Bearer` header |
 | `changePassword({ oldPassword, newPassword })` | `PATCH /v2/me/password` | Requires active session |
+| `logout()` | — (local only) | Clears storage + notifies listeners; no server call |
+| `globalLogout({ returnTo? })` | `logoutEndpoint` (configurable) | Calls `logout()` then redirects to server logout |
 
 ## Storage Keys (localStorage / cookie)
 
@@ -103,7 +109,8 @@ tests/                            # Vitest test suite (*.spec.ts)
 - If refresh fails (e.g. 401 from backend), session is cleared and `null` is returned — no crash
 - Concurrent refresh calls are deduplicated via `refreshPromise`
 - Cross-tab sync via `BroadcastChannel('nuria:auth:sync')` — fires on login/logout; `init()` does NOT broadcast; incoming messages are shape-validated before being applied
-- `logout({ returnTo })` only accepts `https://` URLs (or `http://localhost`)
+- `logout()` clears local session only — no server call, no redirect
+- `globalLogout({ returnTo })` calls `logout()` then calls `logoutEndpoint` and redirects; `returnTo` only accepts `https://` URLs (or `http://localhost`)
 
 ## Adding a New Framework Integration
 

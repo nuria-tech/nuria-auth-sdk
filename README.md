@@ -52,7 +52,7 @@ Published on [npm](https://www.npmjs.com/package/@nuria-tech/auth-sdk).
 
 ## Entrypoints
 
-- `@nuria-tech/auth-sdk`: core client + adapters
+- `@nuria-tech/auth-sdk`: core client + adapters + utilities (`extractRoles`, `extractCompanyOrigin`, `buildOAuthAuthorizeUrl`, Google OAuth helpers)
 - `@nuria-tech/auth-sdk/react`: `useAuthSession`, `AuthProvider`, `useAuth`
 - `@nuria-tech/auth-sdk/vue`: `useAuthSession` composable
 - `@nuria-tech/auth-sdk/nuxt`: Nuxt cookie adapter helpers
@@ -64,8 +64,8 @@ Published on [npm](https://www.npmjs.com/package/@nuria-tech/auth-sdk).
 | Flow | Backend endpoint(s) | SDK method(s) | Result |
 |---|---|---|---|
 | Google | `POST /v2/google` | `loginWithGoogle(...)` | `Session` tokens |
-| Login + password | `POST /v2/login` | `loginWithPassword(...)` | `Session` tokens |
 | Code sent (default) | `POST /v2/login-code/challenge` + `POST /v2/2fa/verify-login` | `loginWithCodeSent(...)` + `completeLoginWithCode(...)` | `Session` tokens after code verify |
+| Login + password _(deprecated)_ | `POST /v2/login` | `loginWithPassword(...)` | `Session` tokens |
 | Password reset request | `POST /v2/password/reset` | `resetPassword({ email })` | `void` — sends reset email |
 | Password recovery | `POST /v2/password/recover` | `recoverPassword({ token, newPassword })` | `void` — resets password using token |
 | Change password | `PATCH /v2/me/password` | `changePassword({ oldPassword, newPassword })` | `void` — requires active session |
@@ -228,8 +228,14 @@ export class AuthService {
     return this.facade.login();
   }
 
+  /** Clears local session only — no server call. */
   logout() {
     return this.facade.logout();
+  }
+
+  /** Clears local session + calls server logout endpoint, then redirects. */
+  globalLogout(returnTo?: string) {
+    return this.facade.globalLogout({ returnTo });
   }
 }
 ```
@@ -303,8 +309,8 @@ setInterval(async () => {
 - Do not use `clientSecret` in browser/mobile apps.
 - Prefer memory storage when possible.
 - Keep refresh on cookies (`HttpOnly`) server-side when available.
-- `logout({ returnTo })` accepts `https://` URLs, plus `http://localhost|127.0.0.1|[::1]` for local dev only.
-- `logout({ returnTo })` rejects URLs with embedded credentials (`user:pass@host`).
+- `logout()` clears the local session only — no server call, no redirect. Use this for in-app sign-out where the user stays in the same app.
+- `globalLogout({ returnTo })` calls the server logout endpoint and redirects. `returnTo` must be `https://` (or `http://localhost` for dev); URLs with embedded credentials are rejected.
 - `isAuthenticated()` returns `true` when the token is expired but `enableRefreshToken: true` — `getAccessToken()` will silently renew it.
 - `getClaims()` decodes the JWT payload client-side via `atob()` without verifying the signature — trust comes from the server that issued the token.
 - Browser cookie storage encodes/decodes values safely (`encodeURIComponent`/`decodeURIComponent`).
@@ -320,7 +326,10 @@ interface AuthClient {
   handleRedirectCallback(callbackUrl?: string): Promise<Session>;
   getSession(): Session | null;
   getAccessToken(): Promise<string | null>;
-  logout(options?: { returnTo?: string }): Promise<void>;
+  /** Clears the local session only. No server call, no redirect. */
+  logout(): Promise<void>;
+  /** Clears the local session AND calls the server logout endpoint, then redirects. */
+  globalLogout(options?: { returnTo?: string }): Promise<void>;
   isAuthenticated(): boolean;
   onAuthStateChanged(handler: (session: Session | null) => void): () => void;
   getClaims(): TokenClaims | null;
@@ -333,6 +342,7 @@ interface AuthClient {
   loginWithCodeSent(options: LoginCodeChallengeOptions): Promise<TwoFactorChallenge>;
   completeLoginWithCode(options: VerifyLoginCodeOptions): Promise<Session>;
   loginWithGoogle(options: GoogleLoginOptions): Promise<Session>;
+  /** @deprecated Use loginWithCodeSent / startLoginCodeChallenge instead. */
   loginWithPassword(options: PasswordLoginOptions): Promise<Session>;
   resetPassword(options: { email: string }): Promise<void>;
   recoverPassword(options: { token: string; newPassword: string }): Promise<void>;

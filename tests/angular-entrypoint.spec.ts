@@ -56,6 +56,10 @@ function createMockAuth() {
       session = null;
       listeners.forEach((listener) => listener(session));
     }),
+    globalLogout: vi.fn(async () => {
+      session = null;
+      listeners.forEach((listener) => listener(session));
+    }),
     isAuthenticated: vi.fn(() => session !== null),
     onAuthStateChanged: vi.fn((handler) => {
       listeners.add(handler);
@@ -108,10 +112,12 @@ describe('angular entrypoint', () => {
     const facade = createAngularAuthFacade(auth);
 
     await facade.login();
-    await facade.logout({ returnTo: 'https://app.example.com' });
+    await facade.logout();
+    await facade.globalLogout({ returnTo: 'https://app.example.com' });
 
     expect(auth.startLogin).toHaveBeenCalledTimes(1);
-    expect(auth.logout).toHaveBeenCalledWith({
+    expect(auth.logout).toHaveBeenCalledTimes(1);
+    expect(auth.globalLogout).toHaveBeenCalledWith({
       returnTo: 'https://app.example.com',
     });
 

@@ -163,7 +163,7 @@ describe('e2e oauth flow with mock idp', () => {
     expect(refreshedToken).toBe('access-refresh-1');
     expect(refreshCalls).toBe(1);
 
-    await auth.logout({ returnTo: `${baseUrl}/app` });
+    await auth.globalLogout({ returnTo: `${baseUrl}/app` });
     expect(auth.getSession()).toBeNull();
     expect(capturedLogoutRedirect).toContain('/logout');
     expect(capturedLogoutRedirect).toContain('returnTo=');

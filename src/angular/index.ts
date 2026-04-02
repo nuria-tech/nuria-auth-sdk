@@ -15,7 +15,10 @@ export interface AngularAuthFacade {
   snapshot: () => AngularAuthState;
   refresh: () => Promise<Session | null>;
   login: () => Promise<void>;
-  logout: (options?: { returnTo?: string }) => Promise<void>;
+  /** Clears the local session only. No server call, no redirect. */
+  logout: () => Promise<void>;
+  /** Clears the local session AND calls the server logout endpoint, then redirects. */
+  globalLogout: (options?: { returnTo?: string }) => Promise<void>;
   destroy: () => void;
 }
 
@@ -73,7 +76,8 @@ export function createAngularAuthFacade(auth: AuthClient): AngularAuthFacade {
     snapshot: () => subject.value,
     refresh,
     login: () => auth.startLogin(),
-    logout: (options) => auth.logout(options),
+    logout: () => auth.logout(),
+    globalLogout: (options) => auth.globalLogout(options),
     destroy: () => {
       unsubscribe();
       subject.complete();

@@ -10,7 +10,10 @@ import { useAuthSession, type UseAuthSessionResult } from './use-auth-session';
 export interface AuthContextValue extends UseAuthSessionResult {
   auth: AuthClient;
   login: () => Promise<void>;
-  logout: (options?: { returnTo?: string }) => Promise<void>;
+  /** Clears the local session only. No server call, no redirect. */
+  logout: () => Promise<void>;
+  /** Clears the local session AND calls the server logout endpoint, then redirects. */
+  globalLogout: (options?: { returnTo?: string }) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -28,7 +31,8 @@ export function AuthProvider({
     ...state,
     auth,
     login: () => auth.startLogin(),
-    logout: (options) => auth.logout(options),
+    logout: () => auth.logout(),
+    globalLogout: (options) => auth.globalLogout(options),
   };
 
   return createElement(AuthContext.Provider, { value }, children);

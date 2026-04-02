@@ -224,7 +224,7 @@ describe('createAuthClient', () => {
     expect(handler.mock.calls.length).toBe(handler2ndCallCount);
   });
 
-  it('logout clears session and redirects to logoutEndpoint', async () => {
+  it('globalLogout clears session and redirects to logoutEndpoint', async () => {
     const storage = new MemoryStorageAdapter();
     await storage.set('nuria:oauth:state', 'st');
     await storage.set('nuria:oauth:code_verifier', 'vf');
@@ -244,38 +244,38 @@ describe('createAuthClient', () => {
     await client.handleRedirectCallback(
       'https://app.example.com/callback?code=c&state=st',
     );
-    await client.logout({ returnTo: 'https://app.example.com' });
+    await client.globalLogout({ returnTo: 'https://app.example.com' });
 
     expect(client.getSession()).toBeNull();
     expect(capturedLogoutUrl).toContain('https://auth.example.com/logout');
     expect(capturedLogoutUrl).toContain('returnTo=https');
   });
 
-  it('logout throws INVALID_CONFIG for protocol-relative returnTo', async () => {
+  it('globalLogout throws INVALID_CONFIG for protocol-relative returnTo', async () => {
     const client = createAuthClient(BASE_CONFIG);
     await expect(
-      client.logout({ returnTo: '//evil.com/steal' }),
+      client.globalLogout({ returnTo: '//evil.com/steal' }),
     ).rejects.toMatchObject({ code: AuthErrorCode.INVALID_CONFIG });
   });
 
-  it('logout throws INVALID_CONFIG for non-http returnTo', async () => {
+  it('globalLogout throws INVALID_CONFIG for non-http returnTo', async () => {
     const client = createAuthClient(BASE_CONFIG);
     await expect(
-      client.logout({ returnTo: 'javascript:alert(1)' }),
+      client.globalLogout({ returnTo: 'javascript:alert(1)' }),
     ).rejects.toMatchObject({ code: AuthErrorCode.INVALID_CONFIG });
   });
 
-  it('logout throws INVALID_CONFIG for non-localhost http returnTo', async () => {
+  it('globalLogout throws INVALID_CONFIG for non-localhost http returnTo', async () => {
     const client = createAuthClient(BASE_CONFIG);
     await expect(
-      client.logout({ returnTo: 'http://evil.example.com/path' }),
+      client.globalLogout({ returnTo: 'http://evil.example.com/path' }),
     ).rejects.toMatchObject({ code: AuthErrorCode.INVALID_CONFIG });
   });
 
-  it('logout accepts localhost http returnTo', async () => {
+  it('globalLogout accepts localhost http returnTo', async () => {
     const client = createAuthClient(BASE_CONFIG);
     await expect(
-      client.logout({ returnTo: 'http://localhost:3000/callback' }),
+      client.globalLogout({ returnTo: 'http://localhost:3000/callback' }),
     ).resolves.toBeUndefined();
   });
 
