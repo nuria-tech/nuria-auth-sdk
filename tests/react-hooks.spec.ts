@@ -57,6 +57,10 @@ function createMockAuthClient(): AuthClient {
       session = null;
       listeners.forEach((listener) => listener(session));
     }),
+    globalLogout: vi.fn(async () => {
+      session = null;
+      listeners.forEach((listener) => listener(session));
+    }),
     isAuthenticated: vi.fn(() => session !== null),
     onAuthStateChanged: vi.fn((handler: (next: Session | null) => void) => {
       listeners.add(handler);
