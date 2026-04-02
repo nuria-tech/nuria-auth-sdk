@@ -6,6 +6,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 const ROOT_DIR = join(import.meta.dirname, '..');
 const DIST_DIR = join(ROOT_DIR, 'dist');
 const ENTRYPOINTS = ['index', 'react', 'vue', 'nuxt', 'next', 'angular'] as const;
+const SHELL_PATH = process.platform === 'win32' ? (process.env.ComSpec ?? 'cmd.exe') : '/bin/sh';
 
 function countLines(contents: string) {
   return contents.split(/\r?\n/).length;
@@ -15,7 +16,7 @@ function npmPackDryRun() {
   const output = execSync('npm pack --json --dry-run', {
     cwd: ROOT_DIR,
     encoding: 'utf8',
-    shell: true,
+    shell: SHELL_PATH,
   });
 
   return JSON.parse(output) as Array<{
@@ -29,7 +30,7 @@ describe('published build artifacts', () => {
     execSync('pnpm build', {
       cwd: ROOT_DIR,
       stdio: 'inherit',
-      shell: true,
+      shell: SHELL_PATH,
     });
   }, 120_000);
 
