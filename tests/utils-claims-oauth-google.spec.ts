@@ -153,11 +153,10 @@ describe('startGoogleLogin', () => {
       onRedirect,
     });
     expect(onRedirect).toHaveBeenCalledOnce();
-    const url = onRedirect.mock.calls[0][0] as string;
-    expect(url).toContain('accounts.google.com');
-    expect(url).toContain('response_type=id_token');
-    expect(url).toContain('client_id=google-client');
-    expect(url).toContain('nonce=');
+    expect(onRedirect).toHaveBeenCalledWith(expect.stringContaining('accounts.google.com'));
+    expect(onRedirect).toHaveBeenCalledWith(expect.stringContaining('response_type=id_token'));
+    expect(onRedirect).toHaveBeenCalledWith(expect.stringContaining('client_id=google-client'));
+    expect(onRedirect).toHaveBeenCalledWith(expect.stringContaining('nonce='));
   });
 
   it('persists nonce and returnSearch to sessionStorage', () => {
