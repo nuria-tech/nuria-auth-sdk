@@ -1,6 +1,6 @@
-import { DefaultAuthClient } from './nuria-auth-client';
-import { AuthError, AuthErrorCode } from '../errors/auth-error';
 import type { AuthClient, AuthConfig, ResolvedAuthConfig } from '../core/types';
+import { AuthError, AuthErrorCode } from '../errors/auth-error';
+import { DefaultAuthClient } from './nuria-auth-client';
 
 const DEFAULT_AUTH_BASE_URL = 'https://ms-auth-v2.nuria.com.br';
 const DEFAULT_AUTHORIZATION_PATH = '/v2/oauth/authorize';
@@ -110,6 +110,7 @@ export function createAuthClient(config: AuthConfig): AuthClient {
     baseUrl,
     scope: String(config.scope ?? '').trim() || DEFAULT_SCOPE,
     enableRefreshToken: config.enableRefreshToken ?? true,
+    silentRefreshIntervalMs: config.silentRefreshIntervalMs ?? 60_000,
     authorizationEndpoint: resolveEndpoint(
       baseUrl,
       config.authorizationEndpoint,

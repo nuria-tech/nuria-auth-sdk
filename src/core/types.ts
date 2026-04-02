@@ -122,6 +122,7 @@ export interface AuthConfig {
   transport?: AuthTransport;
   onRedirect?: (url: string) => void | Promise<void>;
   enableRefreshToken?: boolean;
+  silentRefreshIntervalMs?: number;
   now?: () => number;
 }
 
@@ -130,6 +131,7 @@ export interface ResolvedAuthConfig extends AuthConfig {
   authorizationEndpoint: string;
   tokenEndpoint: string;
   userinfoEndpoint: string;
+  silentRefreshIntervalMs: number;
 }
 
 export interface AuthClient {
@@ -169,4 +171,6 @@ export interface AuthClient {
     oldPassword: string;
     newPassword: string;
   }): Promise<void>;
+  startSilentRefresh(intervalMs?: number): void;
+  stopSilentRefresh(): void;
 }
