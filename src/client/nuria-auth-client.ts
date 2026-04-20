@@ -42,6 +42,13 @@ export class DefaultAuthClient implements AuthClient {
   constructor(private readonly config: ResolvedAuthConfig) {
     this.storage = config.storage ?? new MemoryStorageAdapter();
     this.transport = config.transport ?? new FetchAuthTransport();
+    if (this.transport instanceof FetchAuthTransport) {
+      this.transport.addInterceptor({
+        onErrorResponse: async (status) => {
+          if (status === 401) await this.logout();
+        },
+      });
+    }
     this.now = config.now ?? (() => Date.now());
     this.channel =
       typeof BroadcastChannel !== 'undefined'

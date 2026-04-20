@@ -19,13 +19,17 @@ export class FetchAuthTransport implements AuthTransport {
   private readonly fetchFn: typeof fetch;
   private readonly timeoutMs?: number;
   private readonly retries: number;
-  private readonly interceptors: TransportInterceptor[];
+  private interceptors: TransportInterceptor[];
 
   constructor(options: FetchTransportOptions = {}) {
     this.fetchFn = options.fetchFn ?? ((input, init) => fetch(input, init));
     this.timeoutMs = options.timeoutMs;
     this.retries = options.retries ?? 0;
     this.interceptors = options.interceptors ?? [];
+  }
+
+  addInterceptor(i: TransportInterceptor): void {
+    this.interceptors = [...this.interceptors, i];
   }
 
   async request<T = unknown>(
@@ -70,6 +74,9 @@ export class FetchAuthTransport implements AuthTransport {
           if (attempt < retries && RETRYABLE_STATUS.has(res.status)) {
             attempt += 1;
             continue;
+          }
+          for (const i of this.interceptors) {
+            if (i.onErrorResponse) await i.onErrorResponse(res.status);
           }
           throw new AuthError(AuthErrorCode.HTTP_ERROR, `HTTP ${res.status}`);
         }

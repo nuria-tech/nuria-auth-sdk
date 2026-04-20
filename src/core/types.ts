@@ -107,6 +107,7 @@ export interface TransportInterceptor {
   onResponse?: <T>(
     res: AuthTransportResponse<T>,
   ) => Promise<AuthTransportResponse<T>> | AuthTransportResponse<T>;
+  onErrorResponse?: (status: number) => Promise<void> | void;
 }
 
 export interface AuthConfig {
