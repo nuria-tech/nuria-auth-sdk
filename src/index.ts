@@ -9,7 +9,13 @@ export {
 export { FetchAuthTransport } from './transport/fetch-transport';
 export { AuthError, AuthErrorCode } from './errors/auth-error';
 
-export { extractRoles, extractCompanyOrigin } from './utils/claims';
+export {
+  extractRoles,
+  extractCompanyOrigin,
+  extractAvatarUrl,
+  extractDisplayName,
+  getInitials,
+} from './utils/claims';
 export {
   buildOAuthAuthorizeUrl,
   type OAuthAuthorizeParams,

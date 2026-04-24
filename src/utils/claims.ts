@@ -56,3 +56,72 @@ export function extractCompanyOrigin(
   }
   return String(raw ?? '').trim();
 }
+
+/**
+ * Extracts the user avatar URL from one or more claim/verify objects.
+ * Handles multiple field name variants: avatar_url, avatarUrl, picture, photo.
+ * Returns an empty string when none are present.
+ */
+export function extractAvatarUrl(
+  ...sources: Array<Record<string, unknown> | null | undefined>
+): string {
+  for (const tokenData of sources) {
+    const raw =
+      tokenData?.avatar_url ??
+      tokenData?.avatarUrl ??
+      tokenData?.picture ??
+      tokenData?.photo ??
+      '';
+    const value = String(raw ?? '').trim();
+    if (value) return value;
+  }
+  return '';
+}
+
+/**
+ * Extracts the user's display name from one or more claim/verify objects.
+ * Falls back across the usual field variants: subject_name, subjectName,
+ * given_name, name, and finally the local part of the email.
+ */
+export function extractDisplayName(
+  ...sources: Array<Record<string, unknown> | null | undefined>
+): string {
+  for (const tokenData of sources) {
+    const raw =
+      tokenData?.subject_name ??
+      tokenData?.subjectName ??
+      tokenData?.given_name ??
+      tokenData?.name ??
+      '';
+    const value = String(raw ?? '').trim();
+    if (value) return value;
+  }
+  for (const tokenData of sources) {
+    const email = String(tokenData?.subject_email ?? tokenData?.email ?? '').trim();
+    if (email) {
+      const localPart = email.split('@')[0] ?? '';
+      if (localPart) return localPart;
+    }
+  }
+  return '';
+}
+
+/**
+ * Returns display initials for a name. Splits on whitespace and takes the
+ * first letter of up to `max` words, uppercased. If the name has a single
+ * word, returns only its first letter.
+ *
+ * Examples:
+ *  getInitials('Lucas Passos') // 'LP'
+ *  getInitials('Lucas')        // 'L'
+ *  getInitials('')             // ''
+ */
+export function getInitials(name: string | null | undefined, max = 2): string {
+  const source = String(name ?? '').trim();
+  if (!source) return '';
+  return source
+    .split(/\s+/)
+    .slice(0, Math.max(1, max))
+    .map((part) => part.charAt(0).toUpperCase())
+    .join('');
+}

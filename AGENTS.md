@@ -38,7 +38,7 @@ src/
     browser-cookie-storage.ts     # Browser cookie helpers
   transport/fetch-transport.ts    # FetchAuthTransport (fetch + retries)
   utils/
-    claims.ts                     # extractRoles(), extractCompanyOrigin()
+    claims.ts                     # extractRoles(), extractCompanyOrigin(), extractAvatarUrl(), extractDisplayName(), getInitials()
     oauth.ts                      # buildOAuthAuthorizeUrl()
     google.ts                     # startGoogleLogin(), parseGoogleHashCallback(), consumePendingGoogleIdToken(), GOOGLE_STORAGE_KEYS
   react/                          # useAuthSession, AuthProvider, useAuth
@@ -53,7 +53,7 @@ tests/                            # Vitest test suite (*.spec.ts)
 
 | Import | File | Contents |
 |--------|------|----------|
-| `@nuria-tech/auth-sdk` | `dist/index.js` | `createAuthClient`, storage adapters, transport, errors, types, `extractRoles`, `extractCompanyOrigin`, `buildOAuthAuthorizeUrl`, Google OAuth helpers |
+| `@nuria-tech/auth-sdk` | `dist/index.js` | `createAuthClient`, storage adapters, transport, errors, types, `extractRoles`, `extractCompanyOrigin`, `extractAvatarUrl`, `extractDisplayName`, `getInitials`, `buildOAuthAuthorizeUrl`, Google OAuth helpers |
 | `@nuria-tech/auth-sdk/react` | `dist/react.js` | `useAuthSession`, `AuthProvider`, `useAuth` |
 | `@nuria-tech/auth-sdk/vue` | `dist/vue.js` | `useAuthSession` |
 | `@nuria-tech/auth-sdk/nuxt` | `dist/nuxt.js` | `createNuxtAuthClient`, `createNuxtCookieStorageAdapter` |

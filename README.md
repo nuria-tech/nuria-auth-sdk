@@ -52,7 +52,7 @@ Published on [npm](https://www.npmjs.com/package/@nuria-tech/auth-sdk).
 
 ## Entrypoints
 
-- `@nuria-tech/auth-sdk`: core client + adapters + utilities (`extractRoles`, `extractCompanyOrigin`, `buildOAuthAuthorizeUrl`, Google OAuth helpers)
+- `@nuria-tech/auth-sdk`: core client + adapters + utilities (`extractRoles`, `extractCompanyOrigin`, `extractAvatarUrl`, `extractDisplayName`, `getInitials`, `buildOAuthAuthorizeUrl`, Google OAuth helpers)
 - `@nuria-tech/auth-sdk/react`: `useAuthSession`, `AuthProvider`, `useAuth`
 - `@nuria-tech/auth-sdk/vue`: `useAuthSession` composable
 - `@nuria-tech/auth-sdk/nuxt`: Nuxt cookie adapter helpers

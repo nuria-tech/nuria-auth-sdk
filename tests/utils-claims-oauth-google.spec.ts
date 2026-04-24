@@ -1,7 +1,13 @@
 // @vitest-environment happy-dom
 
 import { describe, expect, it, vi } from 'vitest';
-import { extractRoles, extractCompanyOrigin } from '../src/utils/claims';
+import {
+  extractRoles,
+  extractCompanyOrigin,
+  extractAvatarUrl,
+  extractDisplayName,
+  getInitials,
+} from '../src/utils/claims';
 import { buildOAuthAuthorizeUrl } from '../src/utils/oauth';
 import {
   GOOGLE_STORAGE_KEYS,
@@ -92,6 +98,92 @@ describe('extractCompanyOrigin', () => {
     expect(
       extractCompanyOrigin({ company_origin: '1' }, { company_origin: '2' }),
     ).toBe('1');
+  });
+});
+
+// ─── extractAvatarUrl ────────────────────────────────────────────────────────
+
+describe('extractAvatarUrl', () => {
+  it('returns empty string for no sources', () => {
+    expect(extractAvatarUrl()).toBe('');
+  });
+
+  it('extracts picture', () => {
+    expect(extractAvatarUrl({ picture: 'https://x/y.png' })).toBe('https://x/y.png');
+  });
+
+  it('prefers avatar_url over picture', () => {
+    expect(
+      extractAvatarUrl({ avatar_url: 'https://a/a.png', picture: 'https://b/b.png' }),
+    ).toBe('https://a/a.png');
+  });
+
+  it('returns first non-empty value across sources', () => {
+    expect(extractAvatarUrl(null, { picture: 'https://x/y.png' })).toBe('https://x/y.png');
+  });
+
+  it('skips blank values', () => {
+    expect(extractAvatarUrl({ picture: '   ' }, { picture: 'https://x/y.png' })).toBe(
+      'https://x/y.png',
+    );
+  });
+});
+
+// ─── extractDisplayName ──────────────────────────────────────────────────────
+
+describe('extractDisplayName', () => {
+  it('returns empty string for no sources', () => {
+    expect(extractDisplayName()).toBe('');
+  });
+
+  it('extracts subject_name first', () => {
+    expect(extractDisplayName({ subject_name: 'Lucas Passos', name: 'Other' })).toBe(
+      'Lucas Passos',
+    );
+  });
+
+  it('falls back to given_name', () => {
+    expect(extractDisplayName({ given_name: 'Lucas' })).toBe('Lucas');
+  });
+
+  it('falls back to email local part when no name', () => {
+    expect(extractDisplayName({ email: 'lucas@nuria.com.br' })).toBe('lucas');
+  });
+
+  it('prefers names before falling back to email across sources', () => {
+    expect(
+      extractDisplayName({ email: 'lucas@nuria.com.br' }, { name: 'Lucas Passos' }),
+    ).toBe('Lucas Passos');
+  });
+});
+
+// ─── getInitials ─────────────────────────────────────────────────────────────
+
+describe('getInitials', () => {
+  it('returns two initials for two words', () => {
+    expect(getInitials('Lucas Passos')).toBe('LP');
+  });
+
+  it('returns single initial for one word', () => {
+    expect(getInitials('Lucas')).toBe('L');
+  });
+
+  it('caps at max=2 by default for 3+ words', () => {
+    expect(getInitials('Lucas da Silva Passos')).toBe('LD');
+  });
+
+  it('respects custom max', () => {
+    expect(getInitials('Lucas da Silva', 3)).toBe('LDS');
+  });
+
+  it('trims and collapses whitespace', () => {
+    expect(getInitials('  Lucas   Passos  ')).toBe('LP');
+  });
+
+  it('returns empty string for empty/null/undefined', () => {
+    expect(getInitials('')).toBe('');
+    expect(getInitials(null)).toBe('');
+    expect(getInitials(undefined)).toBe('');
   });
 });
 

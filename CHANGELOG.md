@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.4] - 2026-04-23
+
+### Added
+
+- `extractAvatarUrl(...sources)` — extracts the user avatar URL from JWT claims or verify-context objects. Accepts the field variants `avatar_url`, `avatarUrl`, `picture`, and `photo`. Returns an empty string when absent. Exported from the main entrypoint.
+- `extractDisplayName(...sources)` — extracts the user's display name from JWT claims or verify-context objects. Falls back across `subject_name`, `subjectName`, `given_name`, `name`, and finally the local part of the email. Exported from the main entrypoint.
+- `getInitials(name, max=2)` — pure helper that returns up to `max` uppercase initials for a name (`"Lucas Passos"` → `"LP"`, `"Lucas"` → `"L"`). Useful as an avatar fallback when the remote image fails to load.
+
+### Tests
+
+- 21 new unit tests covering the new claim extractors and `getInitials` edge cases.
+
+---
+
 ## [2.0.1] - 2026-04-02
 
 ### Changed
