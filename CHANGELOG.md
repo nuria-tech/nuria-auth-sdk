@@ -16,6 +16,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - 21 new unit tests covering the new claim extractors and `getInitials` edge cases.
 
+### Maintenance
+
+- Bumped transitive dev dependencies flagged by `pnpm audit`:
+  `defu >= 6.1.5` (prototype pollution), `vite >= 7.3.2` (fs.deny bypass +
+  path traversal + ws arbitrary read), `unhead >= 2.1.13`
+  (hasDangerousProtocol bypass), `next >= 16.2.3` (Server Components DoS).
+  All transitive via dev-only chains; runtime package unaffected.
+- Fixed a lint error in `extractDisplayName` (prettier wrap).
+
 ---
 
 ## [2.0.1] - 2026-04-02
