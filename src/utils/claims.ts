@@ -97,7 +97,9 @@ export function extractDisplayName(
     if (value) return value;
   }
   for (const tokenData of sources) {
-    const email = String(tokenData?.subject_email ?? tokenData?.email ?? '').trim();
+    const email = String(
+      tokenData?.subject_email ?? tokenData?.email ?? '',
+    ).trim();
     if (email) {
       const localPart = email.split('@')[0] ?? '';
       if (localPart) return localPart;
