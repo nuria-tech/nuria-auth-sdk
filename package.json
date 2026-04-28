@@ -1,6 +1,6 @@
 {
   "name": "@nuria-tech/auth-sdk",
-  "version": "2.0.6",
+  "version": "2.0.5",
   "description": "Browser OAuth 2.0 Authorization Code + PKCE client SDK with support for password, Google, AWS IAM Identity Center (SSO), and 2FA login flows",
   "license": "MIT",
   "author": "Nuria Tech",
@@ -118,33 +118,34 @@
       "lodash": ">=4.18.0",
       "defu": ">=6.1.5",
       "vite": ">=7.3.2",
-      "unhead": ">=2.1.13",
-      "next": ">=16.2.3"
+      "unhead": ">=2.1.13"
     }
   },
+  "overrides": {
+    "postcss": "8.5.12",
+    "vite": "8.0.10"
+  },
   "devDependencies": {
-    "@angular/common": "^21.2.7",
-    "@angular/core": "^21.2.7",
+    "@angular/common": "^21.2.10",
+    "@angular/core": "^21.2.10",
+    "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",
-    "@types/node": "^25.5.0",
+    "@types/node": "^25.6.0",
     "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
-    "@typescript-eslint/eslint-plugin": "^8.58.0",
-    "@typescript-eslint/parser": "^8.58.0",
-    "@vitest/coverage-v8": "^4.1.2",
-    "eslint": "^10.1.0",
+    "@typescript-eslint/eslint-plugin": "^8.59.1",
+    "@typescript-eslint/parser": "^8.59.1",
+    "@vitest/coverage-v8": "^4.1.5",
+    "eslint": "^10.2.1",
     "eslint-config-prettier": "10.1.8",
     "eslint-plugin-prettier": "5.5.5",
-    "happy-dom": "^20.8.9",
-    "next": "^16.2.3",
-    "nuxt": "4.4.2",
-    "prettier": "3.8.1",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4",
+    "happy-dom": "^20.9.0",
+    "prettier": "3.8.3",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
     "rxjs": "7.8.2",
     "tsup": "8.5.1",
-    "typescript": "^6.0.2",
-    "vitest": "^4.1.2",
-    "vue": "^3.5.31"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.5",
+    "vue": "^3.5.33"
   }
 }

@@ -9,7 +9,7 @@ import type {
 import { AuthError, AuthErrorCode } from '../errors/auth-error';
 import { DefaultAuthClient } from './nuria-auth-client';
 
-const DEFAULT_AUTH_BASE_URL = 'https://ms-auth-v2.nuria.com.br';
+const DEFAULT_AUTH_BASE_URL = 'https://ms-auth.nuria.com.br';
 const DEFAULT_AUTHORIZATION_PATH = '/v2/oauth/authorize';
 const DEFAULT_TOKEN_PATH = '/v2/oauth/token';
 const DEFAULT_USERINFO_PATH = '/v2/oauth/userinfo';
@@ -44,7 +44,10 @@ function pickLoginMethods(
 function resolveLoginMethods(
   input: LoginMethodsConfigInput | undefined,
 ): LoginMethodsConfig {
-  const enabled = pickLoginMethods(input?.enabled, DEFAULT_LOGIN_METHODS.enabled);
+  const enabled = pickLoginMethods(
+    input?.enabled,
+    DEFAULT_LOGIN_METHODS.enabled,
+  );
   const enabledSet = new Set(enabled);
   // Don't list a method as "coming soon" if it's already enabled — UIs would
   // render the working button next to a duplicate "Em breve" badge.

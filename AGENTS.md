@@ -3,7 +3,7 @@
 ## Purpose
 Browser-focused OAuth 2.0 Authorization Code + PKCE (S256) SDK with zero dependencies.
 Supports React, Vue, Nuxt, Next.js, and Angular via separate entrypoints.
-Designed for the Nuria backend (`https://ms-auth-v2.nuria.com.br`).
+Designed for the Nuria backend (`https://ms-auth.nuria.com.br`).
 
 ## Commands
 
@@ -65,7 +65,7 @@ tests/                            # Vitest test suite (*.spec.ts)
 
 | Config | Default |
 |--------|---------|
-| `baseUrl` | `https://ms-auth-v2.nuria.com.br` |
+| `baseUrl` | `https://ms-auth.nuria.com.br` |
 | `authorizationEndpoint` | `${baseUrl}/v2/oauth/authorize` |
 | `tokenEndpoint` | `${baseUrl}/v2/oauth/token` |
 | `userinfoEndpoint` | `${baseUrl}/v2/oauth/userinfo` |

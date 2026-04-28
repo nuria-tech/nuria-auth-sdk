@@ -4,10 +4,37 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [2.0.6] - 2026-04-28
+## [2.0.5] - 2026-04-28
+
+> Consolida o trabalho que estava previsto para 2.0.5 e 2.0.6 (nenhuma das
+> duas chegou a ser publicada). AWS SSO, login-methods config, hardening
+> diversos, e a virada do `DEFAULT_AUTH_BASE_URL` saem juntos nesta release.
 
 ### Added
 
+- **AWS IAM Identity Center (AWS SSO) federated login** in the same shape as
+  the existing Google flow. Targets a *customer-managed application* registered
+  in your IAM Identity Center instance.
+  - `startAwsLogin(options)` — generates `nonce` + `state`, persists them and
+    `returnSearch` to `sessionStorage`, then redirects to the IAM Identity
+    Center authorization endpoint with `response_type=id_token`. The endpoint
+    is derived from `issuerUrl` (`${issuerUrl}/authorize`) or taken verbatim
+    from `authorizationEndpoint` when the discovery document advertises a
+    non-standard path.
+  - `parseAwsHashCallback(hash)` — extracts `id_token` from the URL hash and
+    validates the `state` round-trip before consuming it. Stores the token as
+    `pendingIdToken` and clears `nonce`/`state`/`returnSearch`.
+  - `consumePendingAwsIdToken()` — reads and removes the pending IAM Identity
+    Center id token from `sessionStorage`.
+  - `AWS_STORAGE_KEYS` — constant storage key names used by the AWS utilities.
+  - `AuthClient.loginWithAws({ idToken })` — exchanges the id token for a
+    Nuria `Session` via `POST /v2/sso/aws`. The kernel validates the token
+    against the IAM Identity Center JWKS (issuer + audience pulled from
+    Secrets Manager) and only signs in users that are already provisioned
+    and active — no auto-create. Browser/SSO mode also rotates the
+    `__Host-nuria_rt` cookie, mirroring `/v2/google`.
+  - New `AwsLoginOptions` type + `StartAwsLoginOptions` exported from the main
+    entrypoint.
 - **Login-methods config in `createAuthClient`.** New `AuthConfig.loginMethods`
   option `{ enabled, comingSoon }` (subset of `'password' | 'google' |
   'passwordless' | 'aws_sso'`) tells login UIs which buttons to render and
@@ -31,6 +58,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     no per-client backend lookup required for the 99% case where apps
     redirect to accounts. `extraParams` cannot override these reserved
     keys. UI-hint only; the kernel remains the auth gate.
+
+### Changed
+
+- **`DEFAULT_AUTH_BASE_URL` flipped to `https://ms-auth.nuria.com.br`.** The
+  legacy `ms-auth-v2.nuria.com.br` host stays live as a CNAME alias on the
+  same API Gateway, so apps that pin `baseUrl` in `createAuthClient` keep
+  working unchanged. Apps that rely on the SDK default will start hitting
+  the new canonical host as soon as they upgrade.
 
 ### Fixed
 
@@ -65,56 +100,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   signature/audience server-side via Google's JWKS, which is the actual
   security boundary. The state check is purely client-side hardening, on
   par with what `startAwsLogin` already does.
-
-### Tests
-
-- 17 new unit tests:
-  - `getLoginMethods`: returns SDK defaults when omitted, merges partial
-    overrides, drops unknown / cased / duplicate values, returns a
-    defensive copy.
-  - `startLogin`: serializes loginMethods as CSV query params; reserved keys
-    cannot be overridden by `extraParams`.
-  - `createAuthClient`: rejects http-non-localhost / malformed / `javascript:`
-    `logoutEndpoint`; accepts https and localhost http.
-  - `notify`: a throwing listener does not block the listeners registered
-    after it.
-  - `startGoogleLogin` + `parseGoogleHashCallback`: state appears in URL +
-    storage, distinct from nonce; mismatched state rejects + leaves no
-    pendingIdToken; missing storage state still accepts (mid-flight upgrade);
-    missing URL state still accepts (storage wipe).
-
----
-
-## [2.0.5] - 2026-04-28
-
-### Added
-
-- **AWS IAM Identity Center (AWS SSO) federated login** in the same shape as
-  the existing Google flow. Targets a *customer-managed application* registered
-  in your IAM Identity Center instance.
-  - `startAwsLogin(options)` — generates `nonce` + `state`, persists them and
-    `returnSearch` to `sessionStorage`, then redirects to the IAM Identity
-    Center authorization endpoint with `response_type=id_token`. The endpoint
-    is derived from `issuerUrl` (`${issuerUrl}/authorize`) or taken verbatim
-    from `authorizationEndpoint` when the discovery document advertises a
-    non-standard path.
-  - `parseAwsHashCallback(hash)` — extracts `id_token` from the URL hash and
-    validates the `state` round-trip before consuming it. Stores the token as
-    `pendingIdToken` and clears `nonce`/`state`/`returnSearch`.
-  - `consumePendingAwsIdToken()` — reads and removes the pending IAM Identity
-    Center id token from `sessionStorage`.
-  - `AWS_STORAGE_KEYS` — constant storage key names used by the AWS utilities.
-  - `AuthClient.loginWithAws({ idToken })` — exchanges the id token for a
-    Nuria `Session` via `POST /v2/sso/aws`. The kernel validates the token
-    against the IAM Identity Center JWKS (issuer + audience pulled from
-    Secrets Manager) and only signs in users that are already provisioned
-    and active — no auto-create. Browser/SSO mode also rotates the
-    `__Host-nuria_rt` cookie, mirroring `/v2/google`.
-  - New `AwsLoginOptions` type + `StartAwsLoginOptions` exported from the main
-    entrypoint.
-
-### Fixed
-
 - **React `AuthProvider` no longer triggers re-render storms.** The context
   `value` is now memoized with `useMemo`, and `login` / `logout` /
   `globalLogout` are wrapped in `useCallback`. Consumer effects that depend on
@@ -154,10 +139,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Tests
 
-- 17 new unit tests covering `startAwsLogin`, `parseAwsHashCallback`,
-  `consumePendingAwsIdToken`, `loginWithAws`, the new 401-with-no-session
-  guard, the React `login` option pass-through, and the React stable-reference
-  invariant for `useAuth()` callbacks.
+- 34 new unit tests covering AWS SSO helpers, `loginWithAws`, the
+  `getLoginMethods` resolver and CSV serialization on `startLogin`,
+  `logoutEndpoint` validation, listener isolation in `notify`, the Google
+  state CSRF parameter, the 401-with-no-session guard, the React `login`
+  option pass-through, and the React stable-reference invariant for
+  `useAuth()` callbacks.
 
 ---
 

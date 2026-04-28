@@ -104,8 +104,7 @@ export class DefaultAuthClient implements AuthClient {
     // security boundary; the kernel is the authoritative gate. Survives the
     // /v2/oauth/authorize hop only if the kernel forwards these params.
     const lm = this.config.loginMethods;
-    if (lm.enabled.length)
-      params.login_methods_enabled = lm.enabled.join(',');
+    if (lm.enabled.length) params.login_methods_enabled = lm.enabled.join(',');
     if (lm.comingSoon.length)
       params.login_methods_coming_soon = lm.comingSoon.join(',');
 
@@ -786,4 +785,3 @@ export class DefaultAuthClient implements AuthClient {
     }
   }
 }
-
