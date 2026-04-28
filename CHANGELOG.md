@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.6] - 2026-04-28
+
+### Changed
+
+- **`DEFAULT_AUTH_BASE_URL` flipped to `https://auth.nuria.com.br`.** The
+  v2 backend now lives at `auth.nuria.com.br` (shorter, no version suffix).
+  `ms-auth-v2.nuria.com.br` continues to work as a legacy alias from the
+  same stack — set `baseUrl` explicitly if you need to keep using it.
+  `ms-auth.nuria.com.br` still points to the (legacy) v1 backend, so
+  consumers relying on the previous default were always hitting v1 by
+  accident.
+
 ## [2.0.5] - 2026-04-28
 
 > Consolida o trabalho que estava previsto para 2.0.5 e 2.0.6 (nenhuma das

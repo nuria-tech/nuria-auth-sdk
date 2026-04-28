@@ -1,5 +1,5 @@
 export interface OAuthAuthorizeParams {
-  /** Base URL of the auth server, e.g. https://ms-auth.nuria.com.br */
+  /** Base URL of the auth server, e.g. https://auth.nuria.com.br */
   baseUrl: string;
   clientId: string;
   redirectUri: string;

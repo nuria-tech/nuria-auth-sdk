@@ -333,7 +333,7 @@ Full Angular example (service + guard + callback route + status component):
 
 ## Defaults
 
-- `baseUrl`: `https://ms-auth.nuria.com.br`
+- `baseUrl`: `https://auth.nuria.com.br`
 - `authorizationEndpoint`: `${baseUrl}/v2/oauth/authorize`
 - `tokenEndpoint`: `${baseUrl}/v2/oauth/token`
 - `userinfoEndpoint`: `${baseUrl}/v2/oauth/userinfo`

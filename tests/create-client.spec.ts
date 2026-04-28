@@ -386,7 +386,7 @@ describe('createAuthClient', () => {
     // createAuthClient should default to baseUrl + /v2/oauth/userinfo
     const client = createAuthClient({
       clientId: 'test-client',
-      baseUrl: 'https://ms-auth.nuria.com.br',
+      baseUrl: 'https://auth.nuria.com.br',
       redirectUri: 'https://app.example.com/callback',
       storage,
       transport,
@@ -396,7 +396,7 @@ describe('createAuthClient', () => {
     expect(result).toEqual({ sub: 'user-1' });
 
     const calls = transport.request.mock.calls as Array<[string, unknown]>;
-    expect(calls[0]![0]).toBe('https://ms-auth.nuria.com.br/v2/oauth/userinfo');
+    expect(calls[0]![0]).toBe('https://auth.nuria.com.br/v2/oauth/userinfo');
   });
 
   it('checkSession returns false when not authenticated', async () => {
