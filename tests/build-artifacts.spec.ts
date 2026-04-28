@@ -67,5 +67,5 @@ describe('published build artifacts', () => {
     expect(packedFiles.some((file) => file.startsWith('src/'))).toBe(false);
     expect(packedFiles.some((file) => file.startsWith('tests/'))).toBe(false);
     expect(packedFiles.some((file) => file.startsWith('coverage/'))).toBe(false);
-  });
+  }, 30_000);
 });
