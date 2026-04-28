@@ -9,7 +9,7 @@ import type {
 import { AuthError, AuthErrorCode } from '../errors/auth-error';
 import { DefaultAuthClient } from './nuria-auth-client';
 
-const DEFAULT_AUTH_BASE_URL = 'https://ms-auth.nuria.com.br';
+const DEFAULT_AUTH_BASE_URL = 'https://auth.nuria.com.br';
 const DEFAULT_AUTHORIZATION_PATH = '/v2/oauth/authorize';
 const DEFAULT_TOKEN_PATH = '/v2/oauth/token';
 const DEFAULT_USERINFO_PATH = '/v2/oauth/userinfo';
