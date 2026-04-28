@@ -1,4 +1,4 @@
-export { createAuthClient } from './client/create-client';
+export { createAuthClient, DEFAULT_LOGIN_METHODS } from './client/create-client';
 export { MemoryStorageAdapter } from './storage/memory-storage-adapter';
 export { WebStorageAdapter } from './storage/web-storage-adapter';
 export { CookieStorageAdapter } from './storage/cookie-storage-adapter';
@@ -27,6 +27,13 @@ export {
   GOOGLE_STORAGE_KEYS,
   type StartGoogleLoginOptions,
 } from './utils/google';
+export {
+  startAwsLogin,
+  parseAwsHashCallback,
+  consumePendingAwsIdToken,
+  AWS_STORAGE_KEYS,
+  type StartAwsLoginOptions,
+} from './utils/aws';
 
 export type {
   AuthTransport,
@@ -39,6 +46,10 @@ export type {
   StartLoginOptions,
   LoginCodeChallengeOptions,
   GoogleLoginOptions,
+  AwsLoginOptions,
+  LoginMethod,
+  LoginMethodsConfig,
+  LoginMethodsConfigInput,
   PasswordLoginOptions,
   VerifyLoginCodeOptions,
   TwoFactorChallenge,

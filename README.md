@@ -64,11 +64,51 @@ Published on [npm](https://www.npmjs.com/package/@nuria-tech/auth-sdk).
 | Flow | Backend endpoint(s) | SDK method(s) | Result |
 |---|---|---|---|
 | Google | `POST /v2/google` | `loginWithGoogle(...)` | `Session` tokens |
+| AWS IAM Identity Center (SSO) | `POST /v2/sso/aws` | `loginWithAws(...)` | `Session` tokens |
 | Code sent (default) | `POST /v2/login-code/challenge` + `POST /v2/2fa/verify-login` | `loginWithCodeSent(...)` + `completeLoginWithCode(...)` | `Session` tokens after code verify |
 | Login + password _(deprecated)_ | `POST /v2/login` | `loginWithPassword(...)` | `Session` tokens |
 | Password reset request | `POST /v2/password/reset` | `resetPassword({ email })` | `void` — sends reset email |
 | Password recovery | `POST /v2/password/recover` | `recoverPassword({ token, newPassword })` | `void` — resets password using token |
 | Change password | `PATCH /v2/me/password` | `changePassword({ oldPassword, newPassword })` | `void` — requires active session |
+
+### Login methods config
+
+Pass a `loginMethods` block to `createAuthClient` to tell login UIs which
+buttons to render — both your own (if you build a custom login screen) and
+the centralized Nuria accounts SPA (when you use `startLogin()` to redirect
+there, which is the standard path):
+
+```ts
+const auth = createAuthClient({
+  clientId: '...',
+  redirectUri: '...',
+  loginMethods: {
+    enabled: ['password', 'google', 'passwordless'],
+    comingSoon: ['aws_sso'],
+  },
+});
+
+// Custom login UI: read the resolved config back synchronously.
+const cfg = auth.getLoginMethods();
+if (cfg.enabled.includes('google')) renderGoogleButton();
+if (cfg.comingSoon.includes('aws_sso')) renderAwsSsoTeaser();
+
+// Standard path (redirect to Nuria accounts): startLogin() automatically
+// serializes loginMethods into `?login_methods_enabled=` and
+// `?login_methods_coming_soon=` on the redirect URL. Accounts reads them
+// and renders the right buttons for *your* app — no extra plumbing.
+await auth.startLogin();
+```
+
+Either field can be omitted — missing fields fall back to
+`DEFAULT_LOGIN_METHODS` (`enabled: ['password', 'google']`,
+`comingSoon: ['passwordless', 'aws_sso']`). Unknown values are dropped;
+methods listed in `enabled` are stripped from `comingSoon` automatically.
+
+**Security note**: this is a UI hint, not an auth gate. The kernel is the
+authoritative boundary. A crafted URL with arbitrary `login_methods_*`
+params can only change which buttons accounts renders — it cannot bypass
+authentication.
 
 ## Example apps
 
@@ -115,6 +155,54 @@ Aliases with clearer naming:
 ```ts
 await auth.loginWithCodeSent({ email: 'user@company.com' });
 await auth.completeLoginWithCode({ challengeId: '...', code: '123456' });
+```
+
+## Federated login: Google and AWS IAM Identity Center (AWS SSO)
+
+Both providers follow the same shape:
+
+1. `start*Login(...)` redirects the browser to the provider's authorization endpoint.
+2. The callback page reads the `id_token` from the URL hash.
+3. `loginWith*({ idToken })` exchanges the token for a Nuria `Session`.
+
+For AWS IAM Identity Center the IdP is a *customer-managed application*
+configured in your IAM Identity Center instance. Copy the issuer URL from
+that application — `startAwsLogin` derives the `/authorize` endpoint from
+it (or you can pass `authorizationEndpoint` explicitly).
+
+```ts
+import {
+  startGoogleLogin,
+  parseGoogleHashCallback,
+  consumePendingGoogleIdToken,
+  startAwsLogin,
+  parseAwsHashCallback,
+  consumePendingAwsIdToken,
+} from '@nuria-tech/auth-sdk';
+
+// Trigger flow
+startGoogleLogin({
+  clientId: 'google-app-client-id',
+  redirectUri: `${window.location.origin}/oauth/callback`,
+});
+
+startAwsLogin({
+  clientId: 'iam-identity-center-app-client-id',
+  redirectUri: `${window.location.origin}/oauth/callback`,
+  issuerUrl: 'https://identitycenter.amazonaws.com/ssoins-XXXXXXXX/',
+  // Or, when you need a custom authorization path:
+  //   authorizationEndpoint: 'https://oidc.us-east-1.amazonaws.com/authorize',
+});
+
+// Callback page
+const google = parseGoogleHashCallback(window.location.hash);
+const aws = parseAwsHashCallback(window.location.hash);
+if (google) await auth.loginWithGoogle({ idToken: google.idToken });
+if (aws) await auth.loginWithAws({ idToken: aws.idToken });
+
+// Or pull a pending token already persisted by the parser
+const pending = consumePendingGoogleIdToken() ?? consumePendingAwsIdToken();
+if (pending) await auth.loginWithGoogle({ idToken: pending });
 ```
 
 ## React quick start
@@ -342,11 +430,19 @@ interface AuthClient {
   loginWithCodeSent(options: LoginCodeChallengeOptions): Promise<TwoFactorChallenge>;
   completeLoginWithCode(options: VerifyLoginCodeOptions): Promise<Session>;
   loginWithGoogle(options: GoogleLoginOptions): Promise<Session>;
+  loginWithAws(options: AwsLoginOptions): Promise<Session>;
   /** @deprecated Use loginWithCodeSent / startLoginCodeChallenge instead. */
   loginWithPassword(options: PasswordLoginOptions): Promise<Session>;
   resetPassword(options: { email: string }): Promise<void>;
   recoverPassword(options: { token: string; newPassword: string }): Promise<void>;
   changePassword(options: { oldPassword: string; newPassword: string }): Promise<void>;
+  /** Static, synchronous — returns the resolved loginMethods from createAuthClient (defaults applied). */
+  getLoginMethods(): LoginMethodsConfig;
+}
+
+interface LoginMethodsConfig {
+  enabled: ('password' | 'google' | 'passwordless' | 'aws_sso')[];
+  comingSoon: ('password' | 'google' | 'passwordless' | 'aws_sso')[];
 }
 ```
 

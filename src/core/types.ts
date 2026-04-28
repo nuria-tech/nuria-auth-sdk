@@ -52,9 +52,36 @@ export interface GoogleLoginOptions {
   idToken: string;
 }
 
+export interface AwsLoginOptions {
+  idToken: string;
+}
+
 export interface PasswordLoginOptions {
   email: string;
   password: string;
+}
+
+/**
+ * Login flow identifiers — closed set so consumers (login UIs) can switch on
+ * the literal type without coercion.
+ */
+export type LoginMethod = 'password' | 'google' | 'passwordless' | 'aws_sso';
+
+/**
+ * Which login flows a UI should expose. Static config — passed at SDK init,
+ * not fetched from the backend. UIs read it via `auth.getLoginMethods()` and
+ * gate each button on the result.
+ */
+export interface LoginMethodsConfig {
+  /** Rendered as fully working buttons / forms. */
+  enabled: LoginMethod[];
+  /** Rendered as disabled buttons with an "Em breve" badge. */
+  comingSoon: LoginMethod[];
+}
+
+export interface LoginMethodsConfigInput {
+  enabled?: LoginMethod[];
+  comingSoon?: LoginMethod[];
 }
 
 export interface VerifyLoginCodeOptions {
@@ -124,6 +151,13 @@ export interface AuthConfig {
   onRedirect?: (url: string) => void | Promise<void>;
   enableRefreshToken?: boolean;
   silentRefreshIntervalMs?: number;
+  /**
+   * Which login flows the UI should expose. Defaults to `password + google`
+   * enabled and `passwordless + aws_sso` advertised as "coming soon" — that
+   * matches the legacy Nuria signin page state. Override per app/deploy.
+   * Either field can be omitted to fall back to its default.
+   */
+  loginMethods?: LoginMethodsConfigInput;
   now?: () => number;
 }
 
@@ -133,6 +167,7 @@ export interface ResolvedAuthConfig extends AuthConfig {
   tokenEndpoint: string;
   userinfoEndpoint: string;
   silentRefreshIntervalMs: number;
+  loginMethods: LoginMethodsConfig;
 }
 
 export interface AuthClient {
@@ -161,6 +196,7 @@ export interface AuthClient {
   ): Promise<TwoFactorChallenge>;
   completeLoginWithCode(options: VerifyLoginCodeOptions): Promise<Session>;
   loginWithGoogle(options: GoogleLoginOptions): Promise<Session>;
+  loginWithAws(options: AwsLoginOptions): Promise<Session>;
   /** @deprecated Use `loginWithCodeSent` / `startLoginCodeChallenge` instead. */
   loginWithPassword(options: PasswordLoginOptions): Promise<Session>;
   resetPassword(options: { email: string }): Promise<void>;
@@ -172,6 +208,12 @@ export interface AuthClient {
     oldPassword: string;
     newPassword: string;
   }): Promise<void>;
+  /**
+   * Returns the resolved login-methods config for this client (the value
+   * passed to `createAuthClient` merged with the SDK defaults). Synchronous
+   * — no network call.
+   */
+  getLoginMethods(): LoginMethodsConfig;
   startSilentRefresh(intervalMs?: number): void;
   stopSilentRefresh(): void;
 }

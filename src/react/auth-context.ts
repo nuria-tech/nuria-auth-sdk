@@ -1,15 +1,17 @@
 import {
   createContext,
   createElement,
+  useCallback,
   useContext,
+  useMemo,
   type ReactNode,
 } from 'react';
-import type { AuthClient } from '../core/types';
+import type { AuthClient, StartLoginOptions } from '../core/types';
 import { useAuthSession, type UseAuthSessionResult } from './use-auth-session';
 
 export interface AuthContextValue extends UseAuthSessionResult {
   auth: AuthClient;
-  login: () => Promise<void>;
+  login: (options?: StartLoginOptions) => Promise<void>;
   /** Clears the local session only. No server call, no redirect. */
   logout: () => Promise<void>;
   /** Clears the local session AND calls the server logout endpoint, then redirects. */
@@ -27,13 +29,26 @@ export function AuthProvider({
 }) {
   const state = useAuthSession(auth);
 
-  const value: AuthContextValue = {
-    ...state,
-    auth,
-    login: () => auth.startLogin(),
-    logout: () => auth.logout(),
-    globalLogout: (options) => auth.globalLogout(options),
-  };
+  const login = useCallback(
+    (options?: StartLoginOptions) => auth.startLogin(options),
+    [auth],
+  );
+  const logout = useCallback(() => auth.logout(), [auth]);
+  const globalLogout = useCallback(
+    (options?: { returnTo?: string }) => auth.globalLogout(options),
+    [auth],
+  );
+
+  const value = useMemo<AuthContextValue>(
+    () => ({
+      ...state,
+      auth,
+      login,
+      logout,
+      globalLogout,
+    }),
+    [state, auth, login, logout, globalLogout],
+  );
 
   return createElement(AuthContext.Provider, { value }, children);
 }

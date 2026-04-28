@@ -39,6 +39,10 @@ function createMockAuth() {
       tokens: { accessToken: 'token-from-google' },
       createdAt: Date.now(),
     })),
+    loginWithAws: vi.fn(async () => ({
+      tokens: { accessToken: 'token-from-aws' },
+      createdAt: Date.now(),
+    })),
     loginWithPassword: vi.fn(async () => ({
       tokens: { accessToken: 'token-from-password' },
       createdAt: Date.now(),
@@ -79,6 +83,7 @@ function createMockAuth() {
     resetPassword: vi.fn(async () => {}),
     recoverPassword: vi.fn(async () => {}),
     changePassword: vi.fn(async () => {}),
+    getLoginMethods: vi.fn(() => ({ enabled: [], comingSoon: [] })),
     startSilentRefresh: vi.fn(),
     stopSilentRefresh: vi.fn(),
   };
@@ -129,6 +134,19 @@ describe('angular entrypoint', () => {
     expect(auth.logout).toHaveBeenCalledTimes(1);
     expect(auth.globalLogout).toHaveBeenCalledWith({
       returnTo: 'https://app.example.com',
+    });
+
+    facade.destroy();
+  });
+
+  it('facade login forwards StartLoginOptions to auth.startLogin', async () => {
+    const { auth } = createMockAuth();
+    const facade = createAngularAuthFacade(auth);
+
+    await facade.login({ loginHint: 'user@example.com', scopes: ['openid'] });
+    expect(auth.startLogin).toHaveBeenCalledWith({
+      loginHint: 'user@example.com',
+      scopes: ['openid'],
     });
 
     facade.destroy();

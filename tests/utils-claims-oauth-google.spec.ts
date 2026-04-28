@@ -237,7 +237,7 @@ describe('buildOAuthAuthorizeUrl', () => {
 // ─── Google utils ─────────────────────────────────────────────────────────────
 
 describe('startGoogleLogin', () => {
-  it('calls onRedirect with a Google accounts URL containing the nonce', () => {
+  it('calls onRedirect with a Google accounts URL containing the nonce and state', () => {
     const onRedirect = vi.fn();
     startGoogleLogin({
       clientId: 'google-client',
@@ -245,13 +245,15 @@ describe('startGoogleLogin', () => {
       onRedirect,
     });
     expect(onRedirect).toHaveBeenCalledOnce();
-    expect(onRedirect).toHaveBeenCalledWith(expect.stringContaining('accounts.google.com'));
-    expect(onRedirect).toHaveBeenCalledWith(expect.stringContaining('response_type=id_token'));
-    expect(onRedirect).toHaveBeenCalledWith(expect.stringContaining('client_id=google-client'));
-    expect(onRedirect).toHaveBeenCalledWith(expect.stringContaining('nonce='));
+    const url = onRedirect.mock.calls[0]![0] as string;
+    expect(url).toContain('accounts.google.com');
+    expect(url).toContain('response_type=id_token');
+    expect(url).toContain('client_id=google-client');
+    expect(url).toContain('nonce=');
+    expect(url).toContain('state=');
   });
 
-  it('persists nonce and returnSearch to sessionStorage', () => {
+  it('persists nonce, state and returnSearch to sessionStorage', () => {
     startGoogleLogin({
       clientId: 'gc',
       redirectUri: 'https://app.example.com/cb',
@@ -259,30 +261,94 @@ describe('startGoogleLogin', () => {
       onRedirect: () => {},
     });
     expect(sessionStorage.getItem(GOOGLE_STORAGE_KEYS.nonce)).toBeTruthy();
-    expect(sessionStorage.getItem(GOOGLE_STORAGE_KEYS.returnSearch)).toBe('?state=x');
+    expect(sessionStorage.getItem(GOOGLE_STORAGE_KEYS.state)).toBeTruthy();
+    expect(sessionStorage.getItem(GOOGLE_STORAGE_KEYS.returnSearch)).toBe(
+      '?state=x',
+    );
+  });
+
+  it('mints distinct nonce and state per call', () => {
+    startGoogleLogin({
+      clientId: 'gc',
+      redirectUri: 'https://app.example.com/cb',
+      onRedirect: () => {},
+    });
+    const nonce = sessionStorage.getItem(GOOGLE_STORAGE_KEYS.nonce);
+    const state = sessionStorage.getItem(GOOGLE_STORAGE_KEYS.state);
+    expect(nonce).toBeTruthy();
+    expect(state).toBeTruthy();
+    expect(nonce).not.toBe(state);
   });
 });
 
 describe('parseGoogleHashCallback', () => {
   it('returns null for empty hash', () => {
+    sessionStorage.clear();
     expect(parseGoogleHashCallback('')).toBeNull();
     expect(parseGoogleHashCallback('#')).toBeNull();
   });
 
   it('returns null when no id_token in hash', () => {
+    sessionStorage.clear();
     expect(parseGoogleHashCallback('#state=abc')).toBeNull();
   });
 
   it('extracts id_token and returnSearch, clears storage', () => {
+    sessionStorage.clear();
     sessionStorage.setItem(GOOGLE_STORAGE_KEYS.returnSearch, '?state=pkce');
     sessionStorage.setItem(GOOGLE_STORAGE_KEYS.nonce, 'nonce-value');
+    sessionStorage.setItem(GOOGLE_STORAGE_KEYS.state, 's-value');
 
-    const result = parseGoogleHashCallback('#id_token=tok123&state=s');
+    const result = parseGoogleHashCallback('#id_token=tok123&state=s-value');
     expect(result).toEqual({ idToken: 'tok123', returnSearch: '?state=pkce' });
 
     expect(sessionStorage.getItem(GOOGLE_STORAGE_KEYS.nonce)).toBeNull();
+    expect(sessionStorage.getItem(GOOGLE_STORAGE_KEYS.state)).toBeNull();
     expect(sessionStorage.getItem(GOOGLE_STORAGE_KEYS.returnSearch)).toBeNull();
-    expect(sessionStorage.getItem(GOOGLE_STORAGE_KEYS.pendingIdToken)).toBe('tok123');
+    expect(sessionStorage.getItem(GOOGLE_STORAGE_KEYS.pendingIdToken)).toBe(
+      'tok123',
+    );
+  });
+
+  it('rejects callback when stored and returned state disagree (CSRF guard)', () => {
+    sessionStorage.clear();
+    sessionStorage.setItem(GOOGLE_STORAGE_KEYS.state, 'expected');
+    sessionStorage.setItem(GOOGLE_STORAGE_KEYS.nonce, 'n');
+
+    const result = parseGoogleHashCallback('#id_token=tok123&state=tampered');
+    expect(result).toBeNull();
+    // Mismatched callbacks must not leave a usable pendingIdToken behind.
+    expect(
+      sessionStorage.getItem(GOOGLE_STORAGE_KEYS.pendingIdToken),
+    ).toBeNull();
+    // Stored state survives so the legitimate callback (if it arrives later)
+    // can still validate. Caller is responsible for clearing on retry.
+    expect(sessionStorage.getItem(GOOGLE_STORAGE_KEYS.state)).toBe('expected');
+  });
+
+  it('accepts callback when state is missing on either side (backwards compat)', () => {
+    // Mid-flight upgrade scenario: login was started by an older SDK build that
+    // didn't generate state. The new parser must still accept the callback,
+    // otherwise users in transit during a deploy would silently fail to log in.
+    sessionStorage.clear();
+    sessionStorage.setItem(GOOGLE_STORAGE_KEYS.nonce, 'n');
+    // No GOOGLE_STORAGE_KEYS.state — older SDK never wrote it.
+
+    const result = parseGoogleHashCallback('#id_token=tok123&state=whatever');
+    expect(result).toEqual({ idToken: 'tok123', returnSearch: '' });
+    expect(sessionStorage.getItem(GOOGLE_STORAGE_KEYS.pendingIdToken)).toBe(
+      'tok123',
+    );
+  });
+
+  it('accepts callback when storage has state but URL hash does not', () => {
+    // Storage-wipe / extension-clearing scenario. Strict mode would reject
+    // here; soft mode accepts because we can't tell the two scenarios apart.
+    sessionStorage.clear();
+    sessionStorage.setItem(GOOGLE_STORAGE_KEYS.state, 'stored');
+
+    const result = parseGoogleHashCallback('#id_token=tok123');
+    expect(result).toEqual({ idToken: 'tok123', returnSearch: '' });
   });
 });
 

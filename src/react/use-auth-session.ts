@@ -31,6 +31,7 @@ export function useAuthSession(auth: AuthClient): UseAuthSessionResult {
         await auth.getAccessToken();
         if (!mounted) return;
         setSession(auth.getSession());
+        setError(null);
       } catch (err) {
         if (!mounted) return;
         setError(err);

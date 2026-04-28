@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { createElement } from 'react';
+import { createElement, useEffect, useRef, useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { AuthClient, Session } from '../src/core/types';
 import { AuthProvider, useAuth, useAuthSession } from '../src/react';
@@ -36,6 +36,10 @@ function createMockAuthClient(): AuthClient {
     })),
     loginWithGoogle: vi.fn(async () => ({
       tokens: { accessToken: 'token-from-google' },
+      createdAt: Date.now(),
+    })),
+    loginWithAws: vi.fn(async () => ({
+      tokens: { accessToken: 'token-from-aws' },
       createdAt: Date.now(),
     })),
     loginWithPassword: vi.fn(async () => ({
@@ -75,6 +79,7 @@ function createMockAuthClient(): AuthClient {
     getClaims: vi.fn(() => null),
     hasRole: vi.fn(() => false),
     hasGroup: vi.fn(() => false),
+    getLoginMethods: vi.fn(() => ({ enabled: [], comingSoon: [] })),
     startSilentRefresh: vi.fn(),
     stopSilentRefresh: vi.fn(),
   };
@@ -235,5 +240,98 @@ describe('react hooks integration', () => {
         view.container.querySelector('[data-testid="loading"]')?.textContent,
       ).toBe('false');
     });
+  });
+
+  it('useAuth login forwards StartLoginOptions to auth.startLogin', async () => {
+    const auth = createMockAuthClient();
+
+    function TestComponent() {
+      const { login } = useAuth();
+      return createElement(
+        'button',
+        {
+          'data-testid': 'login-with-options',
+          onClick: () => {
+            void login({ loginHint: 'user@example.com', scopes: ['openid'] });
+          },
+        },
+        'login',
+      );
+    }
+
+    const view = render(
+      createElement(AuthProvider, {
+        auth,
+        children: createElement(TestComponent),
+      }),
+    );
+
+    fireEvent.click(
+      view.container.querySelector(
+        '[data-testid="login-with-options"]',
+      ) as Element,
+    );
+
+    await waitFor(() => {
+      expect(auth.startLogin).toHaveBeenCalledWith({
+        loginHint: 'user@example.com',
+        scopes: ['openid'],
+      });
+    });
+
+    view.unmount();
+  });
+
+  it('useAuth keeps stable login/logout references across re-renders so consumer effects do not loop', async () => {
+    const auth = createMockAuthClient();
+    const referenceChanges: string[] = [];
+
+    function TestComponent() {
+      const { login, logout, globalLogout } = useAuth();
+      const [, force] = useState(0);
+      const loginRef = useRef(login);
+      const logoutRef = useRef(logout);
+      const globalRef = useRef(globalLogout);
+
+      if (loginRef.current !== login) {
+        referenceChanges.push('login');
+        loginRef.current = login;
+      }
+      if (logoutRef.current !== logout) {
+        referenceChanges.push('logout');
+        logoutRef.current = logout;
+      }
+      if (globalRef.current !== globalLogout) {
+        referenceChanges.push('globalLogout');
+        globalRef.current = globalLogout;
+      }
+
+      useEffect(() => {
+        force(1);
+      }, []);
+
+      return createElement(
+        'div',
+        { 'data-testid': 'stable-marker' },
+        'rendered',
+      );
+    }
+
+    const view = render(
+      createElement(AuthProvider, {
+        auth,
+        children: createElement(TestComponent),
+      }),
+    );
+
+    await waitFor(() => {
+      expect(
+        view.container.querySelector('[data-testid="stable-marker"]')
+          ?.textContent,
+      ).toBe('rendered');
+    });
+
+    expect(referenceChanges).toEqual([]);
+    view.unmount();
   });
 });

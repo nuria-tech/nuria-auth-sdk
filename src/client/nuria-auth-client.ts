@@ -2,8 +2,10 @@ import { createCodeChallenge, randomString } from '../core/pkce';
 import type {
   AuthClient,
   AuthTransport,
+  AwsLoginOptions,
   GoogleLoginOptions,
   LoginCodeChallengeOptions,
+  LoginMethodsConfig,
   PasswordLoginOptions,
   ResolvedAuthConfig,
   Session,
@@ -42,13 +44,13 @@ export class DefaultAuthClient implements AuthClient {
   constructor(private readonly config: ResolvedAuthConfig) {
     this.storage = config.storage ?? new MemoryStorageAdapter();
     this.transport = config.transport ?? new FetchAuthTransport();
-    if (this.transport instanceof FetchAuthTransport) {
-      this.transport.addInterceptor({
-        onErrorResponse: async (status) => {
-          if (status === 401) await this.logout();
-        },
-      });
-    }
+    // No global 401 → logout interceptor is wired here on purpose. The
+    // refresh-failure path inside getAccessToken() already clears the session
+    // and notifies. A blanket 401 interceptor would wrongly log the user out
+    // on legitimate authentication failures from non-refresh endpoints —
+    // e.g. changePassword with the wrong oldPassword (kernel maps it to 401),
+    // or a transient userinfo 401 that the next getAccessToken would resolve
+    // via silent refresh. Callers handle 401s on app-level requests.
     this.now = config.now ?? (() => Date.now());
     this.channel =
       typeof BroadcastChannel !== 'undefined'
@@ -97,6 +99,16 @@ export class DefaultAuthClient implements AuthClient {
       code_challenge_method: 'S256',
     };
 
+    // Hand the resolved loginMethods to the centralized login UI (accounts)
+    // so it renders the right buttons for *this* app. Pure UI hint — no
+    // security boundary; the kernel is the authoritative gate. Survives the
+    // /v2/oauth/authorize hop only if the kernel forwards these params.
+    const lm = this.config.loginMethods;
+    if (lm.enabled.length)
+      params.login_methods_enabled = lm.enabled.join(',');
+    if (lm.comingSoon.length)
+      params.login_methods_coming_soon = lm.comingSoon.join(',');
+
     const scope = options.scopes?.join(' ') ?? this.config.scope;
     if (scope) params.scope = scope;
     if (options.loginHint) params.login_hint = options.loginHint;
@@ -110,6 +122,8 @@ export class DefaultAuthClient implements AuthClient {
         'nonce',
         'code_challenge',
         'code_challenge_method',
+        'login_methods_enabled',
+        'login_methods_coming_soon',
       ]);
       for (const [k, v] of Object.entries(options.extraParams)) {
         if (!RESERVED.has(k)) params[k] = v;
@@ -149,6 +163,7 @@ export class DefaultAuthClient implements AuthClient {
     const error = url.searchParams.get('error');
     if (error) {
       const desc = url.searchParams.get('error_description');
+      await this.clearPkceArtifacts();
       throw new AuthError(
         AuthErrorCode.CALLBACK_ERROR,
         desc
@@ -159,6 +174,7 @@ export class DefaultAuthClient implements AuthClient {
 
     const code = url.searchParams.get('code');
     if (!code) {
+      await this.clearPkceArtifacts();
       throw new AuthError(
         AuthErrorCode.MISSING_CODE,
         'Missing code in callback',
@@ -167,6 +183,7 @@ export class DefaultAuthClient implements AuthClient {
 
     const state = url.searchParams.get('state');
     if (!state) {
+      await this.clearPkceArtifacts();
       throw new AuthError(
         AuthErrorCode.MISSING_STATE,
         'Missing state in callback',
@@ -175,6 +192,7 @@ export class DefaultAuthClient implements AuthClient {
 
     const storedState = await safeGet(this.storage, STORAGE_KEYS.state);
     if (!storedState || !timingSafeEqual(storedState, state)) {
+      await this.clearPkceArtifacts();
       throw new AuthError(
         AuthErrorCode.STATE_MISMATCH,
         'State validation failed',
@@ -182,6 +200,12 @@ export class DefaultAuthClient implements AuthClient {
     }
 
     return this.exchangeCode(code);
+  }
+
+  private async clearPkceArtifacts(): Promise<void> {
+    await safeRemove(this.storage, STORAGE_KEYS.state);
+    await safeRemove(this.storage, STORAGE_KEYS.nonce);
+    await safeRemove(this.storage, STORAGE_KEYS.codeVerifier);
   }
 
   getSession(): Session | null {
@@ -206,12 +230,14 @@ export class DefaultAuthClient implements AuthClient {
         } catch {
           this.session = null;
           await safeRemove(this.storage, STORAGE_KEYS.session);
+          this.notify();
           return null;
         }
       } else if (exp <= this.now()) {
         // Token is actually expired and refresh is disabled — clear session
         this.session = null;
         await safeRemove(this.storage, STORAGE_KEYS.session);
+        this.notify();
         return null;
       }
     }
@@ -450,6 +476,28 @@ export class DefaultAuthClient implements AuthClient {
     return this.createSession(tokens);
   }
 
+  async loginWithAws(options: AwsLoginOptions): Promise<Session> {
+    if (!options?.idToken) {
+      throw new AuthError(
+        AuthErrorCode.INVALID_CONFIG,
+        'idToken is required for loginWithAws',
+      );
+    }
+
+    const response = await this.transport.request<Record<string, unknown>>(
+      `${this.config.baseUrl}/v2/sso/aws`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        body: {
+          idToken: options.idToken,
+        },
+      },
+    );
+    const tokens = normalizeTokenSet(response.data, this.now);
+    return this.createSession(tokens);
+  }
+
   async resetPassword(options: { email: string }): Promise<void> {
     if (!options?.email) {
       throw new AuthError(
@@ -538,6 +586,14 @@ export class DefaultAuthClient implements AuthClient {
     });
   }
 
+  getLoginMethods(): LoginMethodsConfig {
+    // Return a defensive copy so callers can't mutate the resolved config.
+    return {
+      enabled: [...this.config.loginMethods.enabled],
+      comingSoon: [...this.config.loginMethods.comingSoon],
+    };
+  }
+
   /** @deprecated Use `loginWithCodeSent` / `startLoginCodeChallenge` instead. */
   async loginWithPassword(options: PasswordLoginOptions): Promise<Session> {
     if (!options?.email || !options?.password) {
@@ -613,9 +669,7 @@ export class DefaultAuthClient implements AuthClient {
       // Always clean up PKCE artifacts — whether the exchange succeeds, nonce
       // validation fails, or a network error occurs. Leaving them in storage
       // would allow a stale verifier to be reused in a subsequent exchange.
-      await safeRemove(this.storage, STORAGE_KEYS.state);
-      await safeRemove(this.storage, STORAGE_KEYS.nonce);
-      await safeRemove(this.storage, STORAGE_KEYS.codeVerifier);
+      await this.clearPkceArtifacts();
     }
   }
 
@@ -697,7 +751,17 @@ export class DefaultAuthClient implements AuthClient {
   }
 
   private notify(broadcast = true): void {
-    this.listeners.forEach((handler) => handler(this.session));
+    // Isolate listener throws — a buggy subscriber must not break the rest of
+    // the fan-out, the cross-tab broadcast, or the await that triggered notify.
+    this.listeners.forEach((handler) => {
+      try {
+        handler(this.session);
+      } catch (err) {
+        if (typeof console !== 'undefined') {
+          console.error('[nuria-auth] onAuthStateChanged listener threw', err);
+        }
+      }
+    });
     if (broadcast) {
       this.channel?.postMessage({
         type: 'SESSION_SYNC',
@@ -722,3 +786,4 @@ export class DefaultAuthClient implements AuthClient {
     }
   }
 }
+

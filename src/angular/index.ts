@@ -1,7 +1,7 @@
 import { BehaviorSubject, from, type Observable } from 'rxjs';
 import { switchMap } from 'rxjs/operators';
 import type { HttpInterceptorFn } from '@angular/common/http';
-import type { AuthClient, Session } from '../core/types';
+import type { AuthClient, Session, StartLoginOptions } from '../core/types';
 
 export interface AngularAuthState {
   session: Session | null;
@@ -14,7 +14,7 @@ export interface AngularAuthFacade {
   state$: Observable<AngularAuthState>;
   snapshot: () => AngularAuthState;
   refresh: () => Promise<Session | null>;
-  login: () => Promise<void>;
+  login: (options?: StartLoginOptions) => Promise<void>;
   /** Clears the local session only. No server call, no redirect. */
   logout: () => Promise<void>;
   /** Clears the local session AND calls the server logout endpoint, then redirects. */
@@ -75,7 +75,7 @@ export function createAngularAuthFacade(auth: AuthClient): AngularAuthFacade {
     state$: subject.asObservable(),
     snapshot: () => subject.value,
     refresh,
-    login: () => auth.startLogin(),
+    login: (options) => auth.startLogin(options),
     logout: () => auth.logout(),
     globalLogout: (options) => auth.globalLogout(options),
     destroy: () => {

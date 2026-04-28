@@ -279,6 +279,51 @@ describe('createAuthClient', () => {
     ).resolves.toBeUndefined();
   });
 
+  it('createAuthClient rejects http logoutEndpoint outside localhost', () => {
+    expect(() =>
+      createAuthClient({
+        ...BASE_CONFIG,
+        logoutEndpoint: 'http://malicious.example.com/logout',
+      }),
+    ).toThrow(/logoutEndpoint must use https/);
+  });
+
+  it('createAuthClient rejects malformed logoutEndpoint', () => {
+    expect(() =>
+      createAuthClient({
+        ...BASE_CONFIG,
+        logoutEndpoint: 'not a url',
+      }),
+    ).toThrow(/logoutEndpoint must be a valid absolute URL/);
+  });
+
+  it('createAuthClient rejects javascript: logoutEndpoint', () => {
+    expect(() =>
+      createAuthClient({
+        ...BASE_CONFIG,
+        logoutEndpoint: 'javascript:alert(1)',
+      }),
+    ).toThrow(/logoutEndpoint must use https/);
+  });
+
+  it('createAuthClient accepts https logoutEndpoint', () => {
+    expect(() =>
+      createAuthClient({
+        ...BASE_CONFIG,
+        logoutEndpoint: 'https://auth.example.com/logout',
+      }),
+    ).not.toThrow();
+  });
+
+  it('createAuthClient accepts http logoutEndpoint on localhost', () => {
+    expect(() =>
+      createAuthClient({
+        ...BASE_CONFIG,
+        logoutEndpoint: 'http://localhost:5000/logout',
+      }),
+    ).not.toThrow();
+  });
+
   it('getUserinfo throws when not authenticated', async () => {
     const client = createAuthClient(BASE_CONFIG);
     await expect(client.getUserinfo()).rejects.toMatchObject({

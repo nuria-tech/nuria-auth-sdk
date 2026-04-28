@@ -1,4 +1,11 @@
-import type { AuthClient, AuthConfig, ResolvedAuthConfig } from '../core/types';
+import type {
+  AuthClient,
+  AuthConfig,
+  LoginMethod,
+  LoginMethodsConfig,
+  LoginMethodsConfigInput,
+  ResolvedAuthConfig,
+} from '../core/types';
 import { AuthError, AuthErrorCode } from '../errors/auth-error';
 import { DefaultAuthClient } from './nuria-auth-client';
 
@@ -7,6 +14,46 @@ const DEFAULT_AUTHORIZATION_PATH = '/v2/oauth/authorize';
 const DEFAULT_TOKEN_PATH = '/v2/oauth/token';
 const DEFAULT_USERINFO_PATH = '/v2/oauth/userinfo';
 const DEFAULT_SCOPE = 'openid profile email';
+
+const SUPPORTED_LOGIN_METHODS: readonly LoginMethod[] = [
+  'password',
+  'google',
+  'passwordless',
+  'aws_sso',
+];
+
+export const DEFAULT_LOGIN_METHODS: LoginMethodsConfig = {
+  enabled: ['password', 'google'],
+  comingSoon: ['passwordless', 'aws_sso'],
+};
+
+function pickLoginMethods(
+  raw: LoginMethod[] | undefined,
+  fallback: LoginMethod[],
+): LoginMethod[] {
+  if (!Array.isArray(raw)) return [...fallback];
+  const seen = new Set<LoginMethod>();
+  for (const m of raw) {
+    if (typeof m !== 'string') continue;
+    const key = m.trim().toLowerCase() as LoginMethod;
+    if (SUPPORTED_LOGIN_METHODS.includes(key)) seen.add(key);
+  }
+  return Array.from(seen);
+}
+
+function resolveLoginMethods(
+  input: LoginMethodsConfigInput | undefined,
+): LoginMethodsConfig {
+  const enabled = pickLoginMethods(input?.enabled, DEFAULT_LOGIN_METHODS.enabled);
+  const enabledSet = new Set(enabled);
+  // Don't list a method as "coming soon" if it's already enabled — UIs would
+  // render the working button next to a duplicate "Em breve" badge.
+  const comingSoon = pickLoginMethods(
+    input?.comingSoon,
+    DEFAULT_LOGIN_METHODS.comingSoon,
+  ).filter((m) => !enabledSet.has(m));
+  return { enabled, comingSoon };
+}
 
 function isSecureUrl(url: URL): boolean {
   if (url.protocol === 'https:') return true;
@@ -105,9 +152,35 @@ export function createAuthClient(config: AuthConfig): AuthClient {
   }
 
   const baseUrl = normalizeBaseUrl(config.baseUrl);
+
+  // logoutEndpoint feeds window.location.assign in globalLogout() — anything
+  // accepted here is a user-controlled redirect destination. Enforce the same
+  // https-only / localhost-http rule we apply to other endpoints so a misconfig
+  // can't open-redirect through globalLogout.
+  let logoutEndpoint = config.logoutEndpoint;
+  if (logoutEndpoint !== undefined) {
+    let parsedLogout: URL;
+    try {
+      parsedLogout = new URL(logoutEndpoint);
+    } catch {
+      throw new AuthError(
+        AuthErrorCode.INVALID_CONFIG,
+        'config.logoutEndpoint must be a valid absolute URL',
+      );
+    }
+    if (!isSecureUrl(parsedLogout)) {
+      throw new AuthError(
+        AuthErrorCode.INVALID_CONFIG,
+        'config.logoutEndpoint must use https:// (or http:// only for localhost)',
+      );
+    }
+    logoutEndpoint = parsedLogout.toString();
+  }
+
   const resolvedConfig: ResolvedAuthConfig = {
     ...config,
     baseUrl,
+    logoutEndpoint,
     scope: String(config.scope ?? '').trim() || DEFAULT_SCOPE,
     enableRefreshToken: config.enableRefreshToken ?? true,
     silentRefreshIntervalMs: config.silentRefreshIntervalMs ?? 60_000,
@@ -126,6 +199,7 @@ export function createAuthClient(config: AuthConfig): AuthClient {
       config.userinfoEndpoint,
       DEFAULT_USERINFO_PATH,
     ),
+    loginMethods: resolveLoginMethods(config.loginMethods),
   };
 
   return new DefaultAuthClient(resolvedConfig);

@@ -41,6 +41,7 @@ src/
     claims.ts                     # extractRoles(), extractCompanyOrigin(), extractAvatarUrl(), extractDisplayName(), getInitials()
     oauth.ts                      # buildOAuthAuthorizeUrl()
     google.ts                     # startGoogleLogin(), parseGoogleHashCallback(), consumePendingGoogleIdToken(), GOOGLE_STORAGE_KEYS
+    aws.ts                        # startAwsLogin(), parseAwsHashCallback(), consumePendingAwsIdToken(), AWS_STORAGE_KEYS
   react/                          # useAuthSession, AuthProvider, useAuth
   vue/                            # useAuthSession (Vue 3 composable)
   nuxt/                           # createNuxtAuthClient(), createNuxtCookieStorageAdapter()
@@ -53,7 +54,7 @@ tests/                            # Vitest test suite (*.spec.ts)
 
 | Import | File | Contents |
 |--------|------|----------|
-| `@nuria-tech/auth-sdk` | `dist/index.js` | `createAuthClient`, storage adapters, transport, errors, types, `extractRoles`, `extractCompanyOrigin`, `extractAvatarUrl`, `extractDisplayName`, `getInitials`, `buildOAuthAuthorizeUrl`, Google OAuth helpers |
+| `@nuria-tech/auth-sdk` | `dist/index.js` | `createAuthClient`, storage adapters, transport, errors, types, `extractRoles`, `extractCompanyOrigin`, `extractAvatarUrl`, `extractDisplayName`, `getInitials`, `buildOAuthAuthorizeUrl`, Google + AWS IAM Identity Center (SSO) OAuth helpers |
 | `@nuria-tech/auth-sdk/react` | `dist/react.js` | `useAuthSession`, `AuthProvider`, `useAuth` |
 | `@nuria-tech/auth-sdk/vue` | `dist/vue.js` | `useAuthSession` |
 | `@nuria-tech/auth-sdk/nuxt` | `dist/nuxt.js` | `createNuxtAuthClient`, `createNuxtCookieStorageAdapter` |
@@ -78,10 +79,13 @@ tests/                            # Vitest test suite (*.spec.ts)
 | `startLogin()` + `handleRedirectCallback()` | `/v2/oauth/authorize` → `/v2/oauth/token` | PKCE redirect |
 | ~~`loginWithPassword({ email, password })`~~ _(deprecated)_ | `POST /v2/login` | Direct |
 | `loginWithGoogle({ idToken })` | `POST /v2/google` | Google ID token |
+| `loginWithAws({ idToken })` | `POST /v2/sso/aws` | AWS IAM Identity Center (SSO) ID token |
 | `loginWithCodeSent()` + `completeLoginWithCode()` | `/v2/login-code/challenge` → `/v2/2fa/verify-login` | 2FA |
 | `resetPassword({ email })` | `POST /v2/password/reset` | Public — sends reset email |
 | `recoverPassword({ token, newPassword })` | `POST /v2/password/recover` | Recovery token in `Authorization: Bearer` header |
 | `changePassword({ oldPassword, newPassword })` | `PATCH /v2/me/password` | Requires active session |
+| `getLoginMethods()` | — (static) | Returns the resolved `loginMethods` config (`{ enabled, comingSoon }` of `'password' \| 'google' \| 'passwordless' \| 'aws_sso'`) — value passed to `createAuthClient` merged with `DEFAULT_LOGIN_METHODS` (`enabled: ['password','google']`, `comingSoon: ['passwordless','aws_sso']`). Unknown values are dropped; methods in `enabled` are stripped from `comingSoon`. |
+| `startLogin()` (extends behaviour) | redirects to authorize endpoint | Also serializes `config.loginMethods.enabled` / `comingSoon` as CSV query params `login_methods_enabled` / `login_methods_coming_soon`. The kernel forwards them on the `/v2/oauth/authorize → accounts/signin` redirect, so the centralized login UI renders the right buttons for the calling app. Pure UI hint — kernel still enforces auth. `extraParams` cannot override these (reserved). |
 | `logout()` | — (local only) | Clears storage + notifies listeners; no server call |
 | `globalLogout({ returnTo? })` | `logoutEndpoint` (configurable) | Calls `logout()` then redirects to server logout |
 

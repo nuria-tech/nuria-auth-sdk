@@ -19,6 +19,7 @@ export function useAuthSession(auth: AuthClient): UseVueAuthSessionResult {
     try {
       await auth.getAccessToken();
       session.value = auth.getSession();
+      error.value = null;
     } catch (err) {
       error.value = err;
     } finally {

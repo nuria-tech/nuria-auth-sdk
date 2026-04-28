@@ -4,6 +4,163 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.6] - 2026-04-28
+
+### Added
+
+- **Login-methods config in `createAuthClient`.** New `AuthConfig.loginMethods`
+  option `{ enabled, comingSoon }` (subset of `'password' | 'google' |
+  'passwordless' | 'aws_sso'`) tells login UIs which buttons to render and
+  which to advertise as "Em breve". Read back synchronously with the new
+  `AuthClient.getLoginMethods()` — no network call. Static config replaces
+  any per-OAuth-client backend lookup; everything an integrating app needs
+  lives in its own `createAuthClient` call.
+  - Defaults exported as `DEFAULT_LOGIN_METHODS`: `enabled: ['password',
+    'google']`, `comingSoon: ['passwordless', 'aws_sso']` — matches the
+    legacy Nuria signin page behaviour.
+  - Either field can be omitted to fall back to its default; unknown method
+    values are silently dropped; methods listed in `enabled` are stripped
+    from `comingSoon` to prevent UIs from rendering a duplicate "Em breve"
+    badge next to a working button.
+  - `LoginMethod`, `LoginMethodsConfig`, and `LoginMethodsConfigInput` types
+    exported from the main entrypoint.
+  - `startLogin()` now serializes the resolved `loginMethods` into
+    `?login_methods_enabled=` / `?login_methods_coming_soon=` (CSV) on the
+    redirect URL. The Nuria backend forwards these to accounts/signin so
+    the central login UI renders the right buttons for the calling app —
+    no per-client backend lookup required for the 99% case where apps
+    redirect to accounts. `extraParams` cannot override these reserved
+    keys. UI-hint only; the kernel remains the auth gate.
+
+### Fixed
+
+- **`config.logoutEndpoint` is now validated up-front** with the same rule
+  applied to `redirectUri` / `baseUrl` (https-only, except http on localhost).
+  Without this, an attacker who could influence config (or a typo) could
+  point `globalLogout()`'s redirect at any URL — including
+  `javascript:`-style payloads — turning sign-out into an open-redirect.
+  `createAuthClient` now throws `INVALID_CONFIG` for malformed, http-non-
+  localhost, or non-URL `logoutEndpoint` values.
+- **`onAuthStateChanged` listeners are isolated from each other.** A listener
+  that threw used to abort `notify()` mid-fan-out, skipping every subsequent
+  subscriber and the cross-tab `BroadcastChannel.postMessage` call. One buggy
+  React component could silently freeze the rest of the app's auth state.
+  Each listener now runs inside a try/catch; throws are reported via
+  `console.error` and the rest of the fan-out continues.
+- **`startGoogleLogin` now emits a CSRF state parameter** alongside the
+  existing nonce, persisted to `sessionStorage` under
+  `nuria:google:state`. `parseGoogleHashCallback` validates it against the
+  hash on return. Validation is deliberately **soft** — only rejects when
+  both the URL hash and `sessionStorage` carry a state value AND they
+  disagree. If either side is missing the check is skipped. Two real-world
+  scenarios drove the soft mode:
+  - **Mid-flight upgrades.** A user starts login on an older build (no
+    state stored) and lands on the callback after a deploy of the new SDK.
+    Strict validation would silently fail every login in transit.
+  - **Storage-wipe.** Privacy-mode browsers, extension cleanups, and
+    Strict-Mode-style double parses can drop `state` from `sessionStorage`
+    while leaving the URL fragment intact. Strict mode would reject the
+    second pass; soft mode accepts because storage is empty on that side.
+  Defense-in-depth is preserved: the kernel still verifies the id_token's
+  signature/audience server-side via Google's JWKS, which is the actual
+  security boundary. The state check is purely client-side hardening, on
+  par with what `startAwsLogin` already does.
+
+### Tests
+
+- 17 new unit tests:
+  - `getLoginMethods`: returns SDK defaults when omitted, merges partial
+    overrides, drops unknown / cased / duplicate values, returns a
+    defensive copy.
+  - `startLogin`: serializes loginMethods as CSV query params; reserved keys
+    cannot be overridden by `extraParams`.
+  - `createAuthClient`: rejects http-non-localhost / malformed / `javascript:`
+    `logoutEndpoint`; accepts https and localhost http.
+  - `notify`: a throwing listener does not block the listeners registered
+    after it.
+  - `startGoogleLogin` + `parseGoogleHashCallback`: state appears in URL +
+    storage, distinct from nonce; mismatched state rejects + leaves no
+    pendingIdToken; missing storage state still accepts (mid-flight upgrade);
+    missing URL state still accepts (storage wipe).
+
+---
+
+## [2.0.5] - 2026-04-28
+
+### Added
+
+- **AWS IAM Identity Center (AWS SSO) federated login** in the same shape as
+  the existing Google flow. Targets a *customer-managed application* registered
+  in your IAM Identity Center instance.
+  - `startAwsLogin(options)` — generates `nonce` + `state`, persists them and
+    `returnSearch` to `sessionStorage`, then redirects to the IAM Identity
+    Center authorization endpoint with `response_type=id_token`. The endpoint
+    is derived from `issuerUrl` (`${issuerUrl}/authorize`) or taken verbatim
+    from `authorizationEndpoint` when the discovery document advertises a
+    non-standard path.
+  - `parseAwsHashCallback(hash)` — extracts `id_token` from the URL hash and
+    validates the `state` round-trip before consuming it. Stores the token as
+    `pendingIdToken` and clears `nonce`/`state`/`returnSearch`.
+  - `consumePendingAwsIdToken()` — reads and removes the pending IAM Identity
+    Center id token from `sessionStorage`.
+  - `AWS_STORAGE_KEYS` — constant storage key names used by the AWS utilities.
+  - `AuthClient.loginWithAws({ idToken })` — exchanges the id token for a
+    Nuria `Session` via `POST /v2/sso/aws`. The kernel validates the token
+    against the IAM Identity Center JWKS (issuer + audience pulled from
+    Secrets Manager) and only signs in users that are already provisioned
+    and active — no auto-create. Browser/SSO mode also rotates the
+    `__Host-nuria_rt` cookie, mirroring `/v2/google`.
+  - New `AwsLoginOptions` type + `StartAwsLoginOptions` exported from the main
+    entrypoint.
+
+### Fixed
+
+- **React `AuthProvider` no longer triggers re-render storms.** The context
+  `value` is now memoized with `useMemo`, and `login` / `logout` /
+  `globalLogout` are wrapped in `useCallback`. Consumer effects that depend on
+  these callbacks no longer re-run on every render — this was the root cause
+  of the "infinite loop on login problem" report when paired with a
+  non-navigating `onRedirect` callback.
+- **React `useAuth().login(...)` accepts `StartLoginOptions`.** The wrapper
+  silently dropped `loginHint`, `scopes`, and `extraParams`; it now forwards
+  them to `auth.startLogin`.
+- **Angular `createAngularAuthFacade(...)` `login(...)` accepts
+  `StartLoginOptions`** for parity with the React facade.
+- **`useAuthSession` (React + Vue) clears `error`** on a successful hydrate so
+  a stale error doesn't survive a recovery refresh.
+- **`getAccessToken()` notifies subscribers** when it clears the session
+  because of a refresh failure (or because refresh is disabled and the token
+  expired). Other components and the cross-tab `BroadcastChannel` now stay in
+  sync. Previously only the 401 path notified, via the auto-logout interceptor.
+- **Removed the global 401 → auto-logout transport interceptor.** It was
+  redundant for refresh failures (already handled inside `getAccessToken()`)
+  and harmful for every other authenticated endpoint the SDK calls. With it
+  in place, `auth.changePassword({ oldPassword: '<wrong>', ... })` would log
+  the user out of their active session because the kernel maps
+  `InvalidCredentials` to 401 — the user only typed the old password wrong,
+  but the SDK responded by wiping the session. Same problem with a transient
+  `getUserinfo`/`checkSession` 401: the next `getAccessToken()` would silently
+  refresh and recover, but the interceptor pre-empted that by logging out.
+  The refresh-failure path inside `getAccessToken()` still handles its own
+  cleanup; callers handle 401s on app-level requests.
+- **`handleRedirectCallback` clears PKCE artifacts on early-throw paths.**
+  When the OAuth provider returned an error (`?error=access_denied`), or the
+  callback was missing `code`/`state`, or the state failed validation, the
+  method threw without touching `nuria:oauth:state` /
+  `nuria:oauth:code_verifier` / `nuria:oauth:nonce`. Storage stayed primed
+  with stale PKCE state until the next `startLogin()` overwrote it. The
+  cleanup now runs on every error path; only `exchangeCode` was correctly
+  cleaning up before.
+
+### Tests
+
+- 17 new unit tests covering `startAwsLogin`, `parseAwsHashCallback`,
+  `consumePendingAwsIdToken`, `loginWithAws`, the new 401-with-no-session
+  guard, the React `login` option pass-through, and the React stable-reference
+  invariant for `useAuth()` callbacks.
+
+---
+
 ## [2.0.4] - 2026-04-23
 
 ### Added
