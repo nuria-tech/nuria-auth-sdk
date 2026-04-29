@@ -89,6 +89,7 @@ tests/                            # Vitest test suite (*.spec.ts)
 | `logout()` | — (local only) | Clears storage + notifies listeners; no server call |
 | `globalLogout({ returnTo? })` | `logoutEndpoint` (configurable) | Calls `logout()` then redirects to server logout |
 | `revokeSession()` | `POST /v2/logout` | Best-effort server revoke of the current refresh token; does **not** clear the local session. Pair with `logout()` for full sign-out without a redirect. Errors are swallowed so callers' local cleanup always proceeds. |
+| `revokeAllSessions()` | `POST /v2/logout/global` | Best-effort **SSO-portal** sign-out: Bearer-auth, revokes every refresh token of the authenticated subject (all devices, all OAuth apps). Does NOT clear local session and does NOT affect dev tokens (separate revocation trail keyed by JTI). Use this in accounts.nuria.com.br; per-app integrations stay with `revokeSession`. |
 
 ## Storage Keys (localStorage / cookie)
 
@@ -117,6 +118,7 @@ tests/                            # Vitest test suite (*.spec.ts)
 - `logout()` clears local session only — no server call, no redirect
 - `globalLogout({ returnTo })` calls `logout()` then calls `logoutEndpoint` and redirects; `returnTo` only accepts `https://` URLs (or `http://localhost`)
 - `revokeSession()` POSTs to `/v2/logout` with the current refresh token to revoke it server-side; does NOT touch the local session. Best-effort: 4xx (already revoked) and network errors are swallowed so callers can sequence `revokeSession()` → `logout()` without leaving the user stuck signed-in client-side if the server call fails. Timeout is 5s.
+- `revokeAllSessions()` POSTs to `/v2/logout/global` (Bearer in `Authorization` header) to revoke **every** refresh token of the authenticated subject server-side. Same best-effort posture as `revokeSession`; same 5s timeout; same "doesn't touch local session" contract. Use only in the SSO portal — per-app callers want the per-row `revokeSession`. Dev tokens survive: the kernel keeps `DevTokenRevocation` keyed by JTI on a separate trail and `EvaluateAccess` bypasses the session kill-switch when a JWT carries a `jti`.
 
 ## Adding a New Framework Integration
 

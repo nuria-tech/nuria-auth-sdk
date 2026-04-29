@@ -271,6 +271,25 @@ export class DefaultAuthClient implements AuthClient {
     }
   }
 
+  async revokeAllSessions(): Promise<void> {
+    // Bearer-authenticated, no body. Same best-effort posture as
+    // revokeSession — a transport failure can't strand the user on a
+    // logout-already-clicked screen. The kernel uses the access token to
+    // identify the subject and writes RefreshSubjectState.GlobalRevokedAt,
+    // killing every refresh row for the user in one shot.
+    const accessToken = this.session?.tokens.accessToken;
+    try {
+      await this.transport.request(`${this.config.baseUrl}/v2/logout/global`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+        timeoutMs: 5_000,
+      });
+    } catch {
+      /* swallow — see comment above */
+    }
+  }
+
   async globalLogout(options?: { returnTo?: string }): Promise<void> {
     if (options?.returnTo) {
       let returnToUrl: URL;
