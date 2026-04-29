@@ -1,9 +1,10 @@
 # AGENTS.md — @nuria-tech/auth-sdk
 
 ## Purpose
-Browser-focused OAuth 2.0 Authorization Code + PKCE (S256) SDK with zero dependencies.
-Supports React, Vue, Nuxt, Next.js, and Angular via separate entrypoints.
-Designed for the Nuria backend (`https://auth.nuria.com.br`).
+Browser-focused **OAuth 2.1** Authorization Code + PKCE (S256) SDK with
+zero dependencies. PKCE mandatory on every flow; no `client_secret`
+pathway. Supports React, Vue, Nuxt, Next.js, and Angular via separate
+entrypoints. Designed for the Nuria backend (`https://auth.nuria.com.br`).
 
 ## Commands
 
