@@ -88,6 +88,7 @@ tests/                            # Vitest test suite (*.spec.ts)
 | `startLogin()` (extends behaviour) | redirects to authorize endpoint | Also serializes `config.loginMethods.enabled` / `comingSoon` as CSV query params `login_methods_enabled` / `login_methods_coming_soon`. The kernel forwards them on the `/v2/oauth/authorize → accounts/signin` redirect, so the centralized login UI renders the right buttons for the calling app. Pure UI hint — kernel still enforces auth. `extraParams` cannot override these (reserved). |
 | `logout()` | — (local only) | Clears storage + notifies listeners; no server call |
 | `globalLogout({ returnTo? })` | `logoutEndpoint` (configurable) | Calls `logout()` then redirects to server logout |
+| `revokeSession()` | `POST /v2/logout` | Best-effort server revoke of the current refresh token; does **not** clear the local session. Pair with `logout()` for full sign-out without a redirect. Errors are swallowed so callers' local cleanup always proceeds. |
 
 ## Storage Keys (localStorage / cookie)
 
@@ -115,6 +116,7 @@ tests/                            # Vitest test suite (*.spec.ts)
 - Cross-tab sync via `BroadcastChannel('nuria:auth:sync')` — fires on login/logout; `init()` does NOT broadcast; incoming messages are shape-validated before being applied
 - `logout()` clears local session only — no server call, no redirect
 - `globalLogout({ returnTo })` calls `logout()` then calls `logoutEndpoint` and redirects; `returnTo` only accepts `https://` URLs (or `http://localhost`)
+- `revokeSession()` POSTs to `/v2/logout` with the current refresh token to revoke it server-side; does NOT touch the local session. Best-effort: 4xx (already revoked) and network errors are swallowed so callers can sequence `revokeSession()` → `logout()` without leaving the user stuck signed-in client-side if the server call fails. Timeout is 5s.
 
 ## Adding a New Framework Integration
 
