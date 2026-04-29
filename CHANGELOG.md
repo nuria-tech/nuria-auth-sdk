@@ -4,6 +4,33 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.8] - 2026-04-29
+
+### Added
+
+- **`AuthClient.revokeAllSessions()`** — best-effort
+  `POST /v2/logout/global` (Bearer required) that revokes **every** refresh
+  token belonging to the authenticated subject server-side. Intended for
+  the SSO portal (accounts.nuria.com.br): when a user signs out at the
+  account center, every device, browser tab, and OAuth-integrated app the
+  subject ever logged into loses the ability to renew. Per-app
+  integrations should keep using `revokeSession()` for local-only
+  sign-out.
+
+  Same best-effort posture as `revokeSession`: does not clear the local
+  session (caller pairs with `logout()`), and 4xx / network errors are
+  swallowed so the caller's local cleanup always proceeds.
+
+  Dev tokens (`/v2/auth/dev-token`, carry a `jti`) are intentionally NOT
+  affected — the kernel keeps them on a separate revocation trail and
+  `EvaluateAccess` bypasses the session kill-switch for JTI-bearing
+  tokens. Developers signing out of the SSO portal don't lose their
+  long-lived testing credential.
+
+  Requires backend with `POST /v2/logout/global` deployed (added in the
+  same release window). Calls against older deploys 404 silently — same
+  no-op end state as a successful revoke.
+
 ## [2.0.7] - 2026-04-28
 
 ### Added

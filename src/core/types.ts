@@ -195,6 +195,22 @@ export interface AuthClient {
    * cleanup must still proceed.
    */
   revokeSession(): Promise<void>;
+  /**
+   * Best-effort `POST /v2/logout/global` (Bearer required) to revoke
+   * **every** refresh token belonging to the authenticated subject — not
+   * just the one held by this client. Intended for the SSO portal
+   * (accounts.nuria.com.br) "Sair" button: signing out at the account
+   * center should kill every device, browser tab, and OAuth-integrated
+   * app the subject ever logged into. Per-app integrations should keep
+   * using {@link AuthClient.revokeSession} for local-only sign-out.
+   *
+   * Does NOT clear the local session — pair with {@link AuthClient.logout}
+   * for full client-side cleanup. Existing 15-min access tokens still
+   * drain naturally; dev tokens (`/v2/auth/dev-token`) survive because
+   * they live on a separate revocation trail. Network/4xx errors are
+   * swallowed for the same reason as `revokeSession`.
+   */
+  revokeAllSessions(): Promise<void>;
   isAuthenticated(): boolean;
   onAuthStateChanged(handler: (session: Session | null) => void): () => void;
   getClaims(): TokenClaims | null;
