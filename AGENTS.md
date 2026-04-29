@@ -127,6 +127,11 @@ those backend endpoints are unchanged from the implicit-flow era.
 | `revokeSession()` | `POST /v2/logout` | Best-effort server revoke of the current refresh token; does **not** clear the local session. Pair with `logout()` for full sign-out without a redirect. Errors are swallowed so callers' local cleanup always proceeds. |
 | `revokeAllSessions()` | `POST /v2/logout/global` | Best-effort **SSO-portal** sign-out: Bearer-auth, revokes every refresh token of the authenticated subject (all devices, all OAuth apps). Does NOT clear local session and does NOT affect dev tokens (separate revocation trail keyed by JTI). Use this in accounts.nuria.com.br; per-app integrations stay with `revokeSession`. |
 
+`LoginCodeChallengeOptions.destination` is deprecated and intentionally not
+serialized by `startLoginCodeChallenge()` / `loginWithCodeSent()`. The kernel
+always resolves the OTP destination from the stored user email/cellphone based
+on `channel`.
+
 ## Storage Keys (localStorage / cookie)
 
 | Key | Content |

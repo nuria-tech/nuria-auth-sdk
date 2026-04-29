@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Changed
+
+- `startLoginCodeChallenge()` / `loginWithCodeSent()` no longer serialize
+  `destination` in the `/v2/login-code/challenge` request body. The backend
+  resolves the destination from the stored user profile and already ignored
+  client-supplied values.
+- `LoginCodeChallengeOptions.destination` is now marked `@deprecated` for
+  source compatibility while consumers migrate away from passing it.
+
 ## [3.0.0] - 2026-04-29
 
 ### Breaking — Google + AWS SSO migrated to OAuth 2.1 compliant flows

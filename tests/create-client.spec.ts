@@ -639,6 +639,7 @@ describe('createAuthClient', () => {
 
     const challenge = await client.startLoginCodeChallenge({
       email: 'user@example.com',
+      destination: 'ignored@example.com',
     });
 
     expect(challenge.channel).toBe('email');
@@ -647,6 +648,11 @@ describe('createAuthClient', () => {
     >;
     expect(calls[0]![0]).toBe('https://auth.example.com/v2/login-code/challenge');
     expect(calls[0]![1].method).toBe('POST');
+    expect(calls[0]![1].body).toEqual({
+      email: 'user@example.com',
+      channel: 'email',
+      purpose: 'login',
+    });
   });
 
   it('verifyLoginCode creates session from backend token envelope', async () => {

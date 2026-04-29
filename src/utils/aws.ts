@@ -239,7 +239,10 @@ export async function parseAwsQueryCallback(
     if (!response.ok) {
       let detail = '';
       try {
-        const data = (await response.json()) as { error?: string; error_description?: string };
+        const data = (await response.json()) as {
+          error?: string;
+          error_description?: string;
+        };
         detail = data.error_description ?? data.error ?? '';
       } catch {
         // body is not JSON — fall through with empty detail

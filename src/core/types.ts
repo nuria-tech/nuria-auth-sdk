@@ -51,6 +51,7 @@ export interface StartLoginOptions {
 export interface LoginCodeChallengeOptions {
   email: string;
   channel?: 'email' | 'sms';
+  /** @deprecated The backend resolves the destination from the stored user profile. */
   destination?: string;
   purpose?: string;
 }

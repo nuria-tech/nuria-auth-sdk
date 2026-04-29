@@ -157,6 +157,10 @@ await auth.loginWithCodeSent({ email: 'user@company.com' });
 await auth.completeLoginWithCode({ challengeId: '...', code: '123456' });
 ```
 
+The verification destination is resolved server-side from the user's stored
+email or cellphone based on `channel`. `LoginCodeChallengeOptions.destination`
+is deprecated and is no longer sent in the challenge request body.
+
 ## Federated login: Google and AWS IAM Identity Center (AWS SSO)
 
 The two providers use **different** OAuth 2.1-compliant flows because of
@@ -477,6 +481,14 @@ interface AuthClient {
 interface LoginMethodsConfig {
   enabled: ('password' | 'google' | 'passwordless' | 'aws_sso')[];
   comingSoon: ('password' | 'google' | 'passwordless' | 'aws_sso')[];
+}
+
+interface LoginCodeChallengeOptions {
+  email: string;
+  channel?: 'email' | 'sms';
+  /** @deprecated The backend resolves the destination from the stored user profile. */
+  destination?: string;
+  purpose?: string;
 }
 ```
 

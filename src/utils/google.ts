@@ -40,7 +40,11 @@ export interface PromptGoogleOneTapOptions {
 
 interface GsiInitializeConfig {
   client_id: string;
-  callback: (resp: { credential: string; select_by: string; clientId: string }) => void;
+  callback: (resp: {
+    credential: string;
+    select_by: string;
+    clientId: string;
+  }) => void;
   nonce: string;
   use_fedcm_for_prompt: true;
   auto_select?: boolean;
@@ -157,7 +161,11 @@ function buildCredentialHandler(
   onCredential: (response: GoogleCredentialResponse) => void,
   onError?: (err: Error) => void,
 ) {
-  return (resp: { credential: string; select_by: string; clientId: string }) => {
+  return (resp: {
+    credential: string;
+    select_by: string;
+    clientId: string;
+  }) => {
     const storedNonce = consumeStoredNonce();
     const tokenNonce = decodeJwtNonce(resp.credential);
     if (

@@ -442,7 +442,6 @@ export class DefaultAuthClient implements AuthClient {
         body: {
           email: options.email,
           channel: options.channel ?? 'email',
-          destination: options.destination,
           purpose: options.purpose ?? 'login',
         },
       },
