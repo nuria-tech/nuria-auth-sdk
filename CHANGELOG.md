@@ -4,7 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [2.0.8] - 2026-04-29
+## [2.0.9] - 2026-04-29
+
+> 2.0.8 was tagged but not published — CI lint broke on a long ternary
+> in the new method. 2.0.9 ships the same change with the formatting
+> fix.
 
 ### Added
 

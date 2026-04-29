@@ -282,7 +282,9 @@ export class DefaultAuthClient implements AuthClient {
       await this.transport.request(`${this.config.baseUrl}/v2/logout/global`, {
         method: 'POST',
         credentials: 'include',
-        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+        headers: accessToken
+          ? { Authorization: `Bearer ${accessToken}` }
+          : undefined,
         timeoutMs: 5_000,
       });
     } catch {
