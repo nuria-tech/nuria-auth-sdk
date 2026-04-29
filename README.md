@@ -159,51 +159,81 @@ await auth.completeLoginWithCode({ challengeId: '...', code: '123456' });
 
 ## Federated login: Google and AWS IAM Identity Center (AWS SSO)
 
-Both providers follow the same shape:
+The two providers use **different** OAuth 2.1-compliant flows because of
+provider constraints, but both end up calling the same backend endpoint
+with an `idToken`:
 
-1. `start*Login(...)` redirects the browser to the provider's authorization endpoint.
-2. The callback page reads the `id_token` from the URL hash.
-3. `loginWith*({ idToken })` exchanges the token for a Nuria `Session`.
+- **Google → Google Identity Services (GIS / FedCM).** GIS is the path
+  Google officially recommends for SPAs after the implicit-flow
+  deprecation. The SDK loads `accounts.google.com/gsi/client`, renders
+  the official Sign-In button, and surfaces the id_token via a callback
+  — no URL fragment, no redirect.
+- **AWS IAM Identity Center → Authorization Code + PKCE.** AWS supports
+  PKCE-only public clients, so the browser does the code → token
+  exchange directly. The SDK generates `code_verifier` + `nonce`,
+  redirects with `response_type=code`, parses `?code&state` on return,
+  and exchanges at the issuer's `/token` endpoint.
 
 For AWS IAM Identity Center the IdP is a *customer-managed application*
-configured in your IAM Identity Center instance. Copy the issuer URL from
-that application — `startAwsLogin` derives the `/authorize` endpoint from
-it (or you can pass `authorizationEndpoint` explicitly).
+configured in your IAM Identity Center instance. Copy the issuer URL —
+`startAwsLogin` derives `/authorize` and `/token` from it (or pass
+`authorizationEndpoint` / `tokenEndpoint` explicitly).
+
+### Google (GIS)
 
 ```ts
-import {
-  startGoogleLogin,
-  parseGoogleHashCallback,
-  consumePendingGoogleIdToken,
-  startAwsLogin,
-  parseAwsHashCallback,
-  consumePendingAwsIdToken,
-} from '@nuria-tech/auth-sdk';
+import { renderGoogleSignInButton } from '@nuria-tech/auth-sdk';
+
+await renderGoogleSignInButton({
+  clientId: 'google-app-client-id',
+  element: document.getElementById('google-btn')!,
+  onCredential: async ({ idToken }) => {
+    await auth.loginWithGoogle({ idToken });
+  },
+  onError: (err) => console.error(err),
+  // Visual options (passed to GIS):
+  // theme: 'outline' | 'filled_blue' | 'filled_black',
+  // size: 'large' | 'medium' | 'small',
+  // shape: 'rectangular' | 'pill',
+});
+```
+
+The page origin must be listed in your GCP OAuth client's
+"Authorized JavaScript origins". The SDK mints a nonce per render, validates
+the `nonce` claim of the returned id_token with `timingSafeEqual`, and
+disables further reuse on success.
+
+For One Tap / FedCM-style soft prompts, use `promptGoogleOneTap(...)`.
+On logout, call `disableGoogleAutoSelect()` so Google does not silently
+re-sign the user in.
+
+### AWS IAM Identity Center
+
+```ts
+import { startAwsLogin, parseAwsQueryCallback } from '@nuria-tech/auth-sdk';
 
 // Trigger flow
-startGoogleLogin({
-  clientId: 'google-app-client-id',
-  redirectUri: `${window.location.origin}/oauth/callback`,
-});
-
-startAwsLogin({
+await startAwsLogin({
   clientId: 'iam-identity-center-app-client-id',
   redirectUri: `${window.location.origin}/oauth/callback`,
   issuerUrl: 'https://identitycenter.amazonaws.com/ssoins-XXXXXXXX/',
-  // Or, when you need a custom authorization path:
+  // Or, when you need custom paths:
   //   authorizationEndpoint: 'https://oidc.us-east-1.amazonaws.com/authorize',
+  //   tokenEndpoint:         'https://oidc.us-east-1.amazonaws.com/token',
 });
 
-// Callback page
-const google = parseGoogleHashCallback(window.location.hash);
-const aws = parseAwsHashCallback(window.location.hash);
-if (google) await auth.loginWithGoogle({ idToken: google.idToken });
-if (aws) await auth.loginWithAws({ idToken: aws.idToken });
-
-// Or pull a pending token already persisted by the parser
-const pending = consumePendingGoogleIdToken() ?? consumePendingAwsIdToken();
-if (pending) await auth.loginWithGoogle({ idToken: pending });
+// Callback page (URL: /oauth/callback?code=...&state=...)
+const result = await parseAwsQueryCallback(window.location.search);
+if (result) {
+  await auth.loginWithAws({ idToken: result.idToken });
+}
 ```
+
+`parseAwsQueryCallback` returns `null` for non-callback navigations and
+throws `AuthError` (`MISSING_STATE`, `STATE_MISMATCH`,
+`TOKEN_EXCHANGE_FAILED`, `CALLBACK_ERROR`) for explicit failures. The
+PKCE bag is removed from `sessionStorage` even on failure to prevent
+verifier reuse.
 
 ## React quick start
 

@@ -1,7 +1,7 @@
 {
   "name": "@nuria-tech/auth-sdk",
-  "version": "2.0.10",
-  "description": "Browser OAuth 2.1 Authorization Code + PKCE client SDK with support for password, Google, AWS IAM Identity Center (SSO), and 2FA login flows",
+  "version": "3.0.0",
+  "description": "Browser OAuth 2.1 (Authorization Code + PKCE) client SDK. Google login uses Google Identity Services (FedCM); AWS IAM Identity Center uses code+PKCE; password and 2FA login also supported.",
   "license": "MIT",
   "author": "Nuria Tech",
   "keywords": [

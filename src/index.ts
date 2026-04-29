@@ -24,18 +24,21 @@ export {
   type OAuthAuthorizeParams,
 } from './utils/oauth';
 export {
-  startGoogleLogin,
-  parseGoogleHashCallback,
-  consumePendingGoogleIdToken,
+  renderGoogleSignInButton,
+  promptGoogleOneTap,
+  cancelGooglePrompt,
+  disableGoogleAutoSelect,
   GOOGLE_STORAGE_KEYS,
-  type StartGoogleLoginOptions,
+  type GoogleCredentialResponse,
+  type RenderGoogleSignInButtonOptions,
+  type PromptGoogleOneTapOptions,
 } from './utils/google';
 export {
   startAwsLogin,
-  parseAwsHashCallback,
-  consumePendingAwsIdToken,
+  parseAwsQueryCallback,
   AWS_STORAGE_KEYS,
   type StartAwsLoginOptions,
+  type AwsCallbackResult,
 } from './utils/aws';
 
 export type {

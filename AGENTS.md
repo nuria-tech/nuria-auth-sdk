@@ -41,8 +41,8 @@ src/
   utils/
     claims.ts                     # extractRoles(), extractCompanyOrigin(), extractAvatarUrl(), extractDisplayName(), getInitials()
     oauth.ts                      # buildOAuthAuthorizeUrl()
-    google.ts                     # startGoogleLogin(), parseGoogleHashCallback(), consumePendingGoogleIdToken(), GOOGLE_STORAGE_KEYS
-    aws.ts                        # startAwsLogin(), parseAwsHashCallback(), consumePendingAwsIdToken(), AWS_STORAGE_KEYS
+    google.ts                     # renderGoogleSignInButton(), promptGoogleOneTap(), cancelGooglePrompt(), disableGoogleAutoSelect() — wraps Google Identity Services (GIS / FedCM); validates id_token nonce client-side
+    aws.ts                        # startAwsLogin(), parseAwsQueryCallback() — Authorization Code + PKCE for AWS IAM Identity Center; per-state PKCE bag in sessionStorage
   react/                          # useAuthSession, AuthProvider, useAuth
   vue/                            # useAuthSession (Vue 3 composable)
   nuxt/                           # createNuxtAuthClient(), createNuxtCookieStorageAdapter()
@@ -81,6 +81,33 @@ the kernel-side launch-link flow (PKCE preserved, verifier in DDB) — see
 [Server-side launch links](#server-side-launch-links-backend-issued).
 `code_challenge_method` is hardcoded to `S256`.
 
+**Federated providers do not use the redirect-fragment Implicit grant**
+— it is forbidden by OAuth 2.1 (RFC 9700 / Browser-Based Apps BCP). The
+two providers diverge because the spec offers no single answer that fits
+both:
+
+- **Google** uses **Google Identity Services (GIS / FedCM)**, the path
+  Google officially endorses for SPAs after deprecating implicit. The
+  SDK does not redirect — `accounts.google.com/gsi/client` is loaded
+  on demand and renders the official button into a host element. The
+  id_token comes back through a JS callback. Nonce is generated client-
+  side, embedded via GIS `initialize({ nonce })`, and validated against
+  the id_token claim with `timingSafeEqual` before the credential is
+  surfaced to the consumer.
+- **AWS IAM Identity Center** uses **Authorization Code + PKCE** in the
+  browser. Customer-managed applications support PKCE-only public
+  clients, so no `client_secret` is required. The PKCE bag
+  (`{ codeVerifier, nonce, redirectUri, clientId, tokenEndpoint, returnSearch }`)
+  is stored in `sessionStorage` keyed by `state` so concurrent tabs
+  cannot clobber each other. After the redirect back, the SDK parses
+  `?code&state`, exchanges at the issuer's `/token`, validates the
+  id_token nonce, and clears the bag whether the exchange succeeds or
+  fails (preventing verifier reuse).
+
+Both flows ultimately pass an `idToken` to `loginWithGoogle` /
+`loginWithAws`, which call `POST /v2/google` / `POST /v2/sso/aws` —
+those backend endpoints are unchanged from the implicit-flow era.
+
 ## Auth Flows
 
 | Method | Backend endpoint | Input |
@@ -108,6 +135,8 @@ the kernel-side launch-link flow (PKCE preserved, verifier in DDB) — see
 | `nuria:oauth:state` | PKCE state string (cleared after callback, always via `finally`) |
 | `nuria:oauth:code_verifier` | PKCE verifier (cleared after callback, always via `finally`) |
 | `nuria:oauth:nonce` | OIDC nonce string (cleared after callback, always via `finally`) |
+| `nuria:google:nonce` | GIS nonce (cleared once the credential callback validates it; `disableGoogleAutoSelect()` also clears it) |
+| `nuria:aws:pkce:<state>` | Per-flight AWS PKCE bag — `{ codeVerifier, nonce, redirectUri, clientId, tokenEndpoint, returnSearch }`. Removed by `parseAwsQueryCallback` whether the exchange succeeds or fails. |
 
 ## Architecture Rules
 

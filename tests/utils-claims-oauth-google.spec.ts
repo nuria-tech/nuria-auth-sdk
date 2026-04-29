@@ -11,10 +11,10 @@ import {
 import { buildOAuthAuthorizeUrl } from '../src/utils/oauth';
 import {
   GOOGLE_STORAGE_KEYS,
-  startGoogleLogin,
-  parseGoogleHashCallback,
-  consumePendingGoogleIdToken,
+  renderGoogleSignInButton,
+  disableGoogleAutoSelect,
 } from '../src/utils/google';
+import { AuthError, AuthErrorCode } from '../src/errors/auth-error';
 
 // ─── extractRoles ────────────────────────────────────────────────────────────
 
@@ -234,133 +234,136 @@ describe('buildOAuthAuthorizeUrl', () => {
   });
 });
 
-// ─── Google utils ─────────────────────────────────────────────────────────────
+// ─── Google Identity Services (GIS) ─────────────────────────────────────────
 
-describe('startGoogleLogin', () => {
-  it('calls onRedirect with a Google accounts URL containing the nonce and state', () => {
-    const onRedirect = vi.fn();
-    startGoogleLogin({
+interface MockGsi {
+  initialize: ReturnType<typeof vi.fn>;
+  renderButton: ReturnType<typeof vi.fn>;
+  prompt: ReturnType<typeof vi.fn>;
+  cancel: ReturnType<typeof vi.fn>;
+  disableAutoSelect: ReturnType<typeof vi.fn>;
+}
+
+const installMockGis = (): MockGsi => {
+  const mock: MockGsi = {
+    initialize: vi.fn(),
+    renderButton: vi.fn(),
+    prompt: vi.fn(),
+    cancel: vi.fn(),
+    disableAutoSelect: vi.fn(),
+  };
+  (window as unknown as { google: { accounts: { id: MockGsi } } }).google = {
+    accounts: { id: mock },
+  };
+  return mock;
+};
+
+// b64url helper for happy-dom (no Buffer; use btoa)
+const b64url = (obj: unknown) =>
+  btoa(JSON.stringify(obj))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=/g, '');
+
+const mintIdToken = (claims: Record<string, unknown>) =>
+  `${b64url({ alg: 'RS256' })}.${b64url(claims)}.signature`;
+
+describe('renderGoogleSignInButton', () => {
+  it('initializes GIS with the stored nonce and renders the button', async () => {
+    sessionStorage.clear();
+    const gsi = installMockGis();
+    const element = document.createElement('div');
+    await renderGoogleSignInButton({
       clientId: 'google-client',
-      redirectUri: 'https://app.example.com/callback',
-      onRedirect,
+      element,
+      onCredential: () => {},
     });
-    expect(onRedirect).toHaveBeenCalledOnce();
-    const url = onRedirect.mock.calls[0]![0] as string;
-    expect(url).toContain('accounts.google.com');
-    expect(url).toContain('response_type=id_token');
-    expect(url).toContain('client_id=google-client');
-    expect(url).toContain('nonce=');
-    expect(url).toContain('state=');
+    expect(gsi.initialize).toHaveBeenCalledOnce();
+    const config = gsi.initialize.mock.calls[0]![0];
+    expect(config.client_id).toBe('google-client');
+    expect(config.use_fedcm_for_prompt).toBe(true);
+    expect(typeof config.nonce).toBe('string');
+    expect(config.nonce.length).toBe(32);
+    expect(sessionStorage.getItem(GOOGLE_STORAGE_KEYS.nonce)).toBe(config.nonce);
+    expect(gsi.renderButton).toHaveBeenCalledWith(element, expect.objectContaining({ theme: 'outline' }));
   });
 
-  it('persists nonce, state and returnSearch to sessionStorage', () => {
-    startGoogleLogin({
+  it('invokes onCredential when the GIS callback fires with a matching nonce', async () => {
+    sessionStorage.clear();
+    const gsi = installMockGis();
+    const onCredential = vi.fn();
+    await renderGoogleSignInButton({
       clientId: 'gc',
-      redirectUri: 'https://app.example.com/cb',
-      returnSearch: '?state=x',
-      onRedirect: () => {},
+      element: document.createElement('div'),
+      onCredential,
     });
-    expect(sessionStorage.getItem(GOOGLE_STORAGE_KEYS.nonce)).toBeTruthy();
-    expect(sessionStorage.getItem(GOOGLE_STORAGE_KEYS.state)).toBeTruthy();
-    expect(sessionStorage.getItem(GOOGLE_STORAGE_KEYS.returnSearch)).toBe(
-      '?state=x',
-    );
-  });
-
-  it('mints distinct nonce and state per call', () => {
-    startGoogleLogin({
+    const { nonce, callback } = gsi.initialize.mock.calls[0]![0];
+    callback({
+      credential: mintIdToken({ nonce, sub: 'u1', email: 'a@b' }),
+      select_by: 'btn',
       clientId: 'gc',
-      redirectUri: 'https://app.example.com/cb',
-      onRedirect: () => {},
     });
-    const nonce = sessionStorage.getItem(GOOGLE_STORAGE_KEYS.nonce);
-    const state = sessionStorage.getItem(GOOGLE_STORAGE_KEYS.state);
-    expect(nonce).toBeTruthy();
-    expect(state).toBeTruthy();
-    expect(nonce).not.toBe(state);
-  });
-});
-
-describe('parseGoogleHashCallback', () => {
-  it('returns null for empty hash', () => {
-    sessionStorage.clear();
-    expect(parseGoogleHashCallback('')).toBeNull();
-    expect(parseGoogleHashCallback('#')).toBeNull();
-  });
-
-  it('returns null when no id_token in hash', () => {
-    sessionStorage.clear();
-    expect(parseGoogleHashCallback('#state=abc')).toBeNull();
-  });
-
-  it('extracts id_token and returnSearch, clears storage', () => {
-    sessionStorage.clear();
-    sessionStorage.setItem(GOOGLE_STORAGE_KEYS.returnSearch, '?state=pkce');
-    sessionStorage.setItem(GOOGLE_STORAGE_KEYS.nonce, 'nonce-value');
-    sessionStorage.setItem(GOOGLE_STORAGE_KEYS.state, 's-value');
-
-    const result = parseGoogleHashCallback('#id_token=tok123&state=s-value');
-    expect(result).toEqual({ idToken: 'tok123', returnSearch: '?state=pkce' });
-
+    expect(onCredential).toHaveBeenCalledOnce();
+    const arg = onCredential.mock.calls[0]![0];
+    expect(arg.idToken).toBeTruthy();
+    expect(arg.selectBy).toBe('btn');
+    // Nonce must be consumed once validated.
     expect(sessionStorage.getItem(GOOGLE_STORAGE_KEYS.nonce)).toBeNull();
-    expect(sessionStorage.getItem(GOOGLE_STORAGE_KEYS.state)).toBeNull();
-    expect(sessionStorage.getItem(GOOGLE_STORAGE_KEYS.returnSearch)).toBeNull();
-    expect(sessionStorage.getItem(GOOGLE_STORAGE_KEYS.pendingIdToken)).toBe(
-      'tok123',
-    );
   });
 
-  it('rejects callback when stored and returned state disagree (CSRF guard)', () => {
+  it('forwards a STATE_MISMATCH error when the id_token nonce disagrees with storage', async () => {
     sessionStorage.clear();
-    sessionStorage.setItem(GOOGLE_STORAGE_KEYS.state, 'expected');
-    sessionStorage.setItem(GOOGLE_STORAGE_KEYS.nonce, 'n');
-
-    const result = parseGoogleHashCallback('#id_token=tok123&state=tampered');
-    expect(result).toBeNull();
-    // Mismatched callbacks must not leave a usable pendingIdToken behind.
-    expect(
-      sessionStorage.getItem(GOOGLE_STORAGE_KEYS.pendingIdToken),
-    ).toBeNull();
-    // Stored state survives so the legitimate callback (if it arrives later)
-    // can still validate. Caller is responsible for clearing on retry.
-    expect(sessionStorage.getItem(GOOGLE_STORAGE_KEYS.state)).toBe('expected');
+    const gsi = installMockGis();
+    const onCredential = vi.fn();
+    const onError = vi.fn();
+    await renderGoogleSignInButton({
+      clientId: 'gc',
+      element: document.createElement('div'),
+      onCredential,
+      onError,
+    });
+    const { callback } = gsi.initialize.mock.calls[0]![0];
+    callback({
+      credential: mintIdToken({ nonce: 'tampered', sub: 'u' }),
+      select_by: 'btn',
+      clientId: 'gc',
+    });
+    expect(onCredential).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledOnce();
+    const err = onError.mock.calls[0]![0];
+    expect(err).toBeInstanceOf(AuthError);
+    expect(err.code).toBe(AuthErrorCode.STATE_MISMATCH);
   });
 
-  it('accepts callback when state is missing on either side (backwards compat)', () => {
-    // Mid-flight upgrade scenario: login was started by an older SDK build that
-    // didn't generate state. The new parser must still accept the callback,
-    // otherwise users in transit during a deploy would silently fail to log in.
+  it('forwards STATE_MISMATCH when no nonce is stored at all (replay defense)', async () => {
     sessionStorage.clear();
-    sessionStorage.setItem(GOOGLE_STORAGE_KEYS.nonce, 'n');
-    // No GOOGLE_STORAGE_KEYS.state — older SDK never wrote it.
-
-    const result = parseGoogleHashCallback('#id_token=tok123&state=whatever');
-    expect(result).toEqual({ idToken: 'tok123', returnSearch: '' });
-    expect(sessionStorage.getItem(GOOGLE_STORAGE_KEYS.pendingIdToken)).toBe(
-      'tok123',
-    );
-  });
-
-  it('accepts callback when storage has state but URL hash does not', () => {
-    // Storage-wipe / extension-clearing scenario. Strict mode would reject
-    // here; soft mode accepts because we can't tell the two scenarios apart.
-    sessionStorage.clear();
-    sessionStorage.setItem(GOOGLE_STORAGE_KEYS.state, 'stored');
-
-    const result = parseGoogleHashCallback('#id_token=tok123');
-    expect(result).toEqual({ idToken: 'tok123', returnSearch: '' });
+    const gsi = installMockGis();
+    const onCredential = vi.fn();
+    const onError = vi.fn();
+    await renderGoogleSignInButton({
+      clientId: 'gc',
+      element: document.createElement('div'),
+      onCredential,
+      onError,
+    });
+    sessionStorage.removeItem(GOOGLE_STORAGE_KEYS.nonce);
+    const { callback } = gsi.initialize.mock.calls[0]![0];
+    callback({
+      credential: mintIdToken({ nonce: 'whatever' }),
+      select_by: 'auto',
+      clientId: 'gc',
+    });
+    expect(onCredential).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledOnce();
   });
 });
 
-describe('consumePendingGoogleIdToken', () => {
-  it('returns null when no pending token', () => {
-    sessionStorage.removeItem(GOOGLE_STORAGE_KEYS.pendingIdToken);
-    expect(consumePendingGoogleIdToken()).toBeNull();
-  });
-
-  it('returns and removes the pending token', () => {
-    sessionStorage.setItem(GOOGLE_STORAGE_KEYS.pendingIdToken, 'id-tok');
-    expect(consumePendingGoogleIdToken()).toBe('id-tok');
-    expect(sessionStorage.getItem(GOOGLE_STORAGE_KEYS.pendingIdToken)).toBeNull();
+describe('disableGoogleAutoSelect', () => {
+  it('calls GIS disableAutoSelect and clears the stored nonce', () => {
+    const gsi = installMockGis();
+    sessionStorage.setItem(GOOGLE_STORAGE_KEYS.nonce, 'pending');
+    disableGoogleAutoSelect();
+    expect(gsi.disableAutoSelect).toHaveBeenCalledOnce();
+    expect(sessionStorage.getItem(GOOGLE_STORAGE_KEYS.nonce)).toBeNull();
   });
 });

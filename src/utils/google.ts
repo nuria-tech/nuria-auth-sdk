@@ -1,115 +1,255 @@
+import { AuthError, AuthErrorCode } from '../errors/auth-error';
+import { randomString } from '../core/pkce';
+import { timingSafeEqual } from '../core/utils';
+
 export const GOOGLE_STORAGE_KEYS = {
   nonce: 'nuria:google:nonce',
-  state: 'nuria:google:state',
-  returnSearch: 'nuria:google:return_search',
-  pendingIdToken: 'nuria:google:pending_id_token',
 } as const;
 
-export interface StartGoogleLoginOptions {
+const GIS_SCRIPT_URL = 'https://accounts.google.com/gsi/client';
+
+export interface GoogleCredentialResponse {
+  /** OIDC ID token (JWT) issued by Google. Send this to the backend. */
+  idToken: string;
+  /** Reason GIS picked the credential (button click, auto-select, etc). */
+  selectBy: string;
   clientId: string;
-  redirectUri: string;
-  /** window.location.search to restore after callback, e.g. OAuth PKCE params */
-  returnSearch?: string;
-  onRedirect?: (url: string) => void;
 }
 
-/**
- * Initiates the Google OAuth implicit (id_token) flow.
- * Generates a nonce + state, persists them and the return search in
- * sessionStorage, then redirects to Google's authorization endpoint.
- *
- * The `state` parameter is defense-in-depth — the kernel already verifies
- * the id_token signature against Google's JWKS and rejects mismatched
- * audiences, so a forged callback would fail server-side regardless. State
- * adds CSRF protection on the client and aligns the Google flow with the
- * AWS SSO flow.
- */
-export function startGoogleLogin(options: StartGoogleLoginOptions): void {
-  const nonce = crypto.randomUUID();
-  const state = crypto.randomUUID();
-  sessionStorage.setItem(GOOGLE_STORAGE_KEYS.nonce, nonce);
-  sessionStorage.setItem(GOOGLE_STORAGE_KEYS.state, state);
-  sessionStorage.setItem(
-    GOOGLE_STORAGE_KEYS.returnSearch,
-    options.returnSearch ?? '',
-  );
+export interface RenderGoogleSignInButtonOptions {
+  clientId: string;
+  /** DOM element where GIS will render the button. */
+  element: HTMLElement;
+  /** Fired with the validated id_token after the user completes sign-in. */
+  onCredential: (response: GoogleCredentialResponse) => void;
+  /** Fired when GIS itself errors, the script fails to load, or nonce mismatches. */
+  onError?: (err: Error) => void;
+  theme?: 'outline' | 'filled_blue' | 'filled_black';
+  size?: 'large' | 'medium' | 'small';
+  text?: 'signin_with' | 'signup_with' | 'continue_with' | 'signin';
+  shape?: 'rectangular' | 'pill' | 'circle' | 'square';
+  width?: number;
+  locale?: string;
+}
 
-  const params = new URLSearchParams({
-    response_type: 'id_token',
-    client_id: options.clientId,
-    redirect_uri: options.redirectUri,
-    scope: 'openid email profile',
-    nonce,
-    state,
+export interface PromptGoogleOneTapOptions {
+  clientId: string;
+  onCredential: (response: GoogleCredentialResponse) => void;
+  onError?: (err: Error) => void;
+}
+
+interface GsiInitializeConfig {
+  client_id: string;
+  callback: (resp: { credential: string; select_by: string; clientId: string }) => void;
+  nonce: string;
+  use_fedcm_for_prompt: true;
+  auto_select?: boolean;
+  cancel_on_tap_outside?: boolean;
+  itp_support?: boolean;
+}
+
+interface GsiButtonOptions {
+  theme?: string;
+  size?: string;
+  text?: string;
+  shape?: string;
+  width?: number;
+  locale?: string;
+}
+
+interface GsiClient {
+  accounts: {
+    id: {
+      initialize: (config: GsiInitializeConfig) => void;
+      renderButton: (el: HTMLElement, options: GsiButtonOptions) => void;
+      prompt: () => void;
+      cancel: () => void;
+      disableAutoSelect: () => void;
+    };
+  };
+}
+
+declare global {
+  interface Window {
+    google?: GsiClient;
+  }
+}
+
+let scriptPromise: Promise<void> | null = null;
+
+function loadGisScript(): Promise<void> {
+  if (typeof window === 'undefined') {
+    return Promise.reject(
+      new AuthError(
+        AuthErrorCode.INVALID_CONFIG,
+        'Google Identity Services requires a browser environment',
+      ),
+    );
+  }
+  if (window.google?.accounts?.id) return Promise.resolve();
+  if (scriptPromise) return scriptPromise;
+
+  scriptPromise = new Promise<void>((resolve, reject) => {
+    const existing = document.querySelector<HTMLScriptElement>(
+      `script[src="${GIS_SCRIPT_URL}"]`,
+    );
+    const handleLoad = () => {
+      if (window.google?.accounts?.id) resolve();
+      else
+        reject(
+          new AuthError(
+            AuthErrorCode.NETWORK_ERROR,
+            'GIS script loaded but window.google.accounts.id is missing',
+          ),
+        );
+    };
+    const handleError = () => {
+      scriptPromise = null;
+      reject(
+        new AuthError(
+          AuthErrorCode.NETWORK_ERROR,
+          'Failed to load Google Identity Services script',
+        ),
+      );
+    };
+    if (existing) {
+      existing.addEventListener('load', handleLoad, { once: true });
+      existing.addEventListener('error', handleError, { once: true });
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = GIS_SCRIPT_URL;
+    script.async = true;
+    script.defer = true;
+    script.addEventListener('load', handleLoad, { once: true });
+    script.addEventListener('error', handleError, { once: true });
+    document.head.appendChild(script);
   });
 
-  const url = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
-
-  if (options.onRedirect) {
-    options.onRedirect(url);
-    return;
-  }
-  window.location.replace(url);
+  return scriptPromise;
 }
 
-/**
- * Parses a Google implicit flow callback from the URL hash.
- * If an id_token is present, stores it in sessionStorage and clears the
- * nonce/state/returnSearch entries. Returns the idToken and returnSearch, or
- * null if no id_token was found in the hash.
- *
- * State validation is **soft** — only rejected when both the URL hash and
- * sessionStorage contain a state value AND they disagree. If either side is
- * missing the check is skipped. Rationale: a strict check would break two
- * real-world deploys that we already saw in production:
- *
- * 1. **Mid-flight upgrade.** A user starts login on an older SDK build (no
- *    state stored), the SDK is redeployed before they return, and they land
- *    on the callback under the new SDK. The hash carries no state because
- *    the older SDK never sent one, so a strict check would reject a
- *    legitimate flow.
- * 2. **Storage wipe between start and callback.** A privacy-mode browser,
- *    sessionStorage cleanup by an extension, or a navigation that runs the
- *    parser twice (Strict Mode, hot reload) can drop `state` from storage
- *    even though the URL still has the original value. Strict mode would
- *    reject the second pass; soft mode accepts it because storage is empty
- *    on that side.
- *
- * Defense-in-depth is preserved: the kernel still verifies the id_token's
- * signature/audience server-side, which is the actual security boundary.
- */
-export function parseGoogleHashCallback(
-  hash: string,
-): { idToken: string; returnSearch: string } | null {
-  if (!hash || hash.length <= 1) return null;
-  const params = new URLSearchParams(
-    hash.startsWith('#') ? hash.substring(1) : hash,
-  );
-  const idToken = params.get('id_token');
-  if (!idToken) return null;
-
-  const returnedState = params.get('state');
-  const storedState = sessionStorage.getItem(GOOGLE_STORAGE_KEYS.state);
-  if (storedState && returnedState && storedState !== returnedState) {
+function decodeJwtNonce(jwt: string): string | null {
+  try {
+    const parts = jwt.split('.');
+    if (parts.length !== 3) return null;
+    const base64 = parts[1]!.replace(/-/g, '+').replace(/_/g, '/');
+    const payload = JSON.parse(atob(base64)) as Record<string, unknown>;
+    return typeof payload.nonce === 'string' ? payload.nonce : null;
+  } catch {
     return null;
   }
+}
 
-  const returnSearch =
-    sessionStorage.getItem(GOOGLE_STORAGE_KEYS.returnSearch) ?? '';
-  sessionStorage.removeItem(GOOGLE_STORAGE_KEYS.returnSearch);
-  sessionStorage.removeItem(GOOGLE_STORAGE_KEYS.nonce);
-  sessionStorage.removeItem(GOOGLE_STORAGE_KEYS.state);
-  sessionStorage.setItem(GOOGLE_STORAGE_KEYS.pendingIdToken, idToken);
+function mintAndStoreNonce(): string {
+  const nonce = randomString(32);
+  sessionStorage.setItem(GOOGLE_STORAGE_KEYS.nonce, nonce);
+  return nonce;
+}
 
-  return { idToken, returnSearch };
+function consumeStoredNonce(): string | null {
+  const stored = sessionStorage.getItem(GOOGLE_STORAGE_KEYS.nonce);
+  if (stored) sessionStorage.removeItem(GOOGLE_STORAGE_KEYS.nonce);
+  return stored;
+}
+
+function buildCredentialHandler(
+  onCredential: (response: GoogleCredentialResponse) => void,
+  onError?: (err: Error) => void,
+) {
+  return (resp: { credential: string; select_by: string; clientId: string }) => {
+    const storedNonce = consumeStoredNonce();
+    const tokenNonce = decodeJwtNonce(resp.credential);
+    if (
+      !storedNonce ||
+      !tokenNonce ||
+      !timingSafeEqual(storedNonce, tokenNonce)
+    ) {
+      const err = new AuthError(
+        AuthErrorCode.STATE_MISMATCH,
+        'Google credential nonce validation failed — possible replay attack',
+      );
+      if (onError) onError(err);
+      else throw err;
+      return;
+    }
+    onCredential({
+      idToken: resp.credential,
+      selectBy: resp.select_by,
+      clientId: resp.clientId,
+    });
+  };
 }
 
 /**
- * Retrieves and removes the pending Google id_token from sessionStorage.
- * Returns null if there is no pending token.
+ * Renders the official Google Sign-In button in the given element using
+ * Google Identity Services (GIS). The page must include the client's origin
+ * in the GCP OAuth client's "Authorized JavaScript origins".
+ *
+ * Replaces the legacy implicit (`response_type=id_token`) redirect flow:
+ * GIS uses FedCM where available and never returns the id_token through the
+ * URL fragment. The id_token still arrives via the `onCredential` callback;
+ * caller is responsible for posting it to the backend.
+ *
+ * Each call mints a fresh nonce, stores it in sessionStorage, and validates
+ * the `nonce` claim of the returned id_token before invoking `onCredential`.
  */
-export function consumePendingGoogleIdToken(): string | null {
-  const token = sessionStorage.getItem(GOOGLE_STORAGE_KEYS.pendingIdToken);
-  if (token) sessionStorage.removeItem(GOOGLE_STORAGE_KEYS.pendingIdToken);
-  return token;
+export async function renderGoogleSignInButton(
+  options: RenderGoogleSignInButtonOptions,
+): Promise<void> {
+  await loadGisScript();
+  const nonce = mintAndStoreNonce();
+  const gsi = window.google!.accounts.id;
+  gsi.initialize({
+    client_id: options.clientId,
+    callback: buildCredentialHandler(options.onCredential, options.onError),
+    nonce,
+    use_fedcm_for_prompt: true,
+    itp_support: true,
+  });
+  gsi.renderButton(options.element, {
+    theme: options.theme ?? 'outline',
+    size: options.size ?? 'large',
+    text: options.text ?? 'signin_with',
+    shape: options.shape ?? 'rectangular',
+    width: options.width,
+    locale: options.locale,
+  });
+}
+
+/**
+ * Triggers the Google One Tap / FedCM prompt. The button is not rendered;
+ * the browser surfaces a native account chooser. Use this for soft sign-in
+ * suggestions; pair with `renderGoogleSignInButton` for explicit intent.
+ */
+export async function promptGoogleOneTap(
+  options: PromptGoogleOneTapOptions,
+): Promise<void> {
+  await loadGisScript();
+  const nonce = mintAndStoreNonce();
+  const gsi = window.google!.accounts.id;
+  gsi.initialize({
+    client_id: options.clientId,
+    callback: buildCredentialHandler(options.onCredential, options.onError),
+    nonce,
+    use_fedcm_for_prompt: true,
+    itp_support: true,
+  });
+  gsi.prompt();
+}
+
+/** Cancels any in-flight One Tap prompt. Safe to call when GIS isn't loaded. */
+export function cancelGooglePrompt(): void {
+  if (typeof window === 'undefined') return;
+  window.google?.accounts.id.cancel();
+}
+
+/**
+ * Disables Google's auto-select on the next visit. Call on logout so the
+ * user isn't silently re-signed in by FedCM/One Tap.
+ */
+export function disableGoogleAutoSelect(): void {
+  if (typeof window === 'undefined') return;
+  window.google?.accounts.id.disableAutoSelect();
+  sessionStorage.removeItem(GOOGLE_STORAGE_KEYS.nonce);
 }

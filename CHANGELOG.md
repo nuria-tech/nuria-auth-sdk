@@ -4,6 +4,121 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.0.0] - 2026-04-29
+
+### Breaking — Google + AWS SSO migrated to OAuth 2.1 compliant flows
+
+The Implicit grant (`response_type=id_token`) used for Google and
+AWS IAM Identity Center is forbidden by OAuth 2.1 (RFC 9700 / Browser-Based
+Apps BCP). Both providers now follow flows that the spec explicitly
+endorses:
+
+- **Google → Google Identity Services (GIS / FedCM).** The browser no
+  longer redirects to `accounts.google.com/o/oauth2/v2/auth?response_type=id_token`.
+  The SDK loads `accounts.google.com/gsi/client`, renders the official
+  Google Sign-In button, and surfaces the id_token through a JS callback.
+  No more URL fragment handoff, no more `pendingIdToken` shuffle through
+  `sessionStorage`.
+- **AWS IAM Identity Center → Authorization Code + PKCE.** The browser
+  receives a `code` in the query string, exchanges it at the issuer's
+  `/token` endpoint with the stored `code_verifier`, and validates the
+  `nonce` claim before returning the id_token. AWS supports PKCE-only
+  public clients, so no `client_secret` is ever in play.
+
+Backend (`/v2/google`, `/v2/sso/aws`) is unchanged — both endpoints still
+take `{ idToken }` and validate it the same way. Only the *client-side
+acquisition* of the id_token changes.
+
+#### Removed (Google)
+
+- `startGoogleLogin(...)` — the implicit redirect entry point.
+- `parseGoogleHashCallback(hash)` — the URL-fragment parser.
+- `consumePendingGoogleIdToken()` — the cross-page handoff.
+- `StartGoogleLoginOptions` type.
+- `GOOGLE_STORAGE_KEYS.state` / `.returnSearch` / `.pendingIdToken` keys
+  (only `nonce` survives).
+
+#### Added (Google)
+
+- `renderGoogleSignInButton({ clientId, element, onCredential, onError, ... })`
+  — loads GIS, mints a nonce, renders the official button into the DOM
+  element, and validates the `nonce` claim of the returned id_token with
+  `timingSafeEqual` before invoking `onCredential`.
+- `promptGoogleOneTap({ clientId, onCredential, onError })` — triggers
+  the FedCM/One Tap UI without a button.
+- `cancelGooglePrompt()` — cancels an in-flight prompt.
+- `disableGoogleAutoSelect()` — call on logout to prevent silent
+  re-sign-in.
+- `GoogleCredentialResponse`, `RenderGoogleSignInButtonOptions`,
+  `PromptGoogleOneTapOptions` types.
+
+#### Removed (AWS)
+
+- `parseAwsHashCallback(hash)` — synchronous URL-fragment parser.
+- `consumePendingAwsIdToken()` — the cross-page handoff.
+- `AWS_STORAGE_KEYS.nonce` / `.state` / `.returnSearch` / `.pendingIdToken`
+  (replaced by a single per-state PKCE bag).
+
+#### Added (AWS)
+
+- `parseAwsQueryCallback(search)` — async. Parses `?code&state`,
+  exchanges the code at the bag's `tokenEndpoint`, validates the nonce in
+  the returned id_token, returns `{ idToken, returnSearch }` or `null` if
+  no code is present. Throws `AuthError` for explicit failure modes
+  (`MISSING_STATE`, `STATE_MISMATCH`, `TOKEN_EXCHANGE_FAILED`,
+  `CALLBACK_ERROR`).
+- `tokenEndpoint` option on `StartAwsLoginOptions` (defaults to
+  `${issuerUrl}/token`).
+- `AwsCallbackResult` type.
+
+#### Behaviour changes (AWS, internal)
+
+- `startAwsLogin` is now `async` (computes the S256 challenge via
+  `crypto.subtle.digest`).
+- PKCE bag is keyed by `state` (`nuria:aws:pkce:<state>`), so concurrent
+  tabs no longer clobber each other.
+- State validation is **strict**: a bag missing for the returned `state`
+  is treated as replay, not "soft" backwards compatibility.
+- Nonce validation uses `timingSafeEqual` against the id_token claim.
+
+### Migration
+
+Most apps will only touch their sign-in page:
+
+```diff
+- import { startGoogleLogin, consumePendingGoogleIdToken } from '@nuria-tech/auth-sdk';
++ import { renderGoogleSignInButton } from '@nuria-tech/auth-sdk';
+
+- <button @click="startGoogleLogin({ clientId, redirectUri })">Sign in with Google</button>
++ <div ref="googleHost"></div>
++ onMounted(() => renderGoogleSignInButton({
++   clientId,
++   element: googleHost.value,
++   onCredential: ({ idToken }) => $auth.loginWithGoogle({ idToken }),
++ }));
+```
+
+The middleware that intercepted Google's hash callback (`#id_token=...`)
+can be deleted entirely — GIS never puts the id_token in the URL.
+
+For AWS IAM Identity Center:
+
+```diff
+- const result = parseAwsHashCallback(window.location.hash);
+- if (result) await $auth.loginWithAws({ idToken: result.idToken });
++ const result = await parseAwsQueryCallback(window.location.search);
++ if (result) await $auth.loginWithAws({ idToken: result.idToken });
+```
+
+### Security
+
+- Closes the audit findings flagged on 2.0.10: implicit-flow id_token
+  no longer crosses `sessionStorage`; state validation in both flows is
+  now strict and uses constant-time comparison; multi-tab PKCE bags
+  isolated by state prevent cross-tab clobber.
+- GIS/FedCM is the path Google has officially recommended for SPAs since
+  the implicit-flow deprecation.
+
 ## [2.0.10] - 2026-04-29
 
 > Docs-only release. No runtime change vs. 2.0.9 — published to keep the
