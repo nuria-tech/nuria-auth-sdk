@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.7] - 2026-04-28
+
+### Added
+
+- **`AuthClient.revokeSession()`** — best-effort `POST /v2/logout` with the
+  current session's refresh token. Server-side only; does not clear the
+  local session, so callers can sequence `revokeSession()` →
+  `logout()` without losing the refresh token mid-flight. Network and
+  4xx errors are swallowed (already-revoked, unknown token, transient
+  failure) so the caller's local cleanup always proceeds. Replaces the
+  reimplementation each consumer was carrying inline.
+
+### Changed
+
+- `TokenClaims` now declares `avatar_url?: string` explicitly. The Nuria
+  backend emits the claim only for Google logins (with the real picture);
+  password / AWS SSO logins omit it so consumers can fall back to
+  initials. `picture` (standard OIDC) is still recognized by
+  `extractAvatarUrl` as a secondary source.
+
 ## [2.0.6] - 2026-04-28
 
 ### Changed

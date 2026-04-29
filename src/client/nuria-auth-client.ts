@@ -253,6 +253,24 @@ export class DefaultAuthClient implements AuthClient {
     this.notify();
   }
 
+  async revokeSession(): Promise<void> {
+    // Best-effort: a 4xx ("already revoked", "unknown token") or transient
+    // network failure must NOT block the caller's local cleanup. Failing
+    // here would leave the user stuck signed-in client-side after they
+    // explicitly asked to sign out.
+    const refreshToken = this.session?.tokens.refreshToken;
+    try {
+      await this.transport.request(`${this.config.baseUrl}/v2/logout`, {
+        method: 'POST',
+        credentials: 'include',
+        body: refreshToken ? { refreshToken } : {},
+        timeoutMs: 5_000,
+      });
+    } catch {
+      /* swallow — see comment above */
+    }
+  }
+
   async globalLogout(options?: { returnTo?: string }): Promise<void> {
     if (options?.returnTo) {
       let returnToUrl: URL;

@@ -224,6 +224,58 @@ describe('createAuthClient', () => {
     expect(handler.mock.calls.length).toBe(handler2ndCallCount);
   });
 
+  it('revokeSession POSTs /v2/logout with the current refresh token', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.set('nuria:oauth:state', 'st');
+    await storage.set('nuria:oauth:code_verifier', 'vf');
+
+    const transport = makeMockTransport({
+      access_token: 'tok',
+      refresh_token: 'r-1',
+    });
+    const client = createAuthClient({ ...BASE_CONFIG, storage, transport });
+
+    await client.handleRedirectCallback(
+      'https://app.example.com/callback?code=c&state=st',
+    );
+
+    transport.request.mockClear();
+    await client.revokeSession();
+
+    const calls = transport.request.mock.calls as Array<[string, AuthTransportRequest]>;
+    expect(calls).toHaveLength(1);
+    expect(calls[0]![0]).toBe('https://auth.example.com/v2/logout');
+    expect(calls[0]![1].method).toBe('POST');
+    expect(calls[0]![1].body).toEqual({ refreshToken: 'r-1' });
+    // revokeSession is server-side only — local session must survive so the
+    // caller can sequence revoke→logout without losing the refresh token mid-flight.
+    expect(client.getSession()).not.toBeNull();
+  });
+
+  it('revokeSession sends an empty body when no refresh token is present', async () => {
+    const storage = new MemoryStorageAdapter();
+    const transport = makeMockTransport({});
+    const client = createAuthClient({ ...BASE_CONFIG, storage, transport });
+
+    await client.revokeSession();
+
+    const calls = transport.request.mock.calls as Array<[string, AuthTransportRequest]>;
+    expect(calls).toHaveLength(1);
+    expect(calls[0]![0]).toBe('https://auth.example.com/v2/logout');
+    expect(calls[0]![1].body).toEqual({});
+  });
+
+  it('revokeSession swallows transport errors (best-effort)', async () => {
+    const storage = new MemoryStorageAdapter();
+    const transport = {
+      request: vi.fn().mockRejectedValue(new Error('network down')),
+    };
+    const client = createAuthClient({ ...BASE_CONFIG, storage, transport });
+
+    await expect(client.revokeSession()).resolves.toBeUndefined();
+    expect(transport.request).toHaveBeenCalledOnce();
+  });
+
   it('globalLogout clears session and redirects to logoutEndpoint', async () => {
     const storage = new MemoryStorageAdapter();
     await storage.set('nuria:oauth:state', 'st');

@@ -11,6 +11,13 @@ export interface TokenClaims {
   given_name?: string;
   family_name?: string;
   picture?: string;
+  /**
+   * Nuria-issued access tokens emit `avatar_url` (snake_case) only when a
+   * real avatar is available — Google login. Omitted for password / AWS SSO
+   * logins so consumers can fall back to initials. Standard OIDC `picture`
+   * is also accepted by the bundled claim helpers.
+   */
+  avatar_url?: string;
   phone_number?: string;
   roles?: string | string[];
   groups?: string | string[];
@@ -180,6 +187,14 @@ export interface AuthClient {
   logout(): Promise<void>;
   /** Clears the local session AND calls the server logout endpoint, then redirects. */
   globalLogout(options?: { returnTo?: string }): Promise<void>;
+  /**
+   * Best-effort `POST /v2/logout` with the current refresh token to revoke
+   * it server-side. Does NOT clear the local session — pair with
+   * {@link AuthClient.logout} for a full local + server sign-out without
+   * a redirect. Network/4xx errors are swallowed: the caller's local
+   * cleanup must still proceed.
+   */
+  revokeSession(): Promise<void>;
   isAuthenticated(): boolean;
   onAuthStateChanged(handler: (session: Session | null) => void): () => void;
   getClaims(): TokenClaims | null;
