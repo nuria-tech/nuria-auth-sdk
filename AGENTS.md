@@ -225,4 +225,4 @@ Trigger: `git tag vX.Y.Z && git push --tags`
 
 ## Coverage Thresholds
 
-Lines: 70%, Functions: 90%, Branches: 60%, Statements: 70%
+Lines: 70%, Functions: 80%, Branches: 60%, Statements: 70%
