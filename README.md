@@ -4,7 +4,7 @@
 [![CI](https://github.com/nuria-tech/nuria-auth-sdk/actions/workflows/ci-publish.yml/badge.svg)](https://github.com/nuria-tech/nuria-auth-sdk/actions/workflows/ci-publish.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-TypeScript SDK for OAuth 2.0 Authorization Code + PKCE, focused on browser apps and framework integrations (React, Vue, Nuxt, Next, Angular).
+TypeScript SDK for **OAuth 2.1** Authorization Code + PKCE (S256), focused on browser apps and framework integrations (React, Vue, Nuxt, Next, Angular). PKCE is mandatory on every flow; there is no `client_secret` pathway. Backends that need to mint authorize URLs use the kernel's server-side launch-link flow (PKCE preserved, verifier in DDB) — see [AGENTS.md](./AGENTS.md#server-side-launch-links-backend-issued).
 
 ## Why this SDK
 
@@ -418,6 +418,10 @@ interface AuthClient {
   logout(): Promise<void>;
   /** Clears the local session AND calls the server logout endpoint, then redirects. */
   globalLogout(options?: { returnTo?: string }): Promise<void>;
+  /** Best-effort POST /v2/logout to revoke the current session's refresh token server-side. Does NOT clear local state. Pair with logout() for full sign-out without redirect. */
+  revokeSession(): Promise<void>;
+  /** Best-effort POST /v2/logout/global (Bearer) to revoke EVERY refresh token of the authenticated subject across all devices and OAuth-integrated apps. Intended for the SSO portal sign-out; per-app callers should use revokeSession(). Dev tokens (with jti) are unaffected. Does NOT clear local state. */
+  revokeAllSessions(): Promise<void>;
   isAuthenticated(): boolean;
   onAuthStateChanged(handler: (session: Session | null) => void): () => void;
   getClaims(): TokenClaims | null;
