@@ -4,6 +4,33 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.10] - 2026-04-29
+
+> Docs-only release. No runtime change vs. 2.0.9 — published to keep the
+> npm version aligned with the AGENTS.md / README updates and the
+> kernel-side launch-link feature documented in this window.
+
+### Documentation
+
+- **OAuth 2.1 posture stated explicitly.** Top of `README.md` and
+  `AGENTS.md` now call out that the SDK targets OAuth 2.1: PKCE
+  mandatory on every flow, no `client_secret` pathway,
+  `code_challenge_method=S256` hardcoded. `package.json` description
+  updated to match. No behavioural change — the SDK has always enforced
+  these — the docs just stop calling it "OAuth 2.0" loosely.
+- **Server-side launch links documented** in `AGENTS.md`. The kernel
+  gained `POST /v2/oauth/launch-link` (+ `/exchange`) for backends that
+  need to mint authorize URLs without a browser session. The SDK is
+  browser-only and doesn't ship a client for these endpoints, but
+  consumers will inevitably ask "how do I mint URLs from my server?" —
+  the docs now answer it (with a pointer to the kernel's
+  `CONTRACT_V2.md`) instead of letting the question loop back as a
+  feature request.
+- **`README.md` Public API section** now lists `revokeSession()` and
+  `revokeAllSessions()`. Both shipped in 2.0.7 / 2.0.9 and were
+  documented in `AGENTS.md` and the changelog, but missed the
+  README's `interface AuthClient` block.
+
 ## [2.0.9] - 2026-04-29
 
 > 2.0.8 was tagged but not published — CI lint broke on a long ternary

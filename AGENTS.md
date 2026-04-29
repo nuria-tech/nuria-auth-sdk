@@ -1,9 +1,10 @@
 # AGENTS.md — @nuria-tech/auth-sdk
 
 ## Purpose
-Browser-focused OAuth 2.0 Authorization Code + PKCE (S256) SDK with zero dependencies.
-Supports React, Vue, Nuxt, Next.js, and Angular via separate entrypoints.
-Designed for the Nuria backend (`https://auth.nuria.com.br`).
+Browser-focused **OAuth 2.1** Authorization Code + PKCE (S256) SDK with
+zero dependencies. PKCE mandatory on every flow; no `client_secret`
+pathway. Supports React, Vue, Nuxt, Next.js, and Angular via separate
+entrypoints. Designed for the Nuria backend (`https://auth.nuria.com.br`).
 
 ## Commands
 
@@ -72,6 +73,14 @@ tests/                            # Vitest test suite (*.spec.ts)
 | `scope` | `openid profile email` |
 | `enableRefreshToken` | `true` |
 
+## OAuth profile
+
+The SDK targets **OAuth 2.1**: PKCE is mandatory for every authorization
+code flow. There is no `client_secret` pathway; backend-issued URLs use
+the kernel-side launch-link flow (PKCE preserved, verifier in DDB) — see
+[Server-side launch links](#server-side-launch-links-backend-issued).
+`code_challenge_method` is hardcoded to `S256`.
+
 ## Auth Flows
 
 | Method | Backend endpoint | Input |
@@ -119,6 +128,36 @@ tests/                            # Vitest test suite (*.spec.ts)
 - `globalLogout({ returnTo })` calls `logout()` then calls `logoutEndpoint` and redirects; `returnTo` only accepts `https://` URLs (or `http://localhost`)
 - `revokeSession()` POSTs to `/v2/logout` with the current refresh token to revoke it server-side; does NOT touch the local session. Best-effort: 4xx (already revoked) and network errors are swallowed so callers can sequence `revokeSession()` → `logout()` without leaving the user stuck signed-in client-side if the server call fails. Timeout is 5s.
 - `revokeAllSessions()` POSTs to `/v2/logout/global` (Bearer in `Authorization` header) to revoke **every** refresh token of the authenticated subject server-side. Same best-effort posture as `revokeSession`; same 5s timeout; same "doesn't touch local session" contract. Use only in the SSO portal — per-app callers want the per-row `revokeSession`. Dev tokens survive: the kernel keeps `DevTokenRevocation` keyed by JTI on a separate trail and `EvaluateAccess` bypasses the session kill-switch when a JWT carries a `jti`.
+
+## Server-side launch links (backend-issued)
+
+The SDK is a browser library — backends that need to mint authorize URLs
+don't use it. They go straight to the kernel:
+
+```
+POST /v2/oauth/launch-link              ← Bearer App Token
+  body: { clientId, redirectUri, scope?, loginHint?, ttlSeconds? }
+  → { launchUrl, state, expiresAt }
+
+POST /v2/oauth/launch-link/exchange     ← Bearer App Token (same one that minted)
+  body: { state, code }
+  → { access_token, refresh_token, ... }   // same shape as /v2/oauth/token
+```
+
+Why it matters for SDK consumers: a SPA running `auth.startLogin()`
+generates verifier + challenge in `sessionStorage`. A backend can't do
+that — there's no browser session at the moment the URL is being built.
+The kernel covers the gap by storing the verifier in DDB
+(`NuriaAuth.OAuthLaunchState`) keyed by an opaque state string. The
+issuer's `redirect_uri` handler trades `(state, code)` for tokens.
+
+**Compliance:** PKCE is preserved, not bypassed. Same `code_verifier` →
+`code_challenge_method=S256` cryptographic binding as the browser flow.
+This is the OAuth-2.1-clean way to handle confidential-client scenarios
+without introducing a `client_secret` pathway.
+
+**See also:** the kernel's `CONTRACT_V2.md` has the full request/response
+shape, error codes, and AWS CLI commands to provision the DDB table.
 
 ## Adding a New Framework Integration
 
