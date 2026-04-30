@@ -14,6 +14,7 @@ export { AuthError, AuthErrorCode } from './errors/auth-error';
 
 export {
   extractRoles,
+  extractScopes,
   extractCompanyOrigin,
   extractAvatarUrl,
   extractDisplayName,
@@ -47,6 +48,7 @@ export type {
   AuthTransportResponse,
   AuthClient,
   AuthConfig,
+  DeviceUserCodeLookup,
   Session,
   TokenClaims,
   StartLoginOptions,

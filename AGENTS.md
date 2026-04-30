@@ -39,7 +39,7 @@ src/
     browser-cookie-storage.ts     # Browser cookie helpers
   transport/fetch-transport.ts    # FetchAuthTransport (fetch + retries)
   utils/
-    claims.ts                     # extractRoles(), extractCompanyOrigin(), extractAvatarUrl(), extractDisplayName(), getInitials()
+    claims.ts                     # extractRoles(), extractScopes(), extractCompanyOrigin(), extractAvatarUrl(), extractDisplayName(), getInitials()
     oauth.ts                      # buildOAuthAuthorizeUrl()
     google.ts                     # renderGoogleSignInButton(), promptGoogleOneTap(), cancelGooglePrompt(), disableGoogleAutoSelect() — wraps Google Identity Services (GIS / FedCM); validates id_token nonce client-side
     aws.ts                        # startAwsLogin(), parseAwsQueryCallback() — Authorization Code + PKCE for AWS IAM Identity Center; per-state PKCE bag in sessionStorage
@@ -55,7 +55,7 @@ tests/                            # Vitest test suite (*.spec.ts)
 
 | Import | File | Contents |
 |--------|------|----------|
-| `@nuria-tech/auth-sdk` | `dist/index.js` | `createAuthClient`, storage adapters, transport, errors, types, `extractRoles`, `extractCompanyOrigin`, `extractAvatarUrl`, `extractDisplayName`, `getInitials`, `buildOAuthAuthorizeUrl`, Google + AWS IAM Identity Center (SSO) OAuth helpers |
+| `@nuria-tech/auth-sdk` | `dist/index.js` | `createAuthClient`, storage adapters, transport, errors, types, `extractRoles`, `extractScopes`, `extractCompanyOrigin`, `extractAvatarUrl`, `extractDisplayName`, `getInitials`, `buildOAuthAuthorizeUrl`, Google + AWS IAM Identity Center (SSO) OAuth helpers |
 | `@nuria-tech/auth-sdk/react` | `dist/react.js` | `useAuthSession`, `AuthProvider`, `useAuth` |
 | `@nuria-tech/auth-sdk/vue` | `dist/vue.js` | `useAuthSession` |
 | `@nuria-tech/auth-sdk/nuxt` | `dist/nuxt.js` | `createNuxtAuthClient`, `createNuxtCookieStorageAdapter` |
@@ -76,10 +76,22 @@ tests/                            # Vitest test suite (*.spec.ts)
 ## OAuth profile
 
 The SDK targets **OAuth 2.1**: PKCE is mandatory for every authorization
-code flow. There is no `client_secret` pathway; backend-issued URLs use
-the kernel-side launch-link flow (PKCE preserved, verifier in DDB) — see
-[Server-side launch links](#server-side-launch-links-backend-issued).
-`code_challenge_method` is hardcoded to `S256`.
+code flow. There is no `client_secret` pathway. `code_challenge_method`
+is hardcoded to `S256`.
+
+Two non-browser scenarios that the SDK does **not** drive directly but
+that the kernel supports — see [Native and headless flows](#native-and-headless-flows-rfc-8252--rfc-8628):
+
+- **Native CLI / desktop:** loopback redirect (RFC 8252). The CLI binds
+  to `http://127.0.0.1:<port>/callback` and uses the standard authorize
+  + token endpoints. The SDK is browser-only, so a native runtime ships
+  this flow itself; the only kernel-side requirement is that the
+  client's allow-list contain `http://127.0.0.1/<path>` (any port matches).
+- **Headless devices:** RFC 8628 device authorization grant via
+  `/v2/oauth/device/*`. The SDK exposes the **verification-page**
+  helpers (`lookupDeviceUserCode`, `approveDeviceUserCode`,
+  `denyDeviceUserCode`) used by the accounts portal; the polling side
+  belongs to the device's own runtime.
 
 **Federated providers do not use the redirect-fragment Implicit grant**
 — it is forbidden by OAuth 2.1 (RFC 9700 / Browser-Based Apps BCP). The
@@ -163,35 +175,69 @@ on `channel`.
 - `revokeSession()` POSTs to `/v2/logout` with the current refresh token to revoke it server-side; does NOT touch the local session. Best-effort: 4xx (already revoked) and network errors are swallowed so callers can sequence `revokeSession()` → `logout()` without leaving the user stuck signed-in client-side if the server call fails. Timeout is 5s.
 - `revokeAllSessions()` POSTs to `/v2/logout/global` (Bearer in `Authorization` header) to revoke **every** refresh token of the authenticated subject server-side. Same best-effort posture as `revokeSession`; same 5s timeout; same "doesn't touch local session" contract. Use only in the SSO portal — per-app callers want the per-row `revokeSession`. Dev tokens survive: the kernel keeps `DevTokenRevocation` keyed by JTI on a separate trail and `EvaluateAccess` bypasses the session kill-switch when a JWT carries a `jti`.
 
-## Server-side launch links (backend-issued)
+## Native and headless flows (RFC 8252 + RFC 8628)
 
-The SDK is a browser library — backends that need to mint authorize URLs
-don't use it. They go straight to the kernel:
+Two scenarios the SDK does not directly drive but knows how to integrate
+with at the verification surface.
+
+### Loopback redirect — native CLI / desktop (RFC 8252)
+
+The native runtime (Go CLI, Node CLI, Electron, etc.) binds to a
+random ephemeral port on `127.0.0.1` and uses that as the OAuth
+`redirect_uri`:
 
 ```
-POST /v2/oauth/launch-link              ← Bearer App Token
-  body: { clientId, redirectUri, scope?, loginHint?, ttlSeconds? }
-  → { launchUrl, state, expiresAt }
-
-POST /v2/oauth/launch-link/exchange     ← Bearer App Token (same one that minted)
-  body: { state, code }
-  → { access_token, refresh_token, ... }   // same shape as /v2/oauth/token
+http://127.0.0.1:<port>/callback
 ```
 
-Why it matters for SDK consumers: a SPA running `auth.startLogin()`
-generates verifier + challenge in `sessionStorage`. A backend can't do
-that — there's no browser session at the moment the URL is being built.
-The kernel covers the gap by storing the verifier in DDB
-(`NuriaAuth.OAuthLaunchState`) keyed by an opaque state string. The
-issuer's `redirect_uri` handler trades `(state, code)` for tokens.
+It then issues the **standard** `/v2/oauth/authorize` + `/v2/oauth/token`
+exchange (PKCE-mandatory, just like the browser SDK does). No special
+endpoints are involved — the only adjustment is in redirect-URI matching
+on the kernel: when both the registered and requested URIs are loopback
+(`127.0.0.1` or `[::1]`, `http`), port comparison is skipped per RFC 8252
+§7.3. Path and query are still enforced exactly. `localhost` is **not**
+loopback (RFC 8252 §8.3) — the IP literal is mandatory.
 
-**Compliance:** PKCE is preserved, not bypassed. Same `code_verifier` →
-`code_challenge_method=S256` cryptographic binding as the browser flow.
-This is the OAuth-2.1-clean way to handle confidential-client scenarios
-without introducing a `client_secret` pathway.
+To enable the flow on an OAuth client, register one canonical port-less
+URI in the management API:
+
+```
+POST /v2/management/oauth-clients/<id>/redirect-uris
+  { "uri": "http://127.0.0.1/callback" }
+```
+
+### Device authorization grant (RFC 8628)
+
+For devices with no local browser (TVs, IoT, SSH terminals, CI). The
+device flow is split between two actors:
+
+- **Device side (SDK does NOT cover):** call
+  `POST /v2/oauth/device/authorize`, render the user code + verification
+  URI, then poll `POST /v2/oauth/token` with
+  `grant_type=urn:ietf:params:oauth:grant-type:device_code` until the
+  user approves. Implemented in the device's own runtime — out of scope
+  for a browser SDK.
+- **Verification side (this SDK):** the user lands at
+  `https://accounts.nuria.com.br/device?user_code=...`, confirms what
+  they're authorizing, and approves with their existing session. The
+  SDK exposes three helpers on the auth client:
+
+```ts
+auth.lookupDeviceUserCode(userCode)   // GET  /v2/oauth/device?user_code=
+auth.approveDeviceUserCode(userCode)  // POST /v2/oauth/device/approve  (Bearer)
+auth.denyDeviceUserCode(userCode)     // POST /v2/oauth/device/deny     (Bearer)
+```
+
+`lookupDeviceUserCode` returns `{ userCode, clientId, clientName, scope,
+expiresAt }` for the confirmation UI. Approve/deny require an active
+session — the SDK calls `getAccessToken()` (so silent refresh is in
+effect) and throws `AuthError(UNAUTHENTICATED)` if there's no session.
+Both endpoints throw on unknown / expired / non-pending codes
+(anti-enumeration — collapsed by design).
 
 **See also:** the kernel's `CONTRACT_V2.md` has the full request/response
-shape, error codes, and AWS CLI commands to provision the DDB table.
+shape, error codes, and AWS CLI command to provision
+`NuriaAuth.OAuthDeviceCode`.
 
 ## Adding a New Framework Integration
 

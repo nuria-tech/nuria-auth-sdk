@@ -145,48 +145,92 @@ function decodeJwtNonce(jwt: string): string | null {
   }
 }
 
+// Page-scoped nonce. GIS binds the nonce at `initialize()` time, so once we
+// initialize for a client_id we keep the same nonce for the lifetime of the
+// page. Re-calling `initialize()` to rotate the nonce triggers a "called
+// multiple times" warning in the GIS logger and only the last call wins.
+//
+// Cryptographic freshness is preserved across page loads (every fresh load
+// mints a new nonce) and the value is still validated against the JWT
+// `nonce` claim on every credential response.
 function mintAndStoreNonce(): string {
+  const existing = sessionStorage.getItem(GOOGLE_STORAGE_KEYS.nonce);
+  if (existing) return existing;
   const nonce = randomString(32);
   sessionStorage.setItem(GOOGLE_STORAGE_KEYS.nonce, nonce);
   return nonce;
 }
 
 function consumeStoredNonce(): string | null {
-  const stored = sessionStorage.getItem(GOOGLE_STORAGE_KEYS.nonce);
-  if (stored) sessionStorage.removeItem(GOOGLE_STORAGE_KEYS.nonce);
-  return stored;
+  // Read but do not delete: the nonce is reused for every sign-in attempt
+  // until the page is reloaded or the user explicitly logs out (which
+  // calls disableGoogleAutoSelect → clears the nonce).
+  return sessionStorage.getItem(GOOGLE_STORAGE_KEYS.nonce);
 }
+
+// We register a *single* delegate with GIS at first initialize. Subsequent
+// renderGoogleSignInButton/promptGoogleOneTap calls swap out this active
+// callback without re-initializing — that's what suppresses the
+// `google.accounts.id.initialize() is called multiple times` warning while
+// still letting different callers (e.g. a re-render after theme change)
+// hook into the GIS credential event.
+let activeCredentialCallback:
+  | ((response: GoogleCredentialResponse) => void)
+  | null = null;
+let activeErrorCallback: ((err: Error) => void) | null = null;
+let initializedClientId: string | null = null;
 
 function buildCredentialHandler(
   onCredential: (response: GoogleCredentialResponse) => void,
   onError?: (err: Error) => void,
 ) {
-  return (resp: {
-    credential: string;
-    select_by: string;
-    clientId: string;
-  }) => {
-    const storedNonce = consumeStoredNonce();
-    const tokenNonce = decodeJwtNonce(resp.credential);
-    if (
-      !storedNonce ||
-      !tokenNonce ||
-      !timingSafeEqual(storedNonce, tokenNonce)
-    ) {
-      const err = new AuthError(
-        AuthErrorCode.STATE_MISMATCH,
-        'Google credential nonce validation failed — possible replay attack',
-      );
-      if (onError) onError(err);
-      else throw err;
-      return;
-    }
-    onCredential({
-      idToken: resp.credential,
-      selectBy: resp.select_by,
-      clientId: resp.clientId,
-    });
-  };
+  activeCredentialCallback = onCredential;
+  activeErrorCallback = onError ?? null;
+  return gisDelegate;
+}
+
+const gisDelegate = (resp: {
+  credential: string;
+  select_by: string;
+  clientId: string;
+}) => {
+  const storedNonce = consumeStoredNonce();
+  const tokenNonce = decodeJwtNonce(resp.credential);
+  if (
+    !storedNonce ||
+    !tokenNonce ||
+    !timingSafeEqual(storedNonce, tokenNonce)
+  ) {
+    const err = new AuthError(
+      AuthErrorCode.STATE_MISMATCH,
+      'Google credential nonce validation failed — possible replay attack',
+    );
+    if (activeErrorCallback) activeErrorCallback(err);
+    else throw err;
+    return;
+  }
+  activeCredentialCallback?.({
+    idToken: resp.credential,
+    selectBy: resp.select_by,
+    clientId: resp.clientId,
+  });
+};
+
+function ensureGsiInitialized(clientId: string, nonce: string): void {
+  // Only call gsi.initialize once per page load (and only re-init if the
+  // client_id changes — which never happens in practice, but is the
+  // defensible bail-out). Subsequent callers just update the active
+  // delegates above.
+  if (initializedClientId === clientId) return;
+  const gsi = window.google!.accounts.id;
+  gsi.initialize({
+    client_id: clientId,
+    callback: gisDelegate,
+    nonce,
+    use_fedcm_for_prompt: true,
+    itp_support: true,
+  });
+  initializedClientId = clientId;
 }
 
 /**
@@ -207,14 +251,11 @@ export async function renderGoogleSignInButton(
 ): Promise<void> {
   await loadGisScript();
   const nonce = mintAndStoreNonce();
+  // Update the active callback (no-op for the GIS init below — but it
+  // ensures subsequent credential responses route to *this* caller).
+  buildCredentialHandler(options.onCredential, options.onError);
+  ensureGsiInitialized(options.clientId, nonce);
   const gsi = window.google!.accounts.id;
-  gsi.initialize({
-    client_id: options.clientId,
-    callback: buildCredentialHandler(options.onCredential, options.onError),
-    nonce,
-    use_fedcm_for_prompt: true,
-    itp_support: true,
-  });
   gsi.renderButton(options.element, {
     theme: options.theme ?? 'outline',
     size: options.size ?? 'large',
@@ -235,15 +276,9 @@ export async function promptGoogleOneTap(
 ): Promise<void> {
   await loadGisScript();
   const nonce = mintAndStoreNonce();
-  const gsi = window.google!.accounts.id;
-  gsi.initialize({
-    client_id: options.clientId,
-    callback: buildCredentialHandler(options.onCredential, options.onError),
-    nonce,
-    use_fedcm_for_prompt: true,
-    itp_support: true,
-  });
-  gsi.prompt();
+  buildCredentialHandler(options.onCredential, options.onError);
+  ensureGsiInitialized(options.clientId, nonce);
+  window.google!.accounts.id.prompt();
 }
 
 /** Cancels any in-flight One Tap prompt. Safe to call when GIS isn't loaded. */
@@ -260,4 +295,7 @@ export function disableGoogleAutoSelect(): void {
   if (typeof window === 'undefined') return;
   window.google?.accounts.id.disableAutoSelect();
   sessionStorage.removeItem(GOOGLE_STORAGE_KEYS.nonce);
+  initializedClientId = null;
+  activeCredentialCallback = null;
+  activeErrorCallback = null;
 }

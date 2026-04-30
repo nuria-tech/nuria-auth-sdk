@@ -3,6 +3,7 @@ import type {
   AuthClient,
   AuthTransport,
   AwsLoginOptions,
+  DeviceUserCodeLookup,
   GoogleLoginOptions,
   LoginCodeChallengeOptions,
   LoginMethodsConfig,
@@ -269,6 +270,76 @@ export class DefaultAuthClient implements AuthClient {
     } catch {
       /* swallow — see comment above */
     }
+  }
+
+  async lookupDeviceUserCode(userCode: string): Promise<DeviceUserCodeLookup> {
+    if (!userCode || typeof userCode !== 'string' || !userCode.trim()) {
+      throw new AuthError(AuthErrorCode.INVALID_CONFIG, 'userCode is required');
+    }
+    const url = new URL(`${this.config.baseUrl}/v2/oauth/device`);
+    url.searchParams.set('user_code', userCode.trim());
+    const response = await this.transport.request<{
+      user_code?: string;
+      client_id?: string;
+      client_name?: string;
+      scope?: string | null;
+      expires_at?: string;
+    }>(url.toString(), {
+      method: 'GET',
+      timeoutMs: 5_000,
+    });
+    const body = response.data ?? {};
+    return {
+      userCode: body.user_code ?? userCode.trim(),
+      clientId: body.client_id ?? '',
+      clientName: body.client_name ?? '',
+      scope: body.scope ?? undefined,
+      expiresAt: body.expires_at ?? '',
+    };
+  }
+
+  async approveDeviceUserCode(userCode: string): Promise<void> {
+    if (!userCode || typeof userCode !== 'string' || !userCode.trim()) {
+      throw new AuthError(AuthErrorCode.INVALID_CONFIG, 'userCode is required');
+    }
+    const accessToken = await this.getAccessToken();
+    if (!accessToken) {
+      throw new AuthError(
+        AuthErrorCode.UNAUTHENTICATED,
+        'A valid session is required to approve a device code.',
+      );
+    }
+    await this.transport.request(
+      `${this.config.baseUrl}/v2/oauth/device/approve`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+        body: { userCode: userCode.trim() },
+        timeoutMs: 5_000,
+      },
+    );
+  }
+
+  async denyDeviceUserCode(userCode: string): Promise<void> {
+    if (!userCode || typeof userCode !== 'string' || !userCode.trim()) {
+      throw new AuthError(AuthErrorCode.INVALID_CONFIG, 'userCode is required');
+    }
+    const accessToken = await this.getAccessToken();
+    if (!accessToken) {
+      throw new AuthError(
+        AuthErrorCode.UNAUTHENTICATED,
+        'A valid session is required to deny a device code.',
+      );
+    }
+    await this.transport.request(
+      `${this.config.baseUrl}/v2/oauth/device/deny`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+        body: { userCode: userCode.trim() },
+        timeoutMs: 5_000,
+      },
+    );
   }
 
   async revokeAllSessions(): Promise<void> {

@@ -4,6 +4,130 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [3.1.0] - 2026-04-30
+
+### Added — Device authorization grant (RFC 8628) verification helpers
+
+The kernel now supports the OAuth Device Authorization Grant for
+headless devices (TVs, IoT, SSH terminals, CI runners). Polling on the
+device side belongs to the device's own runtime — out of scope for a
+browser SDK — but the **verification page** the user opens to approve
+the flow runs in the browser. Three new methods on `AuthClient` cover
+that surface so consuming SPAs (notably `accounts.nuria.com.br/device`)
+don't have to wire raw fetch calls:
+
+- `lookupDeviceUserCode(userCode)` → `Promise<DeviceUserCodeLookup>`
+  (`{ userCode, clientId, clientName, scope, expiresAt }`). Calls
+  `GET /v2/oauth/device?user_code=` and returns the metadata needed to
+  render "you are about to authorize &lt;client&gt;" before the user
+  confirms. Throws on unknown / expired / non-pending codes
+  (anti-enumeration — collapsed by design).
+- `approveDeviceUserCode(userCode)` → calls
+  `POST /v2/oauth/device/approve` with `Authorization: Bearer <session>`.
+  Binds the caller's subject onto the device-flow row; the next poll
+  on the device's `/v2/oauth/token` will succeed with access + refresh
+  tokens.
+- `denyDeviceUserCode(userCode)` → calls
+  `POST /v2/oauth/device/deny`. Idempotent for already-denied codes.
+  Bearer-required (otherwise anyone could DOS another user's device flow).
+
+Both approve and deny use `getAccessToken()` internally, so silent
+refresh handles short-lived access tokens transparently. Calls without
+a session throw `AuthError(UNAUTHENTICATED)`.
+
+### Changed
+
+- `AuthErrorCode` gained `UNAUTHENTICATED` for the new approve/deny
+  helpers (the existing `INVALID_CONFIG` was the wrong shape — it
+  signals misconfiguration, not a missing session).
+
+### Removed
+
+- **Server-side launch links are gone.** The kernel removed
+  `POST /v2/oauth/launch-link` + `/exchange` and the
+  `OAuthLaunchState` DDB table. The use case those endpoints served
+  (backends emailing a deep link that drops the user logged in at a
+  client app) is better covered by the standard authorization code
+  flow with the loopback or device grant — both fully OAuth 2.1
+  compliant. No SDK code referenced those endpoints, but the
+  `AGENTS.md` "Server-side launch links" section is replaced with the
+  new "Native and headless flows (RFC 8252 + RFC 8628)" section.
+
+### Native CLI / desktop apps (RFC 8252)
+
+The kernel now permits loopback redirect URIs for the standard
+`/v2/oauth/authorize` + `/v2/oauth/token` flow: register
+`http://127.0.0.1/<path>` once on the OAuth client and any port the
+native app picks at request time matches. Path and query still have to
+be exact. `localhost` is intentionally **not** treated as loopback
+(RFC 8252 §8.3). The SDK does not ship a CLI runtime — but the same
+endpoints + PKCE rules apply, so a native app can reuse the SDK's
+`createCodeChallenge` + `randomString` primitives if it bundles them.
+
+### Migration
+
+If you weren't using the launch-link endpoints, nothing changes for
+you. If you were:
+
+- Single-flight, browser-based deep links (Nuria Portal-style): the
+  user clicks a link in an email and lands logged in. The standard
+  `/v2/oauth/authorize` PKCE flow (the one `auth.startLogin()` already
+  uses) does this without the launch-link hop. The accounts SSO cookie
+  carries the existing session into the authorize page.
+- Native CLI launching login via email: switch to the loopback redirect
+  flow above. Polling on `/v2/oauth/device` is also an option if the
+  CLI cannot bind a port.
+
+## [3.0.4] - 2026-04-29
+
+### Changed
+
+- **`extractRoles()` no longer reads the OAuth `scope` / `scopes` claims.**
+  Scopes are a distinct concept from roles in the Nuria token model
+  (`profile:write`, `nuria:developer`, `myconnect:read` are scopes; roles
+  like `cmauth:list_users` come from the SubjectSession in DDB and the
+  /v2/verify response). The previous behaviour caused scope strings to
+  leak into role-gated UI checks. Consumers that want the scope list now
+  call the new `extractScopes()` helper.
+
+### Added
+
+- `extractScopes(...sources)` — deduplicated list of OAuth scopes pulled
+  from the standard `scope` claim (RFC 6749 §3.3, space-separated) and
+  the array-form `scopes` alias used by the /v2/verify response.
+- `TokenClaims` gained typed fields for the JWT additions stamped by the
+  kernel (`iss`, `aud`, `sub`, `jti`) and the Nuria-specific claims that
+  were previously only reachable via the index signature (`subject_type`,
+  `subject_phone`, `subject_guid`, `company_origin`, `scope`). Existing
+  consumers keep working — these are additive optional fields with the
+  same names the kernel emits.
+
+### Migration
+
+If any downstream code was relying on `extractRoles()` returning the
+contents of the `scope` claim, switch that call to `extractScopes()`.
+The shape (deduplicated `string[]`) is identical; only the input claims
+change.
+
+## [3.0.3] - 2026-04-29
+
+### Changed
+
+- `renderGoogleSignInButton()` / `promptGoogleOneTap()` are now idempotent
+  for the same client_id within a single page lifecycle. The Google
+  Identity Services nonce is minted once per page load, stored in
+  `sessionStorage`, and reused across re-renders. This suppresses the
+  `[GSI_LOGGER]: google.accounts.id.initialize() is called multiple times`
+  warning that fired when callers re-rendered the button (theme switches,
+  responsive resize, HMR remounts) — `gsi.initialize()` is now invoked
+  exactly once and a single internal delegate routes credentials to the
+  most recently registered `onCredential` callback. Nonce freshness is
+  preserved across page loads (every reload mints a new nonce); replay
+  defense is unchanged because the kernel still validates the JWT
+  `nonce` claim against the stored value.
+- `disableGoogleAutoSelect()` now also resets the in-memory init state so
+  the next login mints a fresh nonce and re-binds GIS callbacks.
+
 ## [3.0.1] - 2026-04-29
 
 ### Changed

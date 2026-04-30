@@ -88,6 +88,14 @@ function createMockAuth() {
     getLoginMethods: vi.fn(() => ({ enabled: [], comingSoon: [] })),
     startSilentRefresh: vi.fn(),
     stopSilentRefresh: vi.fn(),
+    lookupDeviceUserCode: vi.fn(async () => ({
+      userCode: 'WDJB-MJHT',
+      clientId: 'client',
+      clientName: 'Test',
+      expiresAt: '',
+    })),
+    approveDeviceUserCode: vi.fn(async () => {}),
+    denyDeviceUserCode: vi.fn(async () => {}),
   };
 
   return { auth, unsubscribe };

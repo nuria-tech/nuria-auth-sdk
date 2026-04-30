@@ -1,16 +1,39 @@
 export interface TokenClaims {
+  // ── RFC 7519 standard claims ───────────────────────────────────────
+  /** Subject identifier (RFC 7519 §4.1.2). For Nuria tokens, the user/app GUID. */
   sub?: string;
+  /** Issuer (RFC 7519 §4.1.1). Nuria tokens emit `https://auth.nuria.com.br`. */
   iss?: string;
+  /** Audience (RFC 7519 §4.1.3). Nuria tokens emit `nuria` today. */
   aud?: string | string[];
+  /** Expiration time, epoch seconds (RFC 7519 §4.1.4). */
   exp?: number;
+  /** Issued at, epoch seconds (RFC 7519 §4.1.6). */
   iat?: number;
+  /** Not before, epoch seconds (RFC 7519 §4.1.5). Not currently emitted by Nuria. */
   nbf?: number;
+  /** JWT id (RFC 7519 §4.1.7). Nuria stamps this on dev tokens for revocation. */
+  jti?: string;
+  // ── OIDC ──────────────────────────────────────────────────────────
   nonce?: string;
   email?: string;
   name?: string;
   given_name?: string;
   family_name?: string;
   picture?: string;
+  phone_number?: string;
+  // ── Nuria-specific ────────────────────────────────────────────────
+  /** `user` | `application` — distinguishes session subjects from machine principals. */
+  subject_type?: string;
+  /** Same value as `sub` / `sid`, kept for callers that key by the kernel's GUID. */
+  subject_guid?: string;
+  /** Phone number stamped at issue time (or `"NA"` when none). */
+  subject_phone?: string;
+  /**
+   * Numeric origin company id (e.g. `180` for Nuria itself). Stringified
+   * because the JWT carries it as a string claim.
+   */
+  company_origin?: string | number;
   /**
    * Nuria-issued access tokens emit `avatar_url` (snake_case) only when a
    * real avatar is available — Google login. Omitted for password / AWS SSO
@@ -18,8 +41,15 @@ export interface TokenClaims {
    * is also accepted by the bundled claim helpers.
    */
   avatar_url?: string;
-  phone_number?: string;
+  /**
+   * Space-separated OAuth scopes (RFC 6749 §3.3). Distinct from {@link roles}
+   * — read it via {@link extractScopes} when you need capabilities like
+   * `profile:write`, `myconnect:read`, `nuria:developer`.
+   */
+  scope?: string;
+  /** Roles list, when present. The kernel keeps roles in DDB and exposes them via /v2/verify; first-party tokens don't carry them. */
   roles?: string | string[];
+  /** Groups list, when present. Same shape/source as {@link roles}. */
   groups?: string | string[];
   auth_provider?: string;
   [key: string]: unknown;
@@ -248,4 +278,38 @@ export interface AuthClient {
   getLoginMethods(): LoginMethodsConfig;
   startSilentRefresh(intervalMs?: number): void;
   stopSilentRefresh(): void;
+  /**
+   * Looks up a pending RFC 8628 device-flow `user_code` and returns the
+   * client metadata the verification UI needs to confirm "you are about
+   * to authorize &lt;client&gt;" before approving. Public read — does NOT
+   * mutate the device-flow row. Throws on unknown / expired / non-pending
+   * codes (collapsed by design — anti-enumeration).
+   */
+  lookupDeviceUserCode(userCode: string): Promise<DeviceUserCodeLookup>;
+  /**
+   * Approves the pending device-flow `user_code` with the current user
+   * session, binding the caller's subject onto the row. Requires an
+   * authenticated session; pairs with the device's polling on
+   * `POST /v2/oauth/token` (`grant_type=urn:ietf:params:oauth:grant-type:device_code`),
+   * which will then succeed with access + refresh tokens.
+   */
+  approveDeviceUserCode(userCode: string): Promise<void>;
+  /**
+   * Marks a pending device-flow `user_code` as denied. Requires an
+   * authenticated session (so anonymous abuse can't DOS another user's
+   * device flow). Idempotent for already-denied codes.
+   */
+  denyDeviceUserCode(userCode: string): Promise<void>;
+}
+
+/**
+ * Result of <see cref="AuthClient.lookupDeviceUserCode"/>. Mirrors the
+ * <c>GET /v2/oauth/device?user_code=</c> response on the kernel.
+ */
+export interface DeviceUserCodeLookup {
+  userCode: string;
+  clientId: string;
+  clientName: string;
+  scope?: string;
+  expiresAt: string;
 }

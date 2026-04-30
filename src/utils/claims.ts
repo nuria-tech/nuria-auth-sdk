@@ -13,8 +13,14 @@ function toStringArray(value: unknown): string[] {
 
 /**
  * Extracts a deduplicated list of roles from one or more claim/verify objects.
- * Handles multiple claim formats: roles, role, permissions, permission, scope,
- * scopes, and the Microsoft WS-Federation role claim URI.
+ * Handles multiple claim formats: roles, role, permissions, permission, and
+ * the Microsoft WS-Federation role claim URI.
+ *
+ * **Does not** read the OAuth `scope` / `scopes` claims anymore — scopes
+ * are a distinct concept from roles in this codebase (`profile:write`,
+ * `nuria:developer`, etc. are scopes, not roles) and conflating them
+ * caused scope strings to leak into role-gated UI checks. Use
+ * {@link extractScopes} for the OAuth scope list.
  */
 export function extractRoles(
   ...sources: Array<Record<string, unknown> | null | undefined>
@@ -25,12 +31,30 @@ export function extractRoles(
       tokenData?.role,
       tokenData?.permissions,
       tokenData?.permission,
-      tokenData?.scope,
-      tokenData?.scopes,
       tokenData?.[
         'http://schemas.microsoft.com/ws/2008/06/identity/claims/role'
       ],
     ])
+    .flatMap(toStringArray);
+  return Array.from(new Set(fromClaims));
+}
+
+/**
+ * Extracts a deduplicated list of OAuth scopes from one or more claim/verify
+ * objects. Reads the standard `scope` claim (RFC 6749 §3.3, space-separated)
+ * and the array-form `scopes` alias used by the verify endpoint.
+ *
+ * Scopes carry capability — `profile:write` (granted to user sessions),
+ * `myconnect:read` (granted to application tokens), `nuria:developer`
+ * (granted to dev tokens). They live alongside roles but mean different
+ * things; consumers gating UI/API surfaces by capability should pick the
+ * one that matches the claim shape they actually care about.
+ */
+export function extractScopes(
+  ...sources: Array<Record<string, unknown> | null | undefined>
+): string[] {
+  const fromClaims = sources
+    .flatMap((tokenData) => [tokenData?.scope, tokenData?.scopes])
     .flatMap(toStringArray);
   return Array.from(new Set(fromClaims));
 }

@@ -9,6 +9,7 @@ export enum AuthErrorCode {
   MISSING_STATE = 'MISSING_STATE',
   NETWORK_ERROR = 'NETWORK_ERROR',
   HTTP_ERROR = 'HTTP_ERROR',
+  UNAUTHENTICATED = 'UNAUTHENTICATED',
 }
 
 export class AuthError extends Error {

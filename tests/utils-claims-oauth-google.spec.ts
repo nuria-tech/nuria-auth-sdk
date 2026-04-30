@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   extractRoles,
+  extractScopes,
   extractCompanyOrigin,
   extractAvatarUrl,
   extractDisplayName,
@@ -43,8 +44,12 @@ describe('extractRoles', () => {
     expect(extractRoles({ permissions: ['read', 'write'] })).toEqual(['read', 'write']);
   });
 
-  it('extracts from scope (space-separated)', () => {
-    expect(extractRoles({ scope: 'openid profile email' })).toEqual(['openid', 'profile', 'email']);
+  it('does NOT treat the OAuth scope claim as roles', () => {
+    // Regression: before 3.0.4 the scope claim leaked into extractRoles,
+    // which caused `profile:write` / `nuria:developer` to be evaluated as
+    // roles in role-gated UI checks. Use extractScopes for the OAuth list.
+    expect(extractRoles({ scope: 'profile:write myconnect:read' })).toEqual([]);
+    expect(extractRoles({ scopes: ['profile:write'] })).toEqual([]);
   });
 
   it('extracts from MS WS-Federation claim URI', () => {
@@ -60,6 +65,44 @@ describe('extractRoles', () => {
   it('merges multiple sources', () => {
     const result = extractRoles({ roles: 'cmauth:*' }, { permissions: 'read' });
     expect(result).toEqual(['cmauth:*', 'read']);
+  });
+});
+
+// ─── extractScopes ───────────────────────────────────────────────────────────
+
+describe('extractScopes', () => {
+  it('returns empty array for no sources', () => {
+    expect(extractScopes()).toEqual([]);
+  });
+
+  it('returns empty array for null/undefined sources', () => {
+    expect(extractScopes(null, undefined)).toEqual([]);
+  });
+
+  it('splits the standard space-separated scope claim (RFC 6749 §3.3)', () => {
+    expect(extractScopes({ scope: 'profile:write myconnect:read' })).toEqual([
+      'profile:write',
+      'myconnect:read',
+    ]);
+  });
+
+  it('reads the array-form scopes alias (used by /v2/verify response)', () => {
+    expect(extractScopes({ scopes: ['profile:write', 'nuria:developer'] })).toEqual([
+      'profile:write',
+      'nuria:developer',
+    ]);
+  });
+
+  it('merges and deduplicates scope + scopes across sources', () => {
+    const result = extractScopes(
+      { scope: 'profile:write nuria:developer' },
+      { scopes: ['nuria:developer', 'myconnect:read'] },
+    );
+    expect(result).toEqual(['profile:write', 'nuria:developer', 'myconnect:read']);
+  });
+
+  it('does NOT pull from roles/permissions (those are not scopes)', () => {
+    expect(extractScopes({ roles: ['admin'], permissions: ['read'] })).toEqual([]);
   });
 });
 
@@ -269,8 +312,17 @@ const mintIdToken = (claims: Record<string, unknown>) =>
   `${b64url({ alg: 'RS256' })}.${b64url(claims)}.signature`;
 
 describe('renderGoogleSignInButton', () => {
-  it('initializes GIS with the stored nonce and renders the button', async () => {
+  // The SDK keeps the GIS init + active-callback state at module scope so
+  // re-renders (theme switches, ResizeObserver, etc.) don't trigger the
+  // `google.accounts.id.initialize() is called multiple times` warning.
+  // disableGoogleAutoSelect resets that state — perfect for test isolation.
+  beforeEach(() => {
+    installMockGis();
+    disableGoogleAutoSelect();
     sessionStorage.clear();
+  });
+
+  it('initializes GIS with the stored nonce and renders the button', async () => {
     const gsi = installMockGis();
     const element = document.createElement('div');
     await renderGoogleSignInButton({
@@ -288,8 +340,25 @@ describe('renderGoogleSignInButton', () => {
     expect(gsi.renderButton).toHaveBeenCalledWith(element, expect.objectContaining({ theme: 'outline' }));
   });
 
+  it('reuses the same nonce across multiple renders and only initializes GIS once', async () => {
+    const gsi = installMockGis();
+    await renderGoogleSignInButton({
+      clientId: 'same-client',
+      element: document.createElement('div'),
+      onCredential: () => {},
+    });
+    const firstNonce = sessionStorage.getItem(GOOGLE_STORAGE_KEYS.nonce);
+    await renderGoogleSignInButton({
+      clientId: 'same-client',
+      element: document.createElement('div'),
+      onCredential: () => {},
+    });
+    expect(sessionStorage.getItem(GOOGLE_STORAGE_KEYS.nonce)).toBe(firstNonce);
+    expect(gsi.initialize).toHaveBeenCalledOnce();
+    expect(gsi.renderButton).toHaveBeenCalledTimes(2);
+  });
+
   it('invokes onCredential when the GIS callback fires with a matching nonce', async () => {
-    sessionStorage.clear();
     const gsi = installMockGis();
     const onCredential = vi.fn();
     await renderGoogleSignInButton({
@@ -307,8 +376,9 @@ describe('renderGoogleSignInButton', () => {
     const arg = onCredential.mock.calls[0]![0];
     expect(arg.idToken).toBeTruthy();
     expect(arg.selectBy).toBe('btn');
-    // Nonce must be consumed once validated.
-    expect(sessionStorage.getItem(GOOGLE_STORAGE_KEYS.nonce)).toBeNull();
+    // Nonce is page-scoped: it persists until logout / page reload, so
+    // multiple sign-in attempts in the same session can validate.
+    expect(sessionStorage.getItem(GOOGLE_STORAGE_KEYS.nonce)).toBe(nonce);
   });
 
   it('forwards a STATE_MISMATCH error when the id_token nonce disagrees with storage', async () => {

@@ -4,7 +4,7 @@
 [![CI](https://github.com/nuria-tech/nuria-auth-sdk/actions/workflows/ci-publish.yml/badge.svg)](https://github.com/nuria-tech/nuria-auth-sdk/actions/workflows/ci-publish.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-TypeScript SDK for **OAuth 2.1** Authorization Code + PKCE (S256), focused on browser apps and framework integrations (React, Vue, Nuxt, Next, Angular). PKCE is mandatory on every flow; there is no `client_secret` pathway. Backends that need to mint authorize URLs use the kernel's server-side launch-link flow (PKCE preserved, verifier in DDB) — see [AGENTS.md](./AGENTS.md#server-side-launch-links-backend-issued).
+TypeScript SDK for **OAuth 2.1** Authorization Code + PKCE (S256), focused on browser apps and framework integrations (React, Vue, Nuxt, Next, Angular). PKCE is mandatory on every flow; there is no `client_secret` pathway. Native CLI/desktop apps authenticate via loopback redirect (RFC 8252). Headless devices use the RFC 8628 device authorization grant — see [Device authorization](#device-authorization-rfc-8628) below for the verification-side helpers this SDK exposes.
 
 ## Why this SDK
 
@@ -238,6 +238,91 @@ throws `AuthError` (`MISSING_STATE`, `STATE_MISMATCH`,
 `TOKEN_EXCHANGE_FAILED`, `CALLBACK_ERROR`) for explicit failures. The
 PKCE bag is removed from `sessionStorage` even on failure to prevent
 verifier reuse.
+
+## Native CLI / desktop apps — loopback redirect (RFC 8252)
+
+Native apps don't run in a browser, but they have a browser available.
+The standard pattern is to bind to an ephemeral loopback port and use
+that as the OAuth `redirect_uri`. The SDK is browser-only and does not
+ship a CLI runtime; the flow lives in your CLI/desktop code, but it
+talks to the same backend endpoints (`/v2/oauth/authorize` +
+`/v2/oauth/token`) the SDK uses.
+
+```text
+1. Native app starts an HTTP listener on http://127.0.0.1:<random-port>/callback
+2. Open the system browser at:
+     https://auth.nuria.com.br/v2/oauth/authorize
+       ?response_type=code
+       &client_id=<oauth-client-guid>
+       &redirect_uri=http%3A%2F%2F127.0.0.1%3A<port>%2Fcallback
+       &state=<random>
+       &code_challenge=<S256(verifier)>
+       &code_challenge_method=S256
+3. User authenticates in the browser; it redirects to the loopback URL.
+4. App exchanges code at /v2/oauth/token with the verifier.
+```
+
+**Client allow-list.** Register the canonical port-less URI on the
+OAuth client once: `http://127.0.0.1/callback`. Any port the app picks
+at request time is accepted; path and query must be exact. `localhost`
+is **not** treated as loopback (RFC 8252 §8.3) — clients must use the
+IP literal.
+
+## Device authorization (RFC 8628)
+
+For headless devices (TV apps, IoT, SSH terminals, CI runners) that have
+no local browser, the device authorization grant lets the user complete
+authentication on a separate device. The polling side (the device) is
+out of scope for this browser SDK — it runs in your CLI/embedded code.
+The SDK provides the **verification-side** helpers needed by SPAs that
+host the user-facing approval page (e.g. `accounts.nuria.com.br/device`).
+
+End-to-end shape:
+
+```text
+device  → POST /v2/oauth/device/authorize  (form: client_id)
+device  ← { device_code, user_code, verification_uri, verification_uri_complete,
+            expires_in, interval }
+
+device  shows: "Open <verification_uri> and enter <user_code>"
+
+user    → opens https://accounts.nuria.com.br/device?user_code=WDJB-MJHT
+user    → confirms on the page (which uses the SDK helpers below)
+
+device  polls POST /v2/oauth/token with
+          grant_type=urn:ietf:params:oauth:grant-type:device_code
+          device_code=...
+          client_id=...
+        until it gets 200 + tokens (or access_denied / expired_token).
+```
+
+### Verification-page helpers
+
+```ts
+import { createAuthClient } from '@nuria-tech/auth-sdk';
+
+const auth = createAuthClient({
+  clientId: 'accounts-spa-client-id',
+  redirectUri: 'https://accounts.nuria.com.br/callback',
+});
+
+// 1. User lands on /device?user_code=WDJB-MJHT — show what they're approving.
+const lookup = await auth.lookupDeviceUserCode('WDJB-MJHT');
+// → { userCode, clientId, clientName, scope, expiresAt }
+// (anti-enumeration: throws on unknown / expired / non-pending codes)
+
+// 2. User clicks "Authorize" — the current session approves the row.
+await auth.approveDeviceUserCode('WDJB-MJHT');
+
+// 3. User clicks "Cancel" — deny the row instead.
+await auth.denyDeviceUserCode('WDJB-MJHT');
+```
+
+`approveDeviceUserCode` and `denyDeviceUserCode` require an active
+session (Bearer access token). The SDK uses `getAccessToken()` so
+silent refresh is handled automatically. Call `lookupDeviceUserCode`
+**before** rendering the confirm button so the user sees the client
+name and scope they're authorizing.
 
 ## React quick start
 

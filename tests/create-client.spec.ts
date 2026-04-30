@@ -328,6 +328,113 @@ describe('createAuthClient', () => {
     expect(transport.request).toHaveBeenCalledOnce();
   });
 
+  it('lookupDeviceUserCode GETs /v2/oauth/device with the user_code query', async () => {
+    const transport = makeMockTransport({
+      user_code: 'WDJB-MJHT',
+      client_id: 'app-1',
+      client_name: 'Nuria CLI',
+      scope: 'openid profile',
+      expires_at: '2026-04-30T18:30:00Z',
+    });
+    const client = createAuthClient({ ...BASE_CONFIG, transport });
+
+    const result = await client.lookupDeviceUserCode('WDJB-MJHT');
+
+    const calls = transport.request.mock.calls as Array<[string, AuthTransportRequest]>;
+    expect(calls).toHaveLength(1);
+    expect(calls[0]![0]).toBe(
+      'https://auth.example.com/v2/oauth/device?user_code=WDJB-MJHT',
+    );
+    expect(calls[0]![1].method).toBe('GET');
+    expect(result).toEqual({
+      userCode: 'WDJB-MJHT',
+      clientId: 'app-1',
+      clientName: 'Nuria CLI',
+      scope: 'openid profile',
+      expiresAt: '2026-04-30T18:30:00Z',
+    });
+  });
+
+  it('lookupDeviceUserCode rejects empty userCode', async () => {
+    const transport = makeMockTransport({});
+    const client = createAuthClient({ ...BASE_CONFIG, transport });
+
+    await expect(client.lookupDeviceUserCode('')).rejects.toMatchObject({
+      code: AuthErrorCode.INVALID_CONFIG,
+    });
+    expect(transport.request).not.toHaveBeenCalled();
+  });
+
+  it('approveDeviceUserCode POSTs /v2/oauth/device/approve with Bearer + body', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.set('nuria:oauth:state', 'st');
+    await storage.set('nuria:oauth:code_verifier', 'vf');
+    const transport = makeMockTransport({
+      access_token: 'tok-abc',
+      refresh_token: 'r-1',
+    });
+    const client = createAuthClient({ ...BASE_CONFIG, storage, transport });
+
+    await client.handleRedirectCallback(
+      'https://app.example.com/callback?code=c&state=st',
+    );
+    transport.request.mockClear();
+    transport.request.mockResolvedValueOnce({
+      status: 200,
+      data: { approved: true },
+      headers: new Headers(),
+    });
+
+    await client.approveDeviceUserCode('WDJB-MJHT');
+
+    const calls = transport.request.mock.calls as Array<[string, AuthTransportRequest]>;
+    expect(calls).toHaveLength(1);
+    expect(calls[0]![0]).toBe('https://auth.example.com/v2/oauth/device/approve');
+    expect(calls[0]![1].method).toBe('POST');
+    expect(calls[0]![1].headers).toEqual({ Authorization: 'Bearer tok-abc' });
+    expect(calls[0]![1].body).toEqual({ userCode: 'WDJB-MJHT' });
+  });
+
+  it('approveDeviceUserCode rejects when there is no active session', async () => {
+    const storage = new MemoryStorageAdapter();
+    const transport = makeMockTransport({});
+    const client = createAuthClient({ ...BASE_CONFIG, storage, transport });
+
+    await expect(
+      client.approveDeviceUserCode('WDJB-MJHT'),
+    ).rejects.toMatchObject({ code: AuthErrorCode.UNAUTHENTICATED });
+    expect(transport.request).not.toHaveBeenCalled();
+  });
+
+  it('denyDeviceUserCode POSTs /v2/oauth/device/deny with Bearer + body', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.set('nuria:oauth:state', 'st');
+    await storage.set('nuria:oauth:code_verifier', 'vf');
+    const transport = makeMockTransport({
+      access_token: 'tok-xyz',
+      refresh_token: 'r-2',
+    });
+    const client = createAuthClient({ ...BASE_CONFIG, storage, transport });
+
+    await client.handleRedirectCallback(
+      'https://app.example.com/callback?code=c&state=st',
+    );
+    transport.request.mockClear();
+    transport.request.mockResolvedValueOnce({
+      status: 200,
+      data: { denied: true },
+      headers: new Headers(),
+    });
+
+    await client.denyDeviceUserCode('WDJB-MJHT');
+
+    const calls = transport.request.mock.calls as Array<[string, AuthTransportRequest]>;
+    expect(calls[0]![0]).toBe('https://auth.example.com/v2/oauth/device/deny');
+    expect(calls[0]![1].method).toBe('POST');
+    expect(calls[0]![1].headers).toEqual({ Authorization: 'Bearer tok-xyz' });
+    expect(calls[0]![1].body).toEqual({ userCode: 'WDJB-MJHT' });
+  });
+
   it('globalLogout clears session and redirects to logoutEndpoint', async () => {
     const storage = new MemoryStorageAdapter();
     await storage.set('nuria:oauth:state', 'st');
