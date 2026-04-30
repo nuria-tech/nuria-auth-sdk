@@ -142,10 +142,7 @@ export class FetchAuthTransport implements AuthTransport {
   }
 }
 
-function extractErrorDetails(
-  status: number,
-  body: unknown,
-): AuthErrorDetails {
+function extractErrorDetails(status: number, body: unknown): AuthErrorDetails {
   const details: AuthErrorDetails = { status, body };
   if (body && typeof body === 'object') {
     const record = body as Record<string, unknown>;
