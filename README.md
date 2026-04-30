@@ -170,7 +170,7 @@ with an `idToken`:
 - **Google → Google Identity Services (GIS / FedCM).** GIS is the path
   Google officially recommends for SPAs after the implicit-flow
   deprecation. The SDK loads `accounts.google.com/gsi/client`, renders
-  the official Sign-In button, and surfaces the id_token via a callback
+  the official Sign in with Google button, and surfaces the id_token via a callback
   — no URL fragment, no redirect.
 - **AWS IAM Identity Center → Authorization Code + PKCE.** AWS supports
   PKCE-only public clients, so the browser does the code → token

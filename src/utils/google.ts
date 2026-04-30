@@ -190,7 +190,7 @@ function buildCredentialHandler(
 }
 
 /**
- * Renders the official Google Sign-In button in the given element using
+ * Renders the official Sign in with Google button in the given element using
  * Google Identity Services (GIS). The page must include the client's origin
  * in the GCP OAuth client's "Authorized JavaScript origins".
  *

@@ -27,7 +27,7 @@ endorses:
 - **Google → Google Identity Services (GIS / FedCM).** The browser no
   longer redirects to `accounts.google.com/o/oauth2/v2/auth?response_type=id_token`.
   The SDK loads `accounts.google.com/gsi/client`, renders the official
-  Google Sign-In button, and surfaces the id_token through a JS callback.
+  Sign in with Google button, and surfaces the id_token through a JS callback.
   No more URL fragment handoff, no more `pendingIdToken` shuffle through
   `sessionStorage`.
 - **AWS IAM Identity Center → Authorization Code + PKCE.** The browser
@@ -127,7 +127,7 @@ For AWS IAM Identity Center:
   no longer crosses `sessionStorage`; state validation in both flows is
   now strict and uses constant-time comparison; multi-tab PKCE bags
   isolated by state prevent cross-tab clobber.
-- GIS/FedCM is the path Google has officially recommended for SPAs since
+- Google Identity Services (GIS) / FedCM is the path Google has officially recommended for SPAs since
   the implicit-flow deprecation.
 
 ## [2.0.10] - 2026-04-29
