@@ -47,6 +47,7 @@ interface GsiInitializeConfig {
   }) => void;
   nonce: string;
   use_fedcm_for_prompt: true;
+  use_fedcm_for_button: true;
   auto_select?: boolean;
   cancel_on_tap_outside?: boolean;
   itp_support?: boolean;
@@ -228,6 +229,7 @@ function ensureGsiInitialized(clientId: string, nonce: string): void {
     callback: gisDelegate,
     nonce,
     use_fedcm_for_prompt: true,
+    use_fedcm_for_button: true,
     itp_support: true,
   });
   initializedClientId = clientId;

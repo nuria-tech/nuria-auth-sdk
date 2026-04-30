@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.0.1] - 2026-04-30
+
+### Fixed — Sign-in with Google button: deterministic personalized variant
+
+`gsi.initialize()` now passes `use_fedcm_for_button: true` alongside the
+existing `use_fedcm_for_prompt: true`. Without this flag, the personalized
+button variant ("Sign in as <Name>", rendered via cross-origin iframe)
+relied on third-party cookies to negotiate the Google session — a path
+that is unreliable on Chrome 120+ and any browser with 3PC blocked.
+
+The legacy 3PC path could (a) silently fail to render the personalized
+variant or (b) swap from the generic inline `div[role="button"]` to the
+iframe variant several seconds after first paint, causing visible
+layout instability in pages that styled the GIS host element via
+`:deep()` selectors.
+
+With FedCM as the canonical channel for the button, the variant
+selection is deterministic across browsers and the swap (if any) is
+gated by the FedCM handshake rather than ambient cookie state.
+
+No API surface change — the flag is internal to `ensureGsiInitialized()`.
+
 ## [4.0.0] - 2026-04-30
 
 ### BREAKING — `logout()` now forces re-authentication on next sign-in

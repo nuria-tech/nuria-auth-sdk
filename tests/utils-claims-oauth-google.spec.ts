@@ -334,6 +334,7 @@ describe('renderGoogleSignInButton', () => {
     const config = gsi.initialize.mock.calls[0]![0];
     expect(config.client_id).toBe('google-client');
     expect(config.use_fedcm_for_prompt).toBe(true);
+    expect(config.use_fedcm_for_button).toBe(true);
     expect(typeof config.nonce).toBe('string');
     expect(config.nonce.length).toBe(32);
     expect(sessionStorage.getItem(GOOGLE_STORAGE_KEYS.nonce)).toBe(config.nonce);
