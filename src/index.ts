@@ -10,7 +10,11 @@ export {
   type BrowserCookieStorageOptions,
 } from './storage/browser-cookie-storage';
 export { FetchAuthTransport } from './transport/fetch-transport';
-export { AuthError, AuthErrorCode } from './errors/auth-error';
+export {
+  AuthError,
+  AuthErrorCode,
+  type AuthErrorDetails,
+} from './errors/auth-error';
 
 export {
   extractRoles,
@@ -58,6 +62,7 @@ export type {
   LoginMethod,
   LoginMethodsConfig,
   LoginMethodsConfigInput,
+  LogoutOptions,
   PasswordLoginOptions,
   VerifyLoginCodeOptions,
   TwoFactorChallenge,

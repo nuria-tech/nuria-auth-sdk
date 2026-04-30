@@ -6,6 +6,11 @@ export const STORAGE_KEYS = {
   state: 'nuria:oauth:state',
   codeVerifier: 'nuria:oauth:code_verifier',
   nonce: 'nuria:oauth:nonce',
+  // One-shot marker set by `logout()` (default behavior) and consumed by
+  // the next `startLogin()` call to force `prompt=login` — i.e. the IdP
+  // must render its login UI even if the SSO session is still warm.
+  // Cleared after consumption so subsequent logins resume normal SSO.
+  forceReloginNext: 'nuria:auth:force_relogin_next',
 };
 
 export function normalizeTokenSet(

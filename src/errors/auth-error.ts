@@ -12,13 +12,27 @@ export enum AuthErrorCode {
   UNAUTHENTICATED = 'UNAUTHENTICATED',
 }
 
+export interface AuthErrorDetails {
+  status?: number;
+  error?: string;
+  errorCode?: string;
+  errorDescription?: string;
+  traceId?: string;
+  feature?: string;
+  body?: unknown;
+}
+
 export class AuthError extends Error {
+  public readonly details: AuthErrorDetails;
+
   constructor(
     public readonly code: AuthErrorCode,
     message: string,
     public readonly cause?: unknown,
+    details: AuthErrorDetails = {},
   ) {
     super(message);
     this.name = 'AuthError';
+    this.details = details;
   }
 }

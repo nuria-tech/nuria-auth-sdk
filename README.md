@@ -511,12 +511,99 @@ setInterval(async () => {
 }, 5 * 60 * 1000);
 ```
 
+## Logout & re-authentication
+
+When the user clicks "Sair" in your app, you almost always want them to
+see a real login screen the next time they sign in — not be silently
+re-issued a token by the upstream SSO session. As of `4.0.0` this is
+the default:
+
+```ts
+// 1. User clicks "Sair"
+await auth.logout();
+// → local session cleared
+// → SDK persists a one-shot "force re-login" marker
+
+// 2. Later, user clicks "Entrar"
+await auth.startLogin();
+// → SDK reads the marker, adds ?prompt=login to the authorize URL,
+//   clears the marker
+// → IdP renders its login form even if the SSO session is still warm
+// → User sees and performs an explicit login
+```
+
+The marker is one-shot: a second `startLogin()` without an intervening
+`logout()` does **not** add `prompt=login`, so normal SSO continues to
+work for in-flow navigations. If `onRedirect` (or the redirect path) throws
+before the navigation succeeds, the marker is preserved so the user's
+retry still goes through `prompt=login`.
+
+The marker is also storage-scoped to the SDK instance (its
+`StorageAdapter`), so logging out of app A on origin `a.example.com`
+does not influence the next sign-in to app B on `b.example.com` —
+each app independently arms its own re-authentication.
+
+> **Storage caveat.** With `MemoryStorageAdapter` the marker lives only
+> in-memory and is lost on page reload. If your app calls `logout()` and
+> then the user refreshes before clicking "Entrar", silent SSO returns.
+> For the force-relogin guarantee to survive reload, use a persistent
+> adapter (`WebStorageAdapter`, `CookieStorageAdapter`, etc.).
+
+### Opting out — `keepSso: true`
+
+Pass `{ keepSso: true }` when the app deliberately wants classic silent
+SSO across logout. The clearest legitimate case is a background
+refresh failure: the user's refresh token expired, but you want them
+to glide back into the same identity without retyping credentials.
+
+```ts
+// Background refresh failed — clear local state but let the next
+// startLogin() use SSO to re-establish the same identity.
+await auth.logout({ keepSso: true });
+await auth.startLogin();
+```
+
+Pass `keepSso: true` *also* if your component is itself the IdP UI
+(no upstream SSO above it for the marker to influence) — this is what
+the `accounts.nuria.com.br` portal does internally.
+
+### Forcing re-authentication explicitly
+
+Set `prompt` directly on `startLogin()` to override or bypass the
+marker. Explicit `prompt` always wins:
+
+```ts
+await auth.startLogin({ prompt: 'login' });          // force form
+await auth.startLogin({ prompt: 'select_account' }); // force chooser
+await auth.startLogin({ prompt: 'consent' });        // re-show consent
+await auth.startLogin({ prompt: 'none' });           // SSO-only, error if no session
+```
+
+For OIDC space-separated combos (e.g. `"login consent"`), pass through
+`extraParams.prompt` — that path also overrides both the marker and
+the typed option.
+
+### Google Identity Services interaction
+
+Google's FedCM / One Tap can silently re-issue an `id_token` independent
+of your app's session. After logout, call `disableGoogleAutoSelect()`
+so GIS forgets the auto-select hint:
+
+```ts
+import { disableGoogleAutoSelect } from '@nuria-tech/auth-sdk';
+
+await auth.logout();
+disableGoogleAutoSelect();
+```
+
+The `accounts.nuria.com.br` portal does this in its own logout handler.
+
 ## Security notes
 
 - Do not use `clientSecret` in browser/mobile apps.
 - Prefer memory storage when possible.
 - Keep refresh on cookies (`HttpOnly`) server-side when available.
-- `logout()` clears the local session only — no server call, no redirect. Use this for in-app sign-out where the user stays in the same app.
+- `logout()` clears the local session only — no server call, no redirect. Use this for in-app sign-out where the user stays in the same app. **By default it also forces re-authentication on the next `startLogin()`** — see [Logout & re-authentication](#logout--re-authentication) below. Pass `{ keepSso: true }` to preserve classic silent-SSO across logout.
 - `globalLogout({ returnTo })` calls the server logout endpoint and redirects. `returnTo` must be `https://` (or `http://localhost` for dev); URLs with embedded credentials are rejected.
 - `isAuthenticated()` returns `true` when the token is expired but `enableRefreshToken: true` — `getAccessToken()` will silently renew it.
 - `getClaims()` decodes the JWT payload client-side via `atob()` without verifying the signature — trust comes from the server that issued the token.
@@ -533,8 +620,12 @@ interface AuthClient {
   handleRedirectCallback(callbackUrl?: string): Promise<Session>;
   getSession(): Session | null;
   getAccessToken(): Promise<string | null>;
-  /** Clears the local session only. No server call, no redirect. */
-  logout(): Promise<void>;
+  /**
+   * Clears the local session only. No server call, no redirect.
+   * Default arms `prompt=login` for the next startLogin(); pass
+   * `{ keepSso: true }` to preserve silent SSO across logout.
+   */
+  logout(options?: LogoutOptions): Promise<void>;
   /** Clears the local session AND calls the server logout endpoint, then redirects. */
   globalLogout(options?: { returnTo?: string }): Promise<void>;
   /** Best-effort POST /v2/logout to revoke the current session's refresh token server-side. Does NOT clear local state. Pair with logout() for full sign-out without redirect. */

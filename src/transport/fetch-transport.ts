@@ -4,7 +4,11 @@ import type {
   AuthTransportResponse,
   TransportInterceptor,
 } from '../core/types';
-import { AuthError, AuthErrorCode } from '../errors/auth-error';
+import {
+  AuthError,
+  AuthErrorCode,
+  type AuthErrorDetails,
+} from '../errors/auth-error';
 
 export interface FetchTransportOptions {
   fetchFn?: typeof fetch;
@@ -78,7 +82,13 @@ export class FetchAuthTransport implements AuthTransport {
           for (const i of this.interceptors) {
             if (i.onErrorResponse) await i.onErrorResponse(res.status);
           }
-          throw new AuthError(AuthErrorCode.HTTP_ERROR, `HTTP ${res.status}`);
+          const details = extractErrorDetails(res.status, data);
+          throw new AuthError(
+            AuthErrorCode.HTTP_ERROR,
+            formatHttpErrorMessage(res.status, details),
+            undefined,
+            details,
+          );
         }
         let out: AuthTransportResponse<T> = {
           status: res.status,
@@ -130,4 +140,30 @@ export class FetchAuthTransport implements AuthTransport {
     }
     return text as unknown as T;
   }
+}
+
+function extractErrorDetails(
+  status: number,
+  body: unknown,
+): AuthErrorDetails {
+  const details: AuthErrorDetails = { status, body };
+  if (body && typeof body === 'object') {
+    const record = body as Record<string, unknown>;
+    if (typeof record.error === 'string') details.error = record.error;
+    if (typeof record.errorCode === 'string')
+      details.errorCode = record.errorCode;
+    if (typeof record.errorDescription === 'string')
+      details.errorDescription = record.errorDescription;
+    if (typeof record.traceId === 'string') details.traceId = record.traceId;
+    if (typeof record.feature === 'string') details.feature = record.feature;
+  }
+  return details;
+}
+
+function formatHttpErrorMessage(
+  status: number,
+  details: AuthErrorDetails,
+): string {
+  if (details.errorCode) return `HTTP ${status} (${details.errorCode})`;
+  return `HTTP ${status}`;
 }

@@ -4,6 +4,127 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.0.0] - 2026-04-30
+
+### BREAKING — `logout()` now forces re-authentication on next sign-in
+
+Calling `auth.logout()` used to clear local state and let the next
+`auth.startLogin()` glide silently through the upstream SSO session,
+which meant a user who pressed "Sair" in an app would frequently land
+back inside it without any visible login step. Some browsers were even
+silently re-issuing tokens via Google FedCM auto-select.
+
+`logout()` now persists a one-shot marker that the next
+`startLogin()` consumes and translates into the OIDC standard
+`prompt=login` parameter on the authorize URL. The IdP renders its
+login UI even when its own session is still warm, so the user always
+sees and clicks through a real credential challenge.
+
+```ts
+// Default — recommended for app "Sair" buttons
+await auth.logout();
+await auth.startLogin(); // → ?prompt=login on the authorize URL
+
+// Opt out — preserve classic SSO across logout. Use only when the
+// app has a deliberate reason (e.g. a background refresh failure
+// where the user should glide back into the same identity).
+await auth.logout({ keepSso: true });
+```
+
+The marker is per-app-storage (origin-scoped on `WebStorageAdapter`).
+Logging out of app A does not affect app B; each app independently
+arms its own re-authentication on its next `startLogin()`. Explicit
+`startLogin({ prompt: ... })` always wins over the marker;
+`extraParams.prompt` overrides both.
+
+The marker is consumed only **after the redirect dispatches** — if
+`onRedirect` (or `window.location.assign` configuration) throws before
+navigation succeeds, the marker stays armed so the user's retry still
+goes through `prompt=login`.
+
+`MemoryStorageAdapter` loses the marker on page reload (in-memory
+only). Use `WebStorageAdapter` / `CookieStorageAdapter` for the
+force-relogin guarantee to survive reload.
+
+`LogoutOptions` is exported from the package root.
+
+#### Migration
+
+| Before                          | After (default)                              |
+| ------------------------------- | -------------------------------------------- |
+| `auth.logout()` then user clicks "Entrar" → silent SSO re-signs them in | `auth.logout()` then user clicks "Entrar" → IdP shows login UI |
+| `auth.logout()` then `auth.startLogin()` → no `prompt` on URL | `auth.logout()` then `auth.startLogin()` → `prompt=login` on URL |
+
+If your app *intentionally* depended on the old silent-SSO-after-logout
+behavior, switch the call to `auth.logout({ keepSso: true })`.
+
+The `accounts.nuria.com.br` portal opted out of the marker because it
+is itself the IdP — there is no upstream SSO above it for the marker
+to influence.
+
+### Added — Typed `prompt` option on `startLogin()`
+
+`StartLoginOptions.prompt` accepts the OIDC values
+`'none' | 'login' | 'consent' | 'select_account'` directly. Equivalent
+to passing it through `extraParams.prompt` (which still works and can
+override, useful for OIDC space-separated combos like
+`"login consent"`).
+
+### Added — Server-side OIDC `prompt` plumbing
+
+`buildOAuthAuthorizeUrl` forwards `prompt` to the kernel's
+`/v2/oauth/authorize`, and the kernel forwards it onward to
+`accounts/signin` when no SSO session is present. The accounts portal
+honors `prompt=login` and `prompt=select_account` by rendering the
+login form even with an active session.
+
+### Added — `disableGoogleAutoSelect()` integrated into accounts logout
+
+The accounts portal now calls `disableGoogleAutoSelect()` from its
+"Sair" handler so Google Identity Services / FedCM cannot silently
+re-issue a credential on the next `/signin` visit. Apps embedding the
+SDK can do the same in their own logout flow if they render the GIS
+button.
+
+## [3.2.0] - 2026-04-30
+
+### Added — `AuthError.details` carries the server error body
+
+`FetchAuthTransport` now parses non-OK responses and attaches the body
+to the thrown `AuthError` as `details: AuthErrorDetails`. Consuming apps
+no longer have to choose between using the SDK and reading
+`errorCode`/`errorDescription`/`traceId` from the `/v2/*` envelope —
+both are available on the same exception.
+
+```ts
+try {
+  await client.loginWithGoogle({ idToken });
+} catch (e) {
+  if (e instanceof AuthError) {
+    e.details.status;            // 404
+    e.details.errorCode;         // "resource_not_found"
+    e.details.errorDescription;  // server-provided message
+    e.details.traceId;           // for support / log correlation
+  }
+}
+```
+
+`AuthErrorDetails` is exported from the package root. The shape
+mirrors the v2 contract (`error`, `errorCode`, `errorDescription`,
+`traceId`, `feature`) plus `status` and the raw `body` for callers
+that need the full payload. Legacy `/api/v1/*` responses populate
+whichever of those fields the server happens to send.
+
+`AuthError`'s constructor gained a 4th optional argument
+(`details: AuthErrorDetails = {}`) — fully backwards-compatible with
+existing call sites that pass `(code, message)` or
+`(code, message, cause)`. The `details` field is always present
+(empty object when not set) so consumers can skip null checks.
+
+The `HTTP_ERROR` message format changed from `HTTP <status>` to
+`HTTP <status> (<errorCode>)` when an `errorCode` is available — old
+callers that only inspect `error.code === HTTP_ERROR` are unaffected.
+
 ## [3.1.0] - 2026-04-30
 
 ### Added — Device authorization grant (RFC 8628) verification helpers

@@ -75,7 +75,33 @@ export interface Session {
 export interface StartLoginOptions {
   loginHint?: string;
   scopes?: string[];
+  /**
+   * OIDC `prompt` parameter (Core 1.0 §3.1.2.1). Set to `login` or
+   * `select_account` to force the IdP to render its login UI even when an
+   * SSO session is still valid — typically what an app wants right after
+   * its own logout, so the user is not silently re-authenticated.
+   * `none` requests no UI (returns `login_required` if no session).
+   * `consent` re-shows the consent screen.
+   *
+   * If omitted AND a previous `logout()` ran with default options, the
+   * SDK injects `prompt=login` automatically (one-shot, then cleared).
+   */
+  prompt?: 'none' | 'login' | 'consent' | 'select_account';
   extraParams?: Record<string, string>;
+}
+
+export interface LogoutOptions {
+  /**
+   * Preserve the upstream SSO session for the next `startLogin()`. Default
+   * is `false` — i.e. logout *forces re-authentication* on the next sign-in
+   * (the SDK persists a one-shot marker that `startLogin()` reads and
+   * translates into `prompt=login`).
+   *
+   * Set to `true` only when the app intentionally wants the silent-SSO
+   * behavior, e.g. on background session refresh failures where the user
+   * should glide back into the app without retyping credentials.
+   */
+  keepSso?: boolean;
 }
 
 export interface LoginCodeChallengeOptions {
@@ -214,8 +240,17 @@ export interface AuthClient {
   handleRedirectCallback(callbackUrl?: string): Promise<Session>;
   getSession(): Session | null;
   getAccessToken(): Promise<string | null>;
-  /** Clears the local session only (storage + in-memory). No server call, no redirect. */
-  logout(): Promise<void>;
+  /**
+   * Clears the local session only (storage + in-memory). No server call,
+   * no redirect.
+   *
+   * Default behavior: persists a one-shot marker so the next
+   * {@link AuthClient.startLogin} call adds `prompt=login` to the
+   * authorize URL — the IdP renders its login UI even if the SSO
+   * session is still warm. Pass `{ keepSso: true }` to preserve the
+   * silent-SSO path.
+   */
+  logout(options?: LogoutOptions): Promise<void>;
   /** Clears the local session AND calls the server logout endpoint, then redirects. */
   globalLogout(options?: { returnTo?: string }): Promise<void>;
   /**

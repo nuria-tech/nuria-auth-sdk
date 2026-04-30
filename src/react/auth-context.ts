@@ -6,14 +6,21 @@ import {
   useMemo,
   type ReactNode,
 } from 'react';
-import type { AuthClient, StartLoginOptions } from '../core/types';
+import type {
+  AuthClient,
+  LogoutOptions,
+  StartLoginOptions,
+} from '../core/types';
 import { useAuthSession, type UseAuthSessionResult } from './use-auth-session';
 
 export interface AuthContextValue extends UseAuthSessionResult {
   auth: AuthClient;
   login: (options?: StartLoginOptions) => Promise<void>;
-  /** Clears the local session only. No server call, no redirect. */
-  logout: () => Promise<void>;
+  /**
+   * Clears the local session only. No server call, no redirect.
+   * Default forces re-login on the next `login()` (see `LogoutOptions.keepSso`).
+   */
+  logout: (options?: LogoutOptions) => Promise<void>;
   /** Clears the local session AND calls the server logout endpoint, then redirects. */
   globalLogout: (options?: { returnTo?: string }) => Promise<void>;
 }
@@ -33,7 +40,10 @@ export function AuthProvider({
     (options?: StartLoginOptions) => auth.startLogin(options),
     [auth],
   );
-  const logout = useCallback(() => auth.logout(), [auth]);
+  const logout = useCallback(
+    (options?: LogoutOptions) => auth.logout(options),
+    [auth],
+  );
   const globalLogout = useCallback(
     (options?: { returnTo?: string }) => auth.globalLogout(options),
     [auth],

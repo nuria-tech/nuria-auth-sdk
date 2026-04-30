@@ -154,6 +154,7 @@ on `channel`.
 | `nuria:oauth:nonce` | OIDC nonce string (cleared after callback, always via `finally`) |
 | `nuria:google:nonce` | GIS nonce (cleared once the credential callback validates it; `disableGoogleAutoSelect()` also clears it) |
 | `nuria:aws:pkce:<state>` | Per-flight AWS PKCE bag — `{ codeVerifier, nonce, redirectUri, clientId, tokenEndpoint, returnSearch }`. Removed by `parseAwsQueryCallback` whether the exchange succeeds or fails. |
+| `nuria:auth:force_relogin_next` | One-shot marker armed by `logout()` (default) and consumed by the next `startLogin()` to inject `prompt=login`. Cleared on consumption *after* the redirect dispatch succeeds — if `onRedirect` throws, the marker remains armed for the user's retry. Cleared explicitly by `logout({ keepSso: true })`. |
 
 ## Architecture Rules
 
@@ -170,8 +171,10 @@ on `channel`.
 - If refresh fails (e.g. 401 from backend), session is cleared and `null` is returned — no crash
 - Concurrent refresh calls are deduplicated via `refreshPromise`
 - Cross-tab sync via `BroadcastChannel('nuria:auth:sync')` — fires on login/logout; `init()` does NOT broadcast; incoming messages are shape-validated before being applied
-- `logout()` clears local session only — no server call, no redirect
-- `globalLogout({ returnTo })` calls `logout()` then calls `logoutEndpoint` and redirects; `returnTo` only accepts `https://` URLs (or `http://localhost`)
+- `logout(options?)` clears local session only — no server call, no redirect. **Default also arms the one-shot `nuria:auth:force_relogin_next` marker** so the next `startLogin()` injects `prompt=login` (OIDC Core §3.1.2.1). Pass `{ keepSso: true }` to skip arming. Apps that ARE the IdP (e.g. accounts.nuria.com.br) opt out — see accounts repo `useLogout`. The marker survives across page reloads only when the storage adapter is persistent (`WebStorageAdapter` / `CookieStorageAdapter`); `MemoryStorageAdapter` loses it on reload.
+- `startLogin()` reads the marker but consumes it **only after the redirect dispatches** (`onRedirect` resolved, or `window.location.assign` called). A throw before dispatch leaves the marker armed for retry. Explicit `options.prompt` always wins over the marker; `extraParams.prompt` overrides both.
+- **`prompt` precedence:** `extraParams.prompt` > typed `options.prompt` > armed marker (→ `login`) > nothing. The marker is always consumed when read, regardless of which value won (so `startLogin({ prompt: 'none' })` after `logout()` consumes the marker even though `prompt=none` does not actually re-authenticate — explicit developer override).
+- `globalLogout({ returnTo })` calls `logout()` (with default options, so it also arms the marker) then calls `logoutEndpoint` and redirects; `returnTo` only accepts `https://` URLs (or `http://localhost`).
 - `revokeSession()` POSTs to `/v2/logout` with the current refresh token to revoke it server-side; does NOT touch the local session. Best-effort: 4xx (already revoked) and network errors are swallowed so callers can sequence `revokeSession()` → `logout()` without leaving the user stuck signed-in client-side if the server call fails. Timeout is 5s.
 - `revokeAllSessions()` POSTs to `/v2/logout/global` (Bearer in `Authorization` header) to revoke **every** refresh token of the authenticated subject server-side. Same best-effort posture as `revokeSession`; same 5s timeout; same "doesn't touch local session" contract. Use only in the SSO portal — per-app callers want the per-row `revokeSession`. Dev tokens survive: the kernel keeps `DevTokenRevocation` keyed by JTI on a separate trail and `EvaluateAccess` bypasses the session kill-switch when a JWT carries a `jti`.
 

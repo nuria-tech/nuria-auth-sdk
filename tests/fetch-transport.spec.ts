@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { FetchAuthTransport } from '../src/transport/fetch-transport';
-import { AuthErrorCode } from '../src/errors/auth-error';
+import { AuthError, AuthErrorCode } from '../src/errors/auth-error';
 
 type FetchFn = typeof fetch;
 type FetchMock = ReturnType<typeof vi.fn> & FetchFn;
@@ -133,6 +133,46 @@ describe('FetchAuthTransport', () => {
       transport.request('https://example.com/api'),
     ).rejects.toMatchObject({ code: AuthErrorCode.HTTP_ERROR });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('attaches server error body details to AuthError on non-ok status', async () => {
+    fetchMock.mockResolvedValue(
+      makeResponse(404, {
+        error: 'not_found',
+        errorCode: 'resource_not_found',
+        errorDescription: 'User was not found',
+        traceId: 'trace-abc',
+      }),
+    );
+    const transport = new FetchAuthTransport({ fetchFn: fetchMock });
+    let captured: AuthError | null = null;
+    try {
+      await transport.request('https://example.com/api');
+    } catch (e) {
+      captured = e as AuthError;
+    }
+    expect(captured).toBeInstanceOf(AuthError);
+    expect(captured?.code).toBe(AuthErrorCode.HTTP_ERROR);
+    expect(captured?.details.status).toBe(404);
+    expect(captured?.details.error).toBe('not_found');
+    expect(captured?.details.errorCode).toBe('resource_not_found');
+    expect(captured?.details.errorDescription).toBe('User was not found');
+    expect(captured?.details.traceId).toBe('trace-abc');
+    expect(captured?.message).toContain('resource_not_found');
+  });
+
+  it('keeps details.body even when server response has no recognized fields', async () => {
+    fetchMock.mockResolvedValue(makeResponse(500, { custom: 'shape' }));
+    const transport = new FetchAuthTransport({ fetchFn: fetchMock });
+    let captured: AuthError | null = null;
+    try {
+      await transport.request('https://example.com/api');
+    } catch (e) {
+      captured = e as AuthError;
+    }
+    expect(captured?.details.status).toBe(500);
+    expect(captured?.details.errorCode).toBeUndefined();
+    expect(captured?.details.body).toEqual({ custom: 'shape' });
   });
 
   it('does not retry non-retryable status codes', async () => {

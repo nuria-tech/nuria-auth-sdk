@@ -10,6 +10,8 @@ export interface OAuthAuthorizeParams {
   sessionToken: string;
   scope?: string;
   nonce?: string;
+  /** OIDC `prompt` (Core §3.1.2.1). Forwarded so the kernel can honor it on the next hop. */
+  prompt?: string;
 }
 
 /**
@@ -29,5 +31,6 @@ export function buildOAuthAuthorizeUrl(params: OAuthAuthorizeParams): string {
   });
   if (params.scope) urlParams.set('scope', params.scope);
   if (params.nonce) urlParams.set('nonce', params.nonce);
+  if (params.prompt) urlParams.set('prompt', params.prompt);
   return `${params.baseUrl}/v2/oauth/authorize?${urlParams.toString()}`;
 }

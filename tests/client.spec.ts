@@ -95,6 +95,118 @@ describe('AuthClient', () => {
     expect(parsed.searchParams.get('prompt')).toBe('login');
   });
 
+  it('startLogin applies typed prompt option', async () => {
+    let capturedUrl = '';
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      onRedirect: (url) => {
+        capturedUrl = url;
+      },
+    });
+
+    await client.startLogin({ prompt: 'select_account' });
+    const parsed = new URL(capturedUrl);
+    expect(parsed.searchParams.get('prompt')).toBe('select_account');
+  });
+
+  it('logout (default) arms a one-shot prompt=login on next startLogin', async () => {
+    let capturedUrl = '';
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      onRedirect: (url) => {
+        capturedUrl = url;
+      },
+    });
+
+    await client.logout();
+    await client.startLogin();
+    const parsed = new URL(capturedUrl);
+    expect(parsed.searchParams.get('prompt')).toBe('login');
+  });
+
+  it('the force-relogin flag is one-shot — second startLogin omits prompt', async () => {
+    const captured: string[] = [];
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      onRedirect: (url) => {
+        captured.push(url);
+      },
+    });
+
+    await client.logout();
+    await client.startLogin();
+    await client.startLogin();
+    expect(new URL(captured[0]!).searchParams.get('prompt')).toBe('login');
+    expect(new URL(captured[1]!).searchParams.get('prompt')).toBeNull();
+  });
+
+  it('logout({ keepSso: true }) does NOT arm prompt=login', async () => {
+    let capturedUrl = '';
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      onRedirect: (url) => {
+        capturedUrl = url;
+      },
+    });
+
+    await client.logout({ keepSso: true });
+    await client.startLogin();
+    const parsed = new URL(capturedUrl);
+    expect(parsed.searchParams.get('prompt')).toBeNull();
+  });
+
+  it('explicit options.prompt overrides the force-relogin marker', async () => {
+    let capturedUrl = '';
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      onRedirect: (url) => {
+        capturedUrl = url;
+      },
+    });
+
+    await client.logout();
+    await client.startLogin({ prompt: 'consent' });
+    const parsed = new URL(capturedUrl);
+    expect(parsed.searchParams.get('prompt')).toBe('consent');
+  });
+
+  it('preserves the force-relogin marker when onRedirect throws (retry-safe)', async () => {
+    let capturedUrl = '';
+    let throwOnce = true;
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      onRedirect: (url) => {
+        if (throwOnce) {
+          throwOnce = false;
+          throw new Error('boom');
+        }
+        capturedUrl = url;
+      },
+    });
+
+    await client.logout();
+    await expect(client.startLogin()).rejects.toThrow('boom');
+    // First attempt threw — marker must still be armed.
+    await client.startLogin();
+    expect(new URL(capturedUrl).searchParams.get('prompt')).toBe('login');
+  });
+
+  it('keepSso clears any previously-armed force-relogin marker', async () => {
+    let capturedUrl = '';
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      onRedirect: (url) => {
+        capturedUrl = url;
+      },
+    });
+
+    await client.logout(); // arms prompt=login
+    await client.logout({ keepSso: true }); // disarms it
+    await client.startLogin();
+    const parsed = new URL(capturedUrl);
+    expect(parsed.searchParams.get('prompt')).toBeNull();
+  });
+
   it('startLogin ignores scope in extraParams (scope is reserved)', async () => {
     let capturedUrl = '';
     const client = createAuthClient({

@@ -7,6 +7,7 @@ import type {
   GoogleLoginOptions,
   LoginCodeChallengeOptions,
   LoginMethodsConfig,
+  LogoutOptions,
   PasswordLoginOptions,
   ResolvedAuthConfig,
   Session,
@@ -112,6 +113,20 @@ export class DefaultAuthClient implements AuthClient {
     const scope = options.scopes?.join(' ') ?? this.config.scope;
     if (scope) params.scope = scope;
     if (options.loginHint) params.login_hint = options.loginHint;
+
+    // Read (but do not yet consume) the one-shot force-relogin marker
+    // armed by a previous `logout()` call (default behavior). Explicit
+    // `options.prompt` always wins; otherwise we inject `prompt=login`.
+    // The marker is consumed only AFTER the redirect is successfully
+    // dispatched, so a throw in `new URL(...)` / `onRedirect` / etc.
+    // leaves the marker armed for the user's retry.
+    const forceRelogin =
+      (await safeGet(this.storage, STORAGE_KEYS.forceReloginNext)) === '1';
+    if (options.prompt) {
+      params.prompt = options.prompt;
+    } else if (forceRelogin) {
+      params.prompt = 'login';
+    }
     if (options.extraParams) {
       const RESERVED = new Set([
         'response_type',
@@ -125,6 +140,9 @@ export class DefaultAuthClient implements AuthClient {
         'login_methods_enabled',
         'login_methods_coming_soon',
       ]);
+      // `prompt` is intentionally NOT reserved: the typed `options.prompt`
+      // is convenience, but apps may pass an OIDC space-separated combo
+      // (e.g. "login consent") via extraParams, which then overrides.
       for (const [k, v] of Object.entries(options.extraParams)) {
         if (!RESERVED.has(k)) params[k] = v;
       }
@@ -136,9 +154,21 @@ export class DefaultAuthClient implements AuthClient {
 
     if (this.config.onRedirect) {
       await this.config.onRedirect(redirectUrl);
+      // onRedirect resolved without throwing — safe to consume the marker.
+      // If it had thrown, the catch (or absence of one) would propagate
+      // and we'd never reach here, leaving the marker armed for retry.
+      if (forceRelogin) {
+        await safeRemove(this.storage, STORAGE_KEYS.forceReloginNext);
+      }
       return;
     }
     if (typeof window !== 'undefined') {
+      // Consume *before* assign so the localStorage write is committed
+      // synchronously before the navigation starts. (WebStorage is sync;
+      // for async adapters we still complete the write via await.)
+      if (forceRelogin) {
+        await safeRemove(this.storage, STORAGE_KEYS.forceReloginNext);
+      }
       window.location.assign(redirectUrl);
       return;
     }
@@ -244,13 +274,23 @@ export class DefaultAuthClient implements AuthClient {
     return this.session?.tokens.accessToken ?? null;
   }
 
-  async logout(): Promise<void> {
+  async logout(options: LogoutOptions = {}): Promise<void> {
     this.stopSilentRefresh();
     this.session = null;
     await safeRemove(this.storage, STORAGE_KEYS.session);
     await safeRemove(this.storage, STORAGE_KEYS.state);
     await safeRemove(this.storage, STORAGE_KEYS.nonce);
     await safeRemove(this.storage, STORAGE_KEYS.codeVerifier);
+    // Default: arm the one-shot `prompt=login` for the next startLogin so
+    // the user can never be silently re-signed-in by the still-warm SSO
+    // session. Apps that want classic SSO across logout (e.g. background
+    // refresh failures that retry into the same identity) opt out with
+    // `{ keepSso: true }`.
+    if (options.keepSso) {
+      await safeRemove(this.storage, STORAGE_KEYS.forceReloginNext);
+    } else {
+      await safeSet(this.storage, STORAGE_KEYS.forceReloginNext, '1');
+    }
     this.notify();
   }
 
