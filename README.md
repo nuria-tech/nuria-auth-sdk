@@ -196,9 +196,29 @@ await renderGoogleSignInButton({
   },
   onError: (err) => console.error(err),
   // Visual options (passed to GIS):
+  // type: 'standard' | 'icon',
   // theme: 'outline' | 'filled_blue' | 'filled_black',
   // size: 'large' | 'medium' | 'small',
+  // text: 'signin_with' | 'signup_with' | 'continue_with' | 'signin',
   // shape: 'rectangular' | 'pill',
+  // logoAlignment: 'left' | 'center',
+  // width: 320,
+  // locale: 'pt-BR',
+  // state: 'signin-page',
+  // clickListener: () => console.log('Google button clicked'),
+  // GIS initialize options (also supported by promptGoogleOneTap where applicable):
+  // loginHint: 'user@nuria.com.br',
+  // hd: 'nuria.com.br',
+  // context: 'signin' | 'signup' | 'use',
+  // uxMode: 'popup' | 'redirect',
+  // cancelOnTapOutside: false,
+  // promptParentId: 'google-prompt',
+  // stateCookieDomain: 'nuria.com.br',
+  // allowedParentOrigin: ['https://app.nuria.com.br'],
+  // itpSupport: true,
+  // useFedcmForPrompt: true,
+  // useFedcmForButton: false, // opt out when the personalized button jumps layout
+  // buttonAutoSelect: false,
 });
 ```
 

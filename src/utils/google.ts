@@ -14,9 +14,65 @@ export interface GoogleCredentialResponse {
   /** Reason GIS picked the credential (button click, auto-select, etc). */
   selectBy: string;
   clientId: string;
+  /** Optional state string from the clicked Google button. */
+  state?: string;
 }
 
-export interface RenderGoogleSignInButtonOptions {
+export interface GoogleInitializeOptions {
+  /** One Tap color scheme. */
+  colorScheme?: 'default' | 'light' | 'dark';
+  /** Enables automatic selection for One Tap. */
+  autoSelect?: boolean;
+  /** JavaScript callback for browser-native password credentials. */
+  nativeCallback?: (credential: { id: string; password: string }) => void;
+  /** Cancels One Tap if the user clicks outside the prompt. */
+  cancelOnTapOutside?: boolean;
+  /** DOM ID where One Tap should render. */
+  promptParentId?: string;
+  /** One Tap prompt wording. */
+  context?: 'signin' | 'signup' | 'use';
+  /** Parent domain for shared One Tap state cookies across subdomains. */
+  stateCookieDomain?: string;
+  /** Google button UX mode. Callback mode remains the SDK default. */
+  uxMode?: 'popup' | 'redirect';
+  /** Login endpoint used by Google's redirect UX mode. */
+  loginUri?: string;
+  /** Origins allowed to embed the intermediate iframe. */
+  allowedParentOrigin?: string | string[];
+  /** Called before the intermediate iframe is removed by GIS. */
+  intermediateIframeCloseCallback?: () => void;
+  /** Enables upgraded One Tap UX on ITP browsers. */
+  itpSupport?: boolean;
+  /** Hint Google account selection with an email or subject. */
+  loginHint?: string;
+  /** Restrict or hint account selection by Google Workspace domain. */
+  hd?: string;
+  /** Enables Google's FedCM prompt mode. Defaults to the SDK's existing behavior: true. */
+  useFedcmForPrompt?: boolean;
+  /**
+   * Enables Google's FedCM-rendered button variant. Defaults to the SDK's
+   * existing behavior: true. Set false if the personalized iframe jumps layout.
+   */
+  useFedcmForButton?: boolean;
+  /** Enables auto-select for the FedCM button flow. */
+  buttonAutoSelect?: boolean;
+}
+
+export interface GoogleButtonOptions {
+  type?: 'standard' | 'icon';
+  theme?: 'outline' | 'filled_blue' | 'filled_black';
+  size?: 'large' | 'medium' | 'small';
+  text?: 'signin_with' | 'signup_with' | 'continue_with' | 'signin';
+  shape?: 'rectangular' | 'pill' | 'circle' | 'square';
+  logoAlignment?: 'left' | 'center';
+  width?: number | string;
+  locale?: string;
+  clickListener?: () => void;
+  state?: string;
+}
+
+export interface RenderGoogleSignInButtonOptions
+  extends GoogleInitializeOptions, GoogleButtonOptions {
   clientId: string;
   /** DOM element where GIS will render the button. */
   element: HTMLElement;
@@ -24,15 +80,9 @@ export interface RenderGoogleSignInButtonOptions {
   onCredential: (response: GoogleCredentialResponse) => void;
   /** Fired when GIS itself errors, the script fails to load, or nonce mismatches. */
   onError?: (err: Error) => void;
-  theme?: 'outline' | 'filled_blue' | 'filled_black';
-  size?: 'large' | 'medium' | 'small';
-  text?: 'signin_with' | 'signup_with' | 'continue_with' | 'signin';
-  shape?: 'rectangular' | 'pill' | 'circle' | 'square';
-  width?: number;
-  locale?: string;
 }
 
-export interface PromptGoogleOneTapOptions {
+export interface PromptGoogleOneTapOptions extends GoogleInitializeOptions {
   clientId: string;
   onCredential: (response: GoogleCredentialResponse) => void;
   onError?: (err: Error) => void;
@@ -44,22 +94,39 @@ interface GsiInitializeConfig {
     credential: string;
     select_by: string;
     clientId: string;
+    state?: string;
   }) => void;
   nonce: string;
-  use_fedcm_for_prompt: true;
-  use_fedcm_for_button: true;
+  color_scheme?: string;
   auto_select?: boolean;
+  native_callback?: (credential: { id: string; password: string }) => void;
   cancel_on_tap_outside?: boolean;
+  prompt_parent_id?: string;
+  context?: string;
+  state_cookie_domain?: string;
+  ux_mode?: string;
+  login_uri?: string;
+  allowed_parent_origin?: string | string[];
+  intermediate_iframe_close_callback?: () => void;
   itp_support?: boolean;
+  login_hint?: string;
+  hd?: string;
+  use_fedcm_for_prompt?: boolean;
+  use_fedcm_for_button?: boolean;
+  button_auto_select?: boolean;
 }
 
 interface GsiButtonOptions {
+  type?: string;
   theme?: string;
   size?: string;
   text?: string;
   shape?: string;
-  width?: number;
+  logo_alignment?: string;
+  width?: number | string;
   locale?: string;
+  click_listener?: () => void;
+  state?: string;
 }
 
 interface GsiClient {
@@ -179,7 +246,7 @@ let activeCredentialCallback:
   | ((response: GoogleCredentialResponse) => void)
   | null = null;
 let activeErrorCallback: ((err: Error) => void) | null = null;
-let initializedClientId: string | null = null;
+let initializedConfigKey: string | null = null;
 
 function buildCredentialHandler(
   onCredential: (response: GoogleCredentialResponse) => void,
@@ -194,6 +261,7 @@ const gisDelegate = (resp: {
   credential: string;
   select_by: string;
   clientId: string;
+  state?: string;
 }) => {
   const storedNonce = consumeStoredNonce();
   const tokenNonce = decodeJwtNonce(resp.credential);
@@ -214,25 +282,90 @@ const gisDelegate = (resp: {
     idToken: resp.credential,
     selectBy: resp.select_by,
     clientId: resp.clientId,
+    state: resp.state,
   });
 };
 
-function ensureGsiInitialized(clientId: string, nonce: string): void {
-  // Only call gsi.initialize once per page load (and only re-init if the
-  // client_id changes — which never happens in practice, but is the
-  // defensible bail-out). Subsequent callers just update the active
-  // delegates above.
-  if (initializedClientId === clientId) return;
-  const gsi = window.google!.accounts.id;
-  gsi.initialize({
+function toGsiInitializeConfig(
+  clientId: string,
+  nonce: string,
+  options: GoogleInitializeOptions = {},
+): GsiInitializeConfig {
+  return {
     client_id: clientId,
     callback: gisDelegate,
     nonce,
-    use_fedcm_for_prompt: true,
-    use_fedcm_for_button: true,
-    itp_support: true,
+    color_scheme: options.colorScheme,
+    auto_select: options.autoSelect,
+    native_callback: options.nativeCallback,
+    cancel_on_tap_outside: options.cancelOnTapOutside,
+    prompt_parent_id: options.promptParentId,
+    context: options.context,
+    state_cookie_domain: options.stateCookieDomain,
+    ux_mode: options.uxMode,
+    login_uri: options.loginUri,
+    allowed_parent_origin: options.allowedParentOrigin,
+    intermediate_iframe_close_callback: options.intermediateIframeCloseCallback,
+    itp_support: options.itpSupport ?? true,
+    login_hint: options.loginHint,
+    hd: options.hd,
+    use_fedcm_for_prompt: options.useFedcmForPrompt ?? true,
+    use_fedcm_for_button: options.useFedcmForButton ?? true,
+    button_auto_select: options.buttonAutoSelect,
+  };
+}
+
+function initializeConfigKey(config: GsiInitializeConfig): string {
+  return JSON.stringify({
+    client_id: config.client_id,
+    color_scheme: config.color_scheme,
+    auto_select: config.auto_select,
+    has_native_callback: Boolean(config.native_callback),
+    cancel_on_tap_outside: config.cancel_on_tap_outside,
+    prompt_parent_id: config.prompt_parent_id,
+    context: config.context,
+    state_cookie_domain: config.state_cookie_domain,
+    ux_mode: config.ux_mode,
+    login_uri: config.login_uri,
+    allowed_parent_origin: config.allowed_parent_origin,
+    has_intermediate_iframe_close_callback: Boolean(
+      config.intermediate_iframe_close_callback,
+    ),
+    itp_support: config.itp_support,
+    login_hint: config.login_hint,
+    hd: config.hd,
+    use_fedcm_for_prompt: config.use_fedcm_for_prompt,
+    use_fedcm_for_button: config.use_fedcm_for_button,
+    button_auto_select: config.button_auto_select,
   });
-  initializedClientId = clientId;
+}
+
+function ensureGsiInitialized(config: GsiInitializeConfig): void {
+  // Only call gsi.initialize once per page load (and only re-init if the
+  // effective GIS configuration changes). Subsequent callers just update the
+  // active delegates above.
+  const configKey = initializeConfigKey(config);
+  if (initializedConfigKey === configKey) return;
+  const gsi = window.google!.accounts.id;
+  gsi.initialize(config);
+  initializedConfigKey = configKey;
+}
+
+function toGsiButtonOptions(
+  options: GoogleButtonOptions = {},
+): GsiButtonOptions {
+  return {
+    type: options.type,
+    theme: options.theme ?? 'outline',
+    size: options.size ?? 'large',
+    text: options.text ?? 'signin_with',
+    shape: options.shape ?? 'rectangular',
+    logo_alignment: options.logoAlignment,
+    width: options.width,
+    locale: options.locale,
+    click_listener: options.clickListener,
+    state: options.state,
+  };
 }
 
 /**
@@ -256,16 +389,9 @@ export async function renderGoogleSignInButton(
   // Update the active callback (no-op for the GIS init below — but it
   // ensures subsequent credential responses route to *this* caller).
   buildCredentialHandler(options.onCredential, options.onError);
-  ensureGsiInitialized(options.clientId, nonce);
+  ensureGsiInitialized(toGsiInitializeConfig(options.clientId, nonce, options));
   const gsi = window.google!.accounts.id;
-  gsi.renderButton(options.element, {
-    theme: options.theme ?? 'outline',
-    size: options.size ?? 'large',
-    text: options.text ?? 'signin_with',
-    shape: options.shape ?? 'rectangular',
-    width: options.width,
-    locale: options.locale,
-  });
+  gsi.renderButton(options.element, toGsiButtonOptions(options));
 }
 
 /**
@@ -279,7 +405,7 @@ export async function promptGoogleOneTap(
   await loadGisScript();
   const nonce = mintAndStoreNonce();
   buildCredentialHandler(options.onCredential, options.onError);
-  ensureGsiInitialized(options.clientId, nonce);
+  ensureGsiInitialized(toGsiInitializeConfig(options.clientId, nonce, options));
   window.google!.accounts.id.prompt();
 }
 
@@ -297,7 +423,7 @@ export function disableGoogleAutoSelect(): void {
   if (typeof window === 'undefined') return;
   window.google?.accounts.id.disableAutoSelect();
   sessionStorage.removeItem(GOOGLE_STORAGE_KEYS.nonce);
-  initializedClientId = null;
+  initializedConfigKey = null;
   activeCredentialCallback = null;
   activeErrorCallback = null;
 }

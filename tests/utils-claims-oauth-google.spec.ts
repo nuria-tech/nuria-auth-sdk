@@ -341,6 +341,114 @@ describe('renderGoogleSignInButton', () => {
     expect(gsi.renderButton).toHaveBeenCalledWith(element, expect.objectContaining({ theme: 'outline' }));
   });
 
+  it('can disable FedCM for the rendered button', async () => {
+    const gsi = installMockGis();
+    await renderGoogleSignInButton({
+      clientId: 'google-client',
+      element: document.createElement('div'),
+      onCredential: () => {},
+      useFedcmForButton: false,
+    });
+    expect(gsi.initialize).toHaveBeenCalledOnce();
+    const config = gsi.initialize.mock.calls[0]![0];
+    expect(config.use_fedcm_for_prompt).toBe(true);
+    expect(config.use_fedcm_for_button).toBe(false);
+  });
+
+  it('forwards supported GIS initialize and button options', async () => {
+    const gsi = installMockGis();
+    const element = document.createElement('div');
+    const clickListener = vi.fn();
+    const nativeCallback = vi.fn();
+    const closeCallback = vi.fn();
+    await renderGoogleSignInButton({
+      clientId: 'google-client',
+      element,
+      onCredential: () => {},
+      colorScheme: 'dark',
+      autoSelect: true,
+      nativeCallback,
+      cancelOnTapOutside: false,
+      promptParentId: 'google-prompt',
+      context: 'signup',
+      stateCookieDomain: 'nuria.com.br',
+      uxMode: 'popup',
+      loginUri: 'https://auth.nuria.com.br/google',
+      allowedParentOrigin: ['https://app.nuria.com.br'],
+      intermediateIframeCloseCallback: closeCallback,
+      itpSupport: false,
+      loginHint: 'lucas@nuria.com.br',
+      hd: 'nuria.com.br',
+      useFedcmForPrompt: false,
+      useFedcmForButton: false,
+      buttonAutoSelect: true,
+      type: 'standard',
+      theme: 'filled_black',
+      size: 'medium',
+      text: 'continue_with',
+      shape: 'pill',
+      logoAlignment: 'center',
+      width: 320,
+      locale: 'pt-BR',
+      clickListener,
+      state: 'primary-google',
+    });
+    expect(gsi.initialize).toHaveBeenCalledWith(
+      expect.objectContaining({
+        color_scheme: 'dark',
+        auto_select: true,
+        native_callback: nativeCallback,
+        cancel_on_tap_outside: false,
+        prompt_parent_id: 'google-prompt',
+        context: 'signup',
+        state_cookie_domain: 'nuria.com.br',
+        ux_mode: 'popup',
+        login_uri: 'https://auth.nuria.com.br/google',
+        allowed_parent_origin: ['https://app.nuria.com.br'],
+        intermediate_iframe_close_callback: closeCallback,
+        itp_support: false,
+        login_hint: 'lucas@nuria.com.br',
+        hd: 'nuria.com.br',
+        use_fedcm_for_prompt: false,
+        use_fedcm_for_button: false,
+        button_auto_select: true,
+      }),
+    );
+    expect(gsi.renderButton).toHaveBeenCalledWith(
+      element,
+      expect.objectContaining({
+        type: 'standard',
+        theme: 'filled_black',
+        size: 'medium',
+        text: 'continue_with',
+        shape: 'pill',
+        logo_alignment: 'center',
+        width: 320,
+        locale: 'pt-BR',
+        click_listener: clickListener,
+        state: 'primary-google',
+      }),
+    );
+  });
+
+  it('reinitializes GIS when the FedCM button mode changes', async () => {
+    const gsi = installMockGis();
+    await renderGoogleSignInButton({
+      clientId: 'google-client',
+      element: document.createElement('div'),
+      onCredential: () => {},
+    });
+    await renderGoogleSignInButton({
+      clientId: 'google-client',
+      element: document.createElement('div'),
+      onCredential: () => {},
+      useFedcmForButton: false,
+    });
+    expect(gsi.initialize).toHaveBeenCalledTimes(2);
+    expect(gsi.initialize.mock.calls[0]![0].use_fedcm_for_button).toBe(true);
+    expect(gsi.initialize.mock.calls[1]![0].use_fedcm_for_button).toBe(false);
+  });
+
   it('reuses the same nonce across multiple renders and only initializes GIS once', async () => {
     const gsi = installMockGis();
     await renderGoogleSignInButton({
@@ -380,6 +488,27 @@ describe('renderGoogleSignInButton', () => {
     // Nonce is page-scoped: it persists until logout / page reload, so
     // multiple sign-in attempts in the same session can validate.
     expect(sessionStorage.getItem(GOOGLE_STORAGE_KEYS.nonce)).toBe(nonce);
+  });
+
+  it('forwards the GIS button state in credential responses', async () => {
+    const gsi = installMockGis();
+    const onCredential = vi.fn();
+    await renderGoogleSignInButton({
+      clientId: 'gc',
+      element: document.createElement('div'),
+      onCredential,
+      state: 'google-top',
+    });
+    const { nonce, callback } = gsi.initialize.mock.calls[0]![0];
+    callback({
+      credential: mintIdToken({ nonce }),
+      select_by: 'btn',
+      clientId: 'gc',
+      state: 'google-top',
+    });
+    expect(onCredential).toHaveBeenCalledWith(
+      expect.objectContaining({ state: 'google-top' }),
+    );
   });
 
   it('forwards a STATE_MISMATCH error when the id_token nonce disagrees with storage', async () => {

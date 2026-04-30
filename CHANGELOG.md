@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.0.2] - 2026-04-30
+
+### Added — Google GIS customization options
+
+`renderGoogleSignInButton()` now exposes the supported Google Identity
+Services button options (`type`, `theme`, `size`, `text`, `shape`,
+`logoAlignment`, `width`, `locale`, `clickListener`, `state`) plus the
+safe `initialize()` options apps commonly need (`loginHint`, `hd`,
+`context`, `uxMode`, `promptParentId`, `stateCookieDomain`,
+`allowedParentOrigin`, `cancelOnTapOutside`, `itpSupport`,
+`useFedcmForPrompt`, `useFedcmForButton`, `buttonAutoSelect`, etc.).
+
+The SDK still owns `client_id`, `callback`, and `nonce` so nonce
+validation cannot be bypassed by consumers. Existing defaults are
+preserved; apps can now opt out of the personalized FedCM button with
+`useFedcmForButton: false` when that iframe causes layout shifts.
+
 ## [4.0.1] - 2026-04-30
 
 ### Fixed — Sign-in with Google button: deterministic personalized variant
