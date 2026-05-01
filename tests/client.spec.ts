@@ -784,10 +784,14 @@ describe('AuthClient', () => {
     };
     channel.postMessage({ type: 'SESSION_SYNC', session: incomingSession });
 
-    // BroadcastChannel delivers async — allow microtasks to flush
-    await new Promise((r) => setTimeout(r, 10));
-
-    expect(client.getSession()?.tokens.accessToken).toBe('from-other-tab');
+    // BroadcastChannel delivery is asynchronous in happy-dom and the exact
+    // dispatch latency varies under vitest's worker pool — poll instead of
+    // a fixed sleep so the test is not flaky under load.
+    await vi.waitFor(
+      () =>
+        expect(client.getSession()?.tokens.accessToken).toBe('from-other-tab'),
+      { timeout: 1000 },
+    );
     expect(handler).toHaveBeenCalledWith(
       expect.objectContaining({
         tokens: expect.objectContaining({ accessToken: 'from-other-tab' }),
