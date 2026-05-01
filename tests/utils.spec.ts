@@ -87,5 +87,29 @@ describe('Utils', () => {
       expect(normalized.refreshToken).toBeUndefined();
       expect(normalized.expiresAt).toBeUndefined();
     });
+
+    it('parses ExpiresAt as ISO string (.NET DateTime serialization)', () => {
+      const raw = { access_token: 'ac', ExpiresAt: '2026-03-17T20:00:00Z' };
+      const normalized = normalizeTokenSet(raw, now);
+      expect(normalized.expiresAt).toBe(Date.UTC(2026, 2, 17, 20, 0, 0));
+    });
+
+    it('parses ExpiresAt as Unix milliseconds when n >= 1e12', () => {
+      const ms = 1_800_000_000_000; // year ~2027 in ms
+      const raw = { access_token: 'ac', ExpiresAt: ms };
+      const normalized = normalizeTokenSet(raw, now);
+      expect(normalized.expiresAt).toBe(ms);
+    });
+
+    it('upgrades ExpiresAt to ms when payload looks like Unix seconds', () => {
+      // Defends against backends that serialize `long ExpiresAt` as Unix
+      // seconds (e.g. .NET `ToUnixTimeSeconds()`). Without this, the SDK
+      // would treat the value as ms epoch and the token would be born
+      // expired (~1970+20 days), forcing a refresh on every request.
+      const seconds = 1_800_000_000; // year ~2027 in seconds
+      const raw = { access_token: 'ac', ExpiresAt: seconds };
+      const normalized = normalizeTokenSet(raw, now);
+      expect(normalized.expiresAt).toBe(seconds * 1000);
+    });
   });
 });

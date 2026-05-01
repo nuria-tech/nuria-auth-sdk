@@ -32,7 +32,7 @@ export function normalizeTokenSet(
     const v = raw.ExpiresAt ?? raw.expiresAt;
     if (!v) return undefined;
     const n = Number(v);
-    if (!isNaN(n) && n > 0) return n;
+    if (!isNaN(n) && n > 0) return n < 1e12 ? n * 1000 : n;
     const d = new Date(String(v)).getTime();
     return isNaN(d) ? undefined : d;
   })();
