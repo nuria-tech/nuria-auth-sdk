@@ -692,6 +692,7 @@ The `accounts.nuria.com.br` portal does this in its own logout handler.
 - `globalLogout({ returnTo })` calls the server logout endpoint and redirects. `returnTo` must be `https://` (or `http://localhost` for dev); URLs with embedded credentials are rejected.
 - `isAuthenticated()` returns `true` when the token is expired but `enableRefreshToken: true` — `getAccessToken()` will silently renew it.
 - `getClaims()` decodes the JWT payload client-side via `atob()` without verifying the signature — trust comes from the server that issued the token.
+- `getActor()` returns the RFC 8693 §4.1 `act` claim when the current session was minted via support impersonation (shape: `{ sub, name?, email? }`); returns `null` for regular sessions and malformed payloads. UIs should render an "acting as" banner whenever it is non-null so the impersonator is never invisible to the end user.
 - Browser cookie storage encodes/decodes values safely (`encodeURIComponent`/`decodeURIComponent`).
 
 Full policy and reporting process: [SECURITY.md](./SECURITY.md).
@@ -720,6 +721,8 @@ interface AuthClient {
   isAuthenticated(): boolean;
   onAuthStateChanged(handler: (session: Session | null) => void): () => void;
   getClaims(): TokenClaims | null;
+  /** Returns the RFC 8693 `act` claim when the session is impersonated, else null. */
+  getActor(): ActorClaim | null;
   hasRole(role: string): boolean;
   hasGroup(group: string): boolean;
   getUserinfo(): Promise<Record<string, unknown>>;

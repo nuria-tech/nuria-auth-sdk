@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.0.1] - 2026-05-01
+
+### Added — `getActor()` and `ActorClaim` (RFC 8693)
+
+The kernel now stamps and parses the RFC 8693 §4.1 `act` claim as
+plumbing for the upcoming support-impersonation flow. The SDK exposes
+the typed shape so apps can render an "acting as" banner without
+casting through `unknown`:
+
+- `ActorClaim` interface: `{ sub: string; name?: string; email?: string }`.
+- `TokenClaims.act?: ActorClaim` on the decoded payload.
+- `AuthClient.getActor(): ActorClaim | null` — defensive parser that
+  mirrors the kernel: returns `null` for missing/malformed claims so
+  the call never throws on a regular session.
+
+Inert today (no token producer stamps the claim yet); declaring it now
+keeps the eventual rollout purely additive.
+
 ## [5.0.0] - 2026-04-30
 
 ### BREAKING — `attachCustomGoogleButton` removed

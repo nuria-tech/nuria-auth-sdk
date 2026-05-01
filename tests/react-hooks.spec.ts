@@ -83,6 +83,7 @@ function createMockAuthClient(): AuthClient {
     changePassword: vi.fn(async () => {}),
     init: vi.fn(async () => {}),
     getClaims: vi.fn(() => null),
+    getActor: vi.fn(() => null),
     hasRole: vi.fn(() => false),
     hasGroup: vi.fn(() => false),
     getLoginMethods: vi.fn(() => ({ enabled: [], comingSoon: [] })),

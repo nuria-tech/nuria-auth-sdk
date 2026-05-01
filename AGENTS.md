@@ -187,6 +187,7 @@ on `channel`.
 - `init()` must be called once at app startup (e.g. `provideAppInitializer`) to hydrate session from storage before routing
 - `isAuthenticated()` returns `true` when token is expired but `enableRefreshToken: true` — callers should use `getAccessToken()` to get an always-valid token
 - `getClaims()` decodes the JWT payload client-side for UI convenience only — **JWT signature is NOT verified**; never use these claims for server-side authorization decisions
+- `getActor()` returns the RFC 8693 §4.1 `act` claim as `ActorClaim` (`{ sub, name?, email? }`) when the session is impersonated (support flow), else `null`. Defensive parser mirrors the kernel's `ParseActor`: missing/non-object/`sub`-less payloads collapse to `null` so the call is always safe. Inert today — no producer stamps `act` yet, but the wiring is in so the impersonation rollout is purely additive.
 - `hasRole()`/`hasGroup()` support both comma-separated string and array claims
 - `getAccessToken()` triggers proactive refresh **30s before expiry** when `enableRefreshToken: true`; refresh requests have a 10s timeout
 - If `enableRefreshToken: false` and the token is **actually expired** (`expiresAt <= now`), `getAccessToken()` clears the session and returns `null` — it never returns an expired token

@@ -1,5 +1,6 @@
 import { createCodeChallenge, randomString } from '../core/pkce';
 import type {
+  ActorClaim,
   AuthClient,
   AuthTransport,
   AwsLoginOptions,
@@ -506,6 +507,20 @@ export class DefaultAuthClient implements AuthClient {
     } catch {
       return null;
     }
+  }
+
+  getActor(): ActorClaim | null {
+    const raw = this.getClaims()?.act;
+    if (!raw || typeof raw !== 'object') return null;
+    const sub = (raw as { sub?: unknown }).sub;
+    if (typeof sub !== 'string' || !sub) return null;
+    const name = (raw as { name?: unknown }).name;
+    const email = (raw as { email?: unknown }).email;
+    return {
+      sub,
+      name: typeof name === 'string' ? name : undefined,
+      email: typeof email === 'string' ? email : undefined,
+    };
   }
 
   hasRole(role: string): boolean {

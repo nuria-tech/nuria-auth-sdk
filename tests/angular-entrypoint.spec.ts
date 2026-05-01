@@ -82,6 +82,7 @@ function createMockAuth() {
     }),
     init: vi.fn(async () => {}),
     getClaims: vi.fn(() => null),
+    getActor: vi.fn(() => null),
     hasRole: vi.fn(() => false),
     hasGroup: vi.fn(() => false),
     getUserinfo: vi.fn(async () => ({})),

@@ -1,3 +1,18 @@
+/**
+ * RFC 8693 §4.1 actor claim. Identifies the real principal acting on
+ * behalf of the token's `sub` — populated only when a session was minted
+ * through the support-impersonation flow; null on every regular login.
+ *
+ * Wire shape mirrors the kernel's `ActorReference` DTO:
+ * `{ "sub": "<guid>", "name": "...", "email": "..." }`.
+ */
+export interface ActorClaim {
+  /** GUID of the support agent driving the impersonated session. */
+  sub: string;
+  name?: string;
+  email?: string;
+}
+
 export interface TokenClaims {
   // ── RFC 7519 standard claims ───────────────────────────────────────
   /** Subject identifier (RFC 7519 §4.1.2). For Nuria tokens, the user/app GUID. */
@@ -52,6 +67,11 @@ export interface TokenClaims {
   /** Groups list, when present. Same shape/source as {@link roles}. */
   groups?: string | string[];
   auth_provider?: string;
+  /**
+   * RFC 8693 §4.1 actor claim — present only on tokens minted via the
+   * support-impersonation flow. See {@link ActorClaim}.
+   */
+  act?: ActorClaim;
   [key: string]: unknown;
 }
 
@@ -289,6 +309,15 @@ export interface AuthClient {
   isAuthenticated(): boolean;
   onAuthStateChanged(handler: (session: Session | null) => void): () => void;
   getClaims(): TokenClaims | null;
+  /**
+   * Returns the RFC 8693 `act` claim when the current session was minted
+   * through support impersonation, or `null` for regular sessions and
+   * malformed payloads. UI surfaces should use this to render an
+   * "acting as" banner so the impersonator is never invisible to the
+   * end user. Defensive parsing mirrors the kernel: a missing or broken
+   * `act` claim must never fail the call — it returns `null`.
+   */
+  getActor(): ActorClaim | null;
   hasRole(role: string): boolean;
   hasGroup(group: string): boolean;
   getUserinfo(): Promise<Record<string, unknown>>;

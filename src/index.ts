@@ -54,6 +54,7 @@ export {
 } from './utils/aws';
 
 export type {
+  ActorClaim,
   AuthTransport,
   AuthTransportRequest,
   AuthTransportResponse,

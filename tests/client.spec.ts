@@ -498,6 +498,73 @@ describe('AuthClient', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // getActor (RFC 8693 `act`)
+  // ---------------------------------------------------------------------------
+
+  it('getActor returns null when not authenticated', () => {
+    const client = createAuthClient({ ...BASE_CONFIG });
+    expect(client.getActor()).toBeNull();
+  });
+
+  it('getActor returns null when token has no act claim', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.set('nuria:oauth:state', 'st');
+    await storage.set('nuria:oauth:code_verifier', 'vf');
+
+    const transport = makeMockTransport({
+      access_token: makeJwt({ sub: 'user-1' }),
+    });
+    const client = createAuthClient({ ...BASE_CONFIG, storage, transport });
+    await client.handleRedirectCallback(
+      'https://app.example.com/callback?code=c&state=st',
+    );
+    expect(client.getActor()).toBeNull();
+  });
+
+  it('getActor decodes well-formed RFC 8693 act claim', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.set('nuria:oauth:state', 'st');
+    await storage.set('nuria:oauth:code_verifier', 'vf');
+
+    const transport = makeMockTransport({
+      access_token: makeJwt({
+        sub: 'impersonated-user',
+        act: {
+          sub: 'support-agent-guid',
+          name: 'Support Agent',
+          email: 'support@nuria.com.br',
+        },
+      }),
+    });
+    const client = createAuthClient({ ...BASE_CONFIG, storage, transport });
+    await client.handleRedirectCallback(
+      'https://app.example.com/callback?code=c&state=st',
+    );
+
+    const actor = client.getActor();
+    expect(actor).toEqual({
+      sub: 'support-agent-guid',
+      name: 'Support Agent',
+      email: 'support@nuria.com.br',
+    });
+  });
+
+  it('getActor swallows malformed act claim shapes', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.set('nuria:oauth:state', 'st');
+    await storage.set('nuria:oauth:code_verifier', 'vf');
+
+    const transport = makeMockTransport({
+      access_token: makeJwt({ act: { name: 'no sub here' } }),
+    });
+    const client = createAuthClient({ ...BASE_CONFIG, storage, transport });
+    await client.handleRedirectCallback(
+      'https://app.example.com/callback?code=c&state=st',
+    );
+    expect(client.getActor()).toBeNull();
+  });
+
+  // ---------------------------------------------------------------------------
   // hasRole / hasGroup
   // ---------------------------------------------------------------------------
 
