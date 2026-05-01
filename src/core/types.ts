@@ -116,6 +116,15 @@ export interface GoogleLoginOptions {
   idToken: string;
 }
 
+export interface GoogleCodeLoginOptions {
+  /** Authorization code obtido pelo `createGoogleCodeClient` no frontend. */
+  code: string;
+  /** Redirect URI passada pra `initCodeClient`. Deixe ausente para fluxo
+   *  popup — o backend usa o sentinel `"postmessage"` do GIS. Passe a URL
+   *  exata só pra fluxo redirect com URI cadastrada no GCP. */
+  redirectUri?: string;
+}
+
 export interface AwsLoginOptions {
   idToken: string;
 }
@@ -293,6 +302,7 @@ export interface AuthClient {
   ): Promise<TwoFactorChallenge>;
   completeLoginWithCode(options: VerifyLoginCodeOptions): Promise<Session>;
   loginWithGoogle(options: GoogleLoginOptions): Promise<Session>;
+  loginWithGoogleCode(options: GoogleCodeLoginOptions): Promise<Session>;
   loginWithAws(options: AwsLoginOptions): Promise<Session>;
   /** @deprecated Use `loginWithCodeSent` / `startLoginCodeChallenge` instead. */
   loginWithPassword(options: PasswordLoginOptions): Promise<Session>;

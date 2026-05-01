@@ -41,7 +41,9 @@ src/
   utils/
     claims.ts                     # extractRoles(), extractScopes(), extractCompanyOrigin(), extractAvatarUrl(), extractDisplayName(), getInitials()
     oauth.ts                      # buildOAuthAuthorizeUrl()
-    google.ts                     # renderGoogleSignInButton(), attachCustomGoogleButton(), promptGoogleOneTap(), cancelGooglePrompt(), disableGoogleAutoSelect() — wraps Google Identity Services (GIS / FedCM); validates id_token nonce client-side. attachCustomGoogleButton() mounts the GIS button as a transparent overlay over a caller-styled container so apps can ship their own branded button without losing FedCM user activation
+    gis-loader.ts                 # loadGisScript() / GIS_SCRIPT_URL — single page-scoped loader for accounts.google.com/gsi/client; shared by google.ts and google-oauth2.ts so the script tag is fetched once
+    google.ts                     # renderGoogleSignInButton(), promptGoogleOneTap(), cancelGooglePrompt(), disableGoogleAutoSelect() — wraps `google.accounts.id` (Sign in with Google / FedCM); validates id_token nonce client-side. Custom-button consumers should use `google-oauth2.ts#createGoogleCodeClient` instead — Google's id namespace explicitly forbids programmatic activation from custom buttons, and the previous overlay workaround (`attachCustomGoogleButton`, removed in 5.0.0) was unreliable under FedCM cooldown / personalized-iframe layout shifts
+    google-oauth2.ts              # createGoogleCodeClient() — wraps `google.accounts.oauth2.initCodeClient`; OAuth 2.0 Authorization Code flow with popup (or redirect) UX. Custom buttons are officially supported here (unlike `google.accounts.id`). Returns an auth code via JS callback; consumer forwards to backend for `/token` exchange. SDK validates the `state` round-trip with `timingSafeEqual`
     aws.ts                        # startAwsLogin(), parseAwsQueryCallback() — Authorization Code + PKCE for AWS IAM Identity Center; per-state PKCE bag in sessionStorage
   react/                          # useAuthSession, AuthProvider, useAuth
   vue/                            # useAuthSession (Vue 3 composable)
@@ -98,14 +100,28 @@ that the kernel supports — see [Native and headless flows](#native-and-headles
 two providers diverge because the spec offers no single answer that fits
 both:
 
-- **Google** uses **Google Identity Services (GIS / FedCM)**, the path
-  Google officially endorses for SPAs after deprecating implicit. The
-  SDK does not redirect — `accounts.google.com/gsi/client` is loaded
-  on demand and renders the official button into a host element. The
-  id_token comes back through a JS callback. Nonce is generated client-
-  side, embedded via GIS `initialize({ nonce })`, and validated against
-  the id_token claim with `timingSafeEqual` before the credential is
-  surfaced to the consumer.
+- **Google (`google.accounts.id` — id_token)** uses **Google Identity
+  Services (GIS / FedCM)**, the path Google officially endorses for SPAs
+  after deprecating implicit. The SDK does not redirect —
+  `accounts.google.com/gsi/client` is loaded on demand and renders the
+  official button into a host element. The id_token comes back through a
+  JS callback. Nonce is generated client-side, embedded via GIS
+  `initialize({ nonce })`, and validated against the id_token claim with
+  `timingSafeEqual` before the credential is surfaced to the consumer.
+  Per Google's docs custom buttons are not supported here — use the OAuth
+  2.0 code flow below for fully custom buttons.
+- **Google (`google.accounts.oauth2.initCodeClient` — auth code)** is the
+  OAuth 2.0/2.1 Authorization Code path Google officially supports for
+  custom-button SPAs. `createGoogleCodeClient` initializes the GIS code
+  client (popup or redirect mode), generates a CSRF-defense `state` token,
+  stores it in `sessionStorage`, and returns a `requestCode()` handle the
+  consumer wires to its custom button. The popup posts the code back via
+  GIS internals; the SDK validates the round-trip `state` with
+  `timingSafeEqual` before invoking `onCode`. **The SDK does not exchange
+  the code** — Google's `/token` lacks reliable CORS for SPAs and the
+  exchange requires the GCP client's `client_secret`. The consumer
+  forwards the code to a backend endpoint that performs the exchange
+  server-side and returns a session.
 - **AWS IAM Identity Center** uses **Authorization Code + PKCE** in the
   browser. Customer-managed applications support PKCE-only public
   clients, so no `client_secret` is required. The PKCE bag
@@ -116,9 +132,13 @@ both:
   id_token nonce, and clears the bag whether the exchange succeeds or
   fails (preventing verifier reuse).
 
-Both flows ultimately pass an `idToken` to `loginWithGoogle` /
-`loginWithAws`, which call `POST /v2/google` / `POST /v2/sso/aws` —
-those backend endpoints are unchanged from the implicit-flow era.
+The `id`-namespace flow ultimately passes an `idToken` to
+`loginWithGoogle`, which calls `POST /v2/google`. The `oauth2`-namespace
+flow passes a code to `loginWithGoogleCode`, which calls `POST /v2/google/code`
+— the backend exchanges the code at `oauth2.googleapis.com/token` (server
+holds `client_secret`) and converges on the same legacy `LoginGoogle` path
+internally, so auto-create + session emission stay in one place. AWS uses
+`loginWithAws` → `POST /v2/sso/aws`.
 
 ## Auth Flows
 
@@ -126,7 +146,8 @@ those backend endpoints are unchanged from the implicit-flow era.
 |--------|-----------------|-------|
 | `startLogin()` + `handleRedirectCallback()` | `/v2/oauth/authorize` → `/v2/oauth/token` | PKCE redirect |
 | ~~`loginWithPassword({ email, password })`~~ _(deprecated)_ | `POST /v2/login` | Direct |
-| `loginWithGoogle({ idToken })` | `POST /v2/google` | Google ID token |
+| `loginWithGoogle({ idToken })` | `POST /v2/google` | Google ID token (FedCM / `google.accounts.id`) |
+| `loginWithGoogleCode({ code, redirectUri? })` | `POST /v2/google/code` | Google authorization code (custom button / `google.accounts.oauth2.initCodeClient`); backend does the `/token` exchange |
 | `loginWithAws({ idToken })` | `POST /v2/sso/aws` | AWS IAM Identity Center (SSO) ID token |
 | `loginWithCodeSent()` + `completeLoginWithCode()` | `/v2/login-code/challenge` → `/v2/2fa/verify-login` | 2FA |
 | `resetPassword({ email })` | `POST /v2/password/reset` | Public — sends reset email |
@@ -153,6 +174,7 @@ on `channel`.
 | `nuria:oauth:code_verifier` | PKCE verifier (cleared after callback, always via `finally`) |
 | `nuria:oauth:nonce` | OIDC nonce string (cleared after callback, always via `finally`) |
 | `nuria:google:nonce` | GIS nonce (cleared once the credential callback validates it; `disableGoogleAutoSelect()` also clears it) |
+| `nuria:google-oauth2:state` | OAuth 2.0 code-flow CSRF state (cleared after `createGoogleCodeClient`'s callback validates the round-trip) |
 | `nuria:aws:pkce:<state>` | Per-flight AWS PKCE bag — `{ codeVerifier, nonce, redirectUri, clientId, tokenEndpoint, returnSearch }`. Removed by `parseAwsQueryCallback` whether the exchange succeeds or fails. |
 | `nuria:auth:force_relogin_next` | One-shot marker armed by `logout()` (default) and consumed by the next `startLogin()` to inject `prompt=login`. Cleared on consumption *after* the redirect dispatch succeeds — if `onRedirect` throws, the marker remains armed for the user's retry. Cleared explicitly by `logout({ keepSso: true })`. |
 

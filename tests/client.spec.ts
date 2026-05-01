@@ -1054,6 +1054,69 @@ describe('AuthClient', () => {
     });
   });
 
+  it('loginWithGoogleCode posts code to /v2/google/code and stores the session', async () => {
+    const storage = new MemoryStorageAdapter();
+    const transport = makeMockTransport({
+      access_token: 'g-code-tok',
+      token_type: 'Bearer',
+      expires_in: 3600,
+    });
+
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      baseUrl: 'https://auth.example.com',
+      storage,
+      transport,
+    });
+    const session = await client.loginWithGoogleCode({ code: '4/0Aabc' });
+
+    expect(session.tokens.accessToken).toBe('g-code-tok');
+    const calls = transport.request.mock.calls as Array<
+      [string, AuthTransportRequest]
+    >;
+    expect(calls[0]![0]).toBe('https://auth.example.com/v2/google/code');
+    expect(calls[0]![1].method).toBe('POST');
+    expect(calls[0]![1].credentials).toBe('include');
+    expect(calls[0]![1].body).toEqual({ code: '4/0Aabc', redirectUri: undefined });
+  });
+
+  it('loginWithGoogleCode forwards redirectUri when provided', async () => {
+    const transport = makeMockTransport({
+      access_token: 'g-code-tok',
+      token_type: 'Bearer',
+      expires_in: 3600,
+    });
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      baseUrl: 'https://auth.example.com',
+      storage: new MemoryStorageAdapter(),
+      transport,
+    });
+    await client.loginWithGoogleCode({
+      code: '4/0Aabc',
+      redirectUri: 'https://accounts.nuria.com.br/google/callback',
+    });
+    const calls = transport.request.mock.calls as Array<
+      [string, AuthTransportRequest]
+    >;
+    expect(calls[0]![1].body).toEqual({
+      code: '4/0Aabc',
+      redirectUri: 'https://accounts.nuria.com.br/google/callback',
+    });
+  });
+
+  it('loginWithGoogleCode rejects when code is missing', async () => {
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      storage: new MemoryStorageAdapter(),
+    });
+    await expect(
+      client.loginWithGoogleCode({ code: '' }),
+    ).rejects.toMatchObject({
+      code: AuthErrorCode.INVALID_CONFIG,
+    });
+  });
+
   it('getLoginMethods returns the SDK defaults when none configured', async () => {
     const client = createAuthClient({
       ...BASE_CONFIG,

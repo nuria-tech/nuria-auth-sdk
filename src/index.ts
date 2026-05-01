@@ -30,17 +30,21 @@ export {
 } from './utils/oauth';
 export {
   renderGoogleSignInButton,
-  attachCustomGoogleButton,
   promptGoogleOneTap,
   cancelGooglePrompt,
   disableGoogleAutoSelect,
   GOOGLE_STORAGE_KEYS,
   type GoogleCredentialResponse,
   type RenderGoogleSignInButtonOptions,
-  type AttachCustomGoogleButtonOptions,
-  type CustomGoogleButtonHandle,
   type PromptGoogleOneTapOptions,
 } from './utils/google';
+export {
+  createGoogleCodeClient,
+  GOOGLE_OAUTH2_STORAGE_KEYS,
+  type GoogleCodeResponse,
+  type CreateGoogleCodeClientOptions,
+  type GoogleCodeClientHandle,
+} from './utils/google-oauth2';
 export {
   startAwsLogin,
   parseAwsQueryCallback,
@@ -61,6 +65,7 @@ export type {
   StartLoginOptions,
   LoginCodeChallengeOptions,
   GoogleLoginOptions,
+  GoogleCodeLoginOptions,
   AwsLoginOptions,
   LoginMethod,
   LoginMethodsConfig,

@@ -4,6 +4,7 @@ import type {
   AuthTransport,
   AwsLoginOptions,
   DeviceUserCodeLookup,
+  GoogleCodeLoginOptions,
   GoogleLoginOptions,
   LoginCodeChallengeOptions,
   LoginMethodsConfig,
@@ -617,6 +618,29 @@ export class DefaultAuthClient implements AuthClient {
         credentials: 'include',
         body: {
           idToken: options.idToken,
+        },
+      },
+    );
+    const tokens = normalizeTokenSet(response.data, this.now);
+    return this.createSession(tokens);
+  }
+
+  async loginWithGoogleCode(options: GoogleCodeLoginOptions): Promise<Session> {
+    if (!options?.code) {
+      throw new AuthError(
+        AuthErrorCode.INVALID_CONFIG,
+        'code is required for loginWithGoogleCode',
+      );
+    }
+
+    const response = await this.transport.request<Record<string, unknown>>(
+      `${this.config.baseUrl}/v2/google/code`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        body: {
+          code: options.code,
+          redirectUri: options.redirectUri,
         },
       },
     );

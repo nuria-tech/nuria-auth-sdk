@@ -4,6 +4,74 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.0.0] - 2026-04-30
+
+### BREAKING — `attachCustomGoogleButton` removed
+
+The transparent-GIS-overlay helper (added in 4.1.0) is gone, along with
+its `AttachCustomGoogleButtonOptions` and `CustomGoogleButtonHandle`
+types. The overlay pattern was a workaround for Google's "no custom
+buttons on `google.accounts.id`" rule and proved unreliable in practice:
+the personalized FedCM iframe enters cooldown / layout-shift states
+where it visually renders but the click is inert (cursor flips to
+default), and there's no client-side fix because the iframe is
+cross-origin.
+
+**Migration:**
+- For fully custom-styled buttons, use `createGoogleCodeClient` (added
+  in 4.2.0) — Google's officially supported `google.accounts.oauth2`
+  code flow, which allows programmatic invocation. Pair with
+  `loginWithGoogleCode({ code })` which posts to the backend's
+  `/v2/google/code` exchange endpoint.
+- For the GIS-rendered button (no custom styling), keep using
+  `renderGoogleSignInButton` and `loginWithGoogle({ idToken })`.
+
+## [4.2.0] - 2026-04-30
+
+### Added — `loginWithGoogleCode` on the AuthClient
+
+`AuthClient.loginWithGoogleCode({ code, redirectUri? })` posts to the new
+backend endpoint `POST /v2/google/code`, which exchanges the auth code at
+`oauth2.googleapis.com/token` server-side (with `client_secret`) and
+returns a session — same shape as `loginWithGoogle({ idToken })`. Pair
+with `createGoogleCodeClient` (below).
+
+### Added — `createGoogleCodeClient` (OAuth 2.0 code flow)
+
+New helper for the **OAuth 2.0 Authorization Code flow** with a fully
+custom button. Wraps `google.accounts.oauth2.initCodeClient` — Google's
+separate API that, unlike `google.accounts.id`, **officially supports**
+programmatic invocation from custom-styled buttons.
+
+```ts
+import { createGoogleCodeClient } from '@nuria-tech/auth-sdk';
+
+const client = await createGoogleCodeClient({
+  clientId,
+  scope: 'openid email profile',
+  uxMode: 'popup',
+  onCode: ({ code }) => fetch('/v2/google/code', {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  }),
+});
+myCustomButton.addEventListener('click', () => client.requestCode());
+```
+
+Popup mode opens an OAuth consent window; the code arrives via JS
+callback. Redirect mode is also supported. The SDK auto-generates and
+verifies a CSRF `state`. **Code-to-token exchange must happen on the
+backend** — Google's `/token` lacks reliable CORS for SPAs and the
+exchange requires `client_secret`.
+
+### Refactor — shared GIS script loader
+
+Extracted `loadGisScript()` and `GIS_SCRIPT_URL` into `utils/gis-loader.ts`
+so `google.ts` (Sign in with Google / FedCM) and the new
+`google-oauth2.ts` (OAuth 2.0 code flow) load `accounts.google.com/gsi/client`
+through a single page-scoped promise — the script tag is fetched at most
+once regardless of which helper consumers use first.
+
 ## [4.1.0] - 2026-04-30
 
 ### Added — `attachCustomGoogleButton`

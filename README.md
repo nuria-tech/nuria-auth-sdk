@@ -63,7 +63,8 @@ Published on [npm](https://www.npmjs.com/package/@nuria-tech/auth-sdk).
 
 | Flow | Backend endpoint(s) | SDK method(s) | Result |
 |---|---|---|---|
-| Google | `POST /v2/google` | `loginWithGoogle(...)` | `Session` tokens |
+| Google (id_token / FedCM) | `POST /v2/google` | `loginWithGoogle({ idToken })` | `Session` tokens |
+| Google (auth code / custom button) | `POST /v2/google/code` | `loginWithGoogleCode({ code, redirectUri? })` | `Session` tokens |
 | AWS IAM Identity Center (SSO) | `POST /v2/sso/aws` | `loginWithAws(...)` | `Session` tokens |
 | Code sent (default) | `POST /v2/login-code/challenge` + `POST /v2/2fa/verify-login` | `loginWithCodeSent(...)` + `completeLoginWithCode(...)` | `Session` tokens after code verify |
 | Login + password _(deprecated)_ | `POST /v2/login` | `loginWithPassword(...)` | `Session` tokens |
@@ -163,15 +164,22 @@ is deprecated and is no longer sent in the challenge request body.
 
 ## Federated login: Google and AWS IAM Identity Center (AWS SSO)
 
-The two providers use **different** OAuth 2.1-compliant flows because of
-provider constraints, but both end up calling the same backend endpoint
-with an `idToken`:
+The providers use **different** OAuth 2.1-compliant flows because of
+provider constraints:
 
-- **Google → Google Identity Services (GIS / FedCM).** GIS is the path
-  Google officially recommends for SPAs after the implicit-flow
-  deprecation. The SDK loads `accounts.google.com/gsi/client`, renders
-  the official Sign in with Google button, and surfaces the id_token via a callback
-  — no URL fragment, no redirect.
+- **Google id_token → Google Identity Services (GIS / FedCM)
+  (`google.accounts.id`).** Google's recommended path for SPAs after
+  implicit-flow deprecation. The SDK loads `accounts.google.com/gsi/client`,
+  renders the official Sign in with Google button, and surfaces the
+  id_token via a callback — no URL fragment, no redirect. Per Google's
+  docs custom buttons are **not supported** on this path; use the code
+  flow below if you need custom branding.
+- **Google auth code → OAuth 2.0 Authorization Code (`google.accounts.oauth2`).**
+  Google's recommended path for custom-styled buttons. `createGoogleCodeClient`
+  programmatically opens the OAuth consent popup; the code arrives via
+  a JS callback. The SDK does **not** exchange the code (Google's `/token`
+  needs `client_secret` server-side and lacks reliable SPA CORS) — the
+  consumer forwards `code` to a backend endpoint that does the exchange.
 - **AWS IAM Identity Center → Authorization Code + PKCE.** AWS supports
   PKCE-only public clients, so the browser does the code → token
   exchange directly. The SDK generates `code_verifier` + `nonce`,
@@ -231,45 +239,62 @@ For One Tap / FedCM-style soft prompts, use `promptGoogleOneTap(...)`.
 On logout, call `disableGoogleAutoSelect()` so Google does not silently
 re-sign the user in.
 
-#### Custom-styled button (`attachCustomGoogleButton`)
+#### OAuth 2.0 code flow with custom button (`createGoogleCodeClient`)
 
-GIS' rendered button only supports a fixed set of themes and shapes. When
-a product needs a fully custom-branded "Sign in with Google" button while
-keeping FedCM-aware click handling, use `attachCustomGoogleButton`. It
-mounts the official GIS button as a transparent overlay on top of a
-caller-styled container, so real user clicks land on the GIS iframe
-(preserving user activation) and your design is what the user sees.
+`google.accounts.id` (above) is the FedCM-aware Sign-in with Google API.
+Per Google's docs, it does **not** support custom-styled buttons:
+> "Sign in with Google doesn't provide an API to programmatically initiate
+> the button flow, and using your own button is not supported since there
+> is no API to initiate the button flow when your button is clicked."
+
+When you need a fully custom button without the GIS-rendered iframe, use
+`createGoogleCodeClient`, which wraps Google's separate OAuth 2.0 code
+client (`google.accounts.oauth2.initCodeClient`). The code client supports
+programmatic invocation, fits the OAuth 2.1 Authorization Code flow, and
+returns an authorization code that your backend exchanges for tokens.
 
 ```ts
-import { attachCustomGoogleButton } from '@nuria-tech/auth-sdk';
+import { createGoogleCodeClient } from '@nuria-tech/auth-sdk';
 
-const handle = await attachCustomGoogleButton({
+const client = await createGoogleCodeClient({
   clientId: 'google-app-client-id',
-  // The visible custom-styled element (a <div>, NOT a <button>: nested
-  // interactive elements are invalid HTML and break click bubbling). The
-  // helper auto-promotes `position: static` containers to `relative`.
-  container: document.getElementById('my-google-btn')!,
-  onCredential: async ({ idToken }) => {
-    await auth.loginWithGoogle({ idToken });
+  scope: 'openid email profile',          // default; override for extra APIs
+  uxMode: 'popup',                        // 'popup' (default) | 'redirect'
+  // loginHint: 'user@nuria.com.br',
+  // hd: 'nuria.com.br',
+  // selectAccount: true,
+  // prompt: 'consent',
+  onCode: async ({ code }) => {
+    // Backend exchanges the code at oauth2.googleapis.com/token using
+    // client_secret and returns a session.
+    await auth.loginWithGoogleCode({ code });
   },
   onError: (err) => console.error(err),
-  // All `renderGoogleSignInButton` options (except `width`, computed from
-  // the container) are forwarded — but since the GIS button is invisible
-  // (`opacity: 0`), `theme`/`size`/`text` only affect the iframe sizing.
 });
 
-// On theme/locale change, e.g. system dark-mode flip:
-await handle.refresh();
-
-// On unmount:
-handle.destroy();
+// Wire the SDK call to a real user-gesture handler — popup mode is blocked
+// by the browser otherwise.
+document.getElementById('my-google-btn')!.addEventListener('click', () => {
+  client.requestCode();
+});
 ```
 
-**Sizing.** GIS clamps button width to `[200, 400]` and picks height from
-`size` (~40px for `large`). Make your visible button cover that area or
-clicks landing outside the iframe won't reach Google and the FedCM popup
-won't open. The helper observes the container and re-renders on width
-changes.
+**Popup vs redirect.** `popup` (default) opens an OAuth consent window via
+GIS' internal `window.open`. After the user picks an account and consents,
+the popup closes and `onCode` fires in the parent window — the user never
+leaves the page. `redirect` is a full-page redirect to Google and back to
+the configured `redirectUri` with `?code=...`; use this only if popup
+blockers are a concern.
+
+**State / CSRF.** The SDK auto-generates a `state` parameter, stores it in
+`sessionStorage` under `GOOGLE_OAUTH2_STORAGE_KEYS.state`, and verifies the
+round-trip value with `timingSafeEqual` before invoking `onCode`. Pass
+`state` explicitly only to embed correlation IDs.
+
+**No client-side token exchange.** The SDK never POSTs to Google's `/token`
+endpoint — Google's `/token` does not have reliable CORS for SPAs and the
+exchange requires the GCP client's `client_secret`. The backend is the
+only place that can safely exchange the code.
 
 ### AWS IAM Identity Center
 
@@ -704,6 +729,7 @@ interface AuthClient {
   loginWithCodeSent(options: LoginCodeChallengeOptions): Promise<TwoFactorChallenge>;
   completeLoginWithCode(options: VerifyLoginCodeOptions): Promise<Session>;
   loginWithGoogle(options: GoogleLoginOptions): Promise<Session>;
+  loginWithGoogleCode(options: GoogleCodeLoginOptions): Promise<Session>;
   loginWithAws(options: AwsLoginOptions): Promise<Session>;
   /** @deprecated Use loginWithCodeSent / startLoginCodeChallenge instead. */
   loginWithPassword(options: PasswordLoginOptions): Promise<Session>;

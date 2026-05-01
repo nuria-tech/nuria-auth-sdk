@@ -1,12 +1,11 @@
 import { AuthError, AuthErrorCode } from '../errors/auth-error';
 import { randomString } from '../core/pkce';
 import { timingSafeEqual } from '../core/utils';
+import { loadGisScript } from './gis-loader';
 
 export const GOOGLE_STORAGE_KEYS = {
   nonce: 'nuria:google:nonce',
 } as const;
-
-const GIS_SCRIPT_URL = 'https://accounts.google.com/gsi/client';
 
 export interface GoogleCredentialResponse {
   /** OIDC ID token (JWT) issued by Google. Send this to the backend. */
@@ -145,60 +144,6 @@ declare global {
   interface Window {
     google?: GsiClient;
   }
-}
-
-let scriptPromise: Promise<void> | null = null;
-
-function loadGisScript(): Promise<void> {
-  if (typeof window === 'undefined') {
-    return Promise.reject(
-      new AuthError(
-        AuthErrorCode.INVALID_CONFIG,
-        'Google Identity Services requires a browser environment',
-      ),
-    );
-  }
-  if (window.google?.accounts?.id) return Promise.resolve();
-  if (scriptPromise) return scriptPromise;
-
-  scriptPromise = new Promise<void>((resolve, reject) => {
-    const existing = document.querySelector<HTMLScriptElement>(
-      `script[src="${GIS_SCRIPT_URL}"]`,
-    );
-    const handleLoad = () => {
-      if (window.google?.accounts?.id) resolve();
-      else
-        reject(
-          new AuthError(
-            AuthErrorCode.NETWORK_ERROR,
-            'GIS script loaded but window.google.accounts.id is missing',
-          ),
-        );
-    };
-    const handleError = () => {
-      scriptPromise = null;
-      reject(
-        new AuthError(
-          AuthErrorCode.NETWORK_ERROR,
-          'Failed to load Google Identity Services script',
-        ),
-      );
-    };
-    if (existing) {
-      existing.addEventListener('load', handleLoad, { once: true });
-      existing.addEventListener('error', handleError, { once: true });
-      return;
-    }
-    const script = document.createElement('script');
-    script.src = GIS_SCRIPT_URL;
-    script.async = true;
-    script.defer = true;
-    script.addEventListener('load', handleLoad, { once: true });
-    script.addEventListener('error', handleError, { once: true });
-    document.head.appendChild(script);
-  });
-
-  return scriptPromise;
 }
 
 function decodeJwtNonce(jwt: string): string | null {
@@ -392,144 +337,6 @@ export async function renderGoogleSignInButton(
   ensureGsiInitialized(toGsiInitializeConfig(options.clientId, nonce, options));
   const gsi = window.google!.accounts.id;
   gsi.renderButton(options.element, toGsiButtonOptions(options));
-}
-
-export interface AttachCustomGoogleButtonOptions
-  extends GoogleInitializeOptions, Omit<GoogleButtonOptions, 'width'> {
-  clientId: string;
-  /**
-   * Element that wraps your custom-styled button. The helper renders the
-   * official GIS button on top of it as a transparent overlay so real user
-   * clicks reach GIS — preserving FedCM/One Tap user activation. The wrapper
-   * must establish a positioning context: if it computes to `position:
-   * static`, the helper promotes it to `position: relative`.
-   *
-   * Size guidance: GIS button height is fixed by `size` (~40px for `large`,
-   * ~32px for `medium`, ~24px for `small`) and width is clamped to
-   * [200, 400]. Make your custom button roughly that size so the overlay
-   * fully covers the visible click area — clicks landing outside the GIS
-   * iframe won't reach Google and the FedCM popup won't open.
-   */
-  container: HTMLElement;
-  onCredential: (response: GoogleCredentialResponse) => void;
-  onError?: (err: Error) => void;
-}
-
-export interface CustomGoogleButtonHandle {
-  /**
-   * Re-renders the hidden GIS button. Call after a theme/locale change or
-   * when the container moves into a new sizing context the ResizeObserver
-   * can't see.
-   */
-  refresh: () => Promise<void>;
-  /** Detaches the ResizeObserver and removes the overlay element. */
-  destroy: () => void;
-}
-
-/**
- * Mounts the official GIS button as a transparent overlay over a custom
- * container, so consumers can ship their own branded button while keeping
- * Google's FedCM-aware click handling. Real user clicks land on the GIS
- * iframe (preserving user activation), avoiding the cooldown problems that
- * affect `prompt()`-only integrations.
- *
- * The visible button styling is fully owned by the caller — the helper does
- * not draw a Google logo or background. Pair this with a `<button>` that
- * matches the GIS button's natural dimensions (see `container` JSDoc).
- */
-export async function attachCustomGoogleButton(
-  options: AttachCustomGoogleButtonOptions,
-): Promise<CustomGoogleButtonHandle> {
-  if (typeof document === 'undefined') {
-    throw new AuthError(
-      AuthErrorCode.INVALID_CONFIG,
-      'attachCustomGoogleButton requires a browser environment',
-    );
-  }
-  const { container, ...rest } = options;
-
-  // Treat any non-positioned context (including empty/unset, which happy-dom
-  // reports as '') as needing promotion. The overlay is `position: absolute`
-  // and would otherwise escape the container.
-  const positionedValues = ['relative', 'absolute', 'fixed', 'sticky'];
-  if (!positionedValues.includes(getComputedStyle(container).position)) {
-    container.style.position = 'relative';
-  }
-
-  const overlayHost = document.createElement('div');
-  overlayHost.setAttribute('data-nuria-google-overlay', '');
-  overlayHost.setAttribute('aria-hidden', 'true');
-  overlayHost.style.cssText = [
-    'position:absolute',
-    'inset:0',
-    'display:flex',
-    'align-items:center',
-    'justify-content:center',
-    'opacity:0',
-    'cursor:pointer',
-    'z-index:1',
-  ].join(';');
-  container.appendChild(overlayHost);
-
-  let lastWidth = 0;
-  let destroyed = false;
-  let resizeObserver: ResizeObserver | null = null;
-  let pendingRaf = 0;
-
-  // GIS renders the iframe at requestedWidth + 20px (10px padding each side)
-  // and clamps to [200, 400]. Subtract 20 so the iframe lands exactly at the
-  // container width without clipping when an ancestor sets `overflow: hidden`.
-  const computeWidth = (): number => {
-    const measured = Math.floor(container.getBoundingClientRect().width);
-    const target = (measured > 0 ? measured : 360) - 20;
-    return Math.max(200, Math.min(target, 400));
-  };
-
-  const renderOnce = async (): Promise<void> => {
-    if (destroyed) return;
-    const width = computeWidth();
-    if (width === lastWidth) return;
-    lastWidth = width;
-    overlayHost.replaceChildren();
-    await renderGoogleSignInButton({
-      ...rest,
-      element: overlayHost,
-      width,
-    });
-  };
-
-  await renderOnce();
-
-  if (typeof ResizeObserver !== 'undefined') {
-    const hasRaf = typeof requestAnimationFrame !== 'undefined';
-    resizeObserver = new ResizeObserver(() => {
-      if (!hasRaf) {
-        void renderOnce();
-        return;
-      }
-      cancelAnimationFrame(pendingRaf);
-      pendingRaf = requestAnimationFrame(() => {
-        void renderOnce();
-      });
-    });
-    resizeObserver.observe(container);
-  }
-
-  return {
-    refresh: async () => {
-      lastWidth = 0;
-      await renderOnce();
-    },
-    destroy: () => {
-      destroyed = true;
-      if (typeof cancelAnimationFrame !== 'undefined') {
-        cancelAnimationFrame(pendingRaf);
-      }
-      resizeObserver?.disconnect();
-      resizeObserver = null;
-      overlayHost.remove();
-    },
-  };
 }
 
 /**
