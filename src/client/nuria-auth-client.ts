@@ -33,6 +33,18 @@ import { FetchAuthTransport } from '../transport/fetch-transport';
 
 const BROADCAST_CHANNEL_NAME = 'nuria:auth:sync';
 
+function isPermanentRefreshFailure(error: unknown): boolean {
+  if (!(error instanceof AuthError)) return false;
+  if (error.code !== AuthErrorCode.HTTP_ERROR) return false;
+  const status = error.details.status;
+  if (status === undefined) return false;
+  // 408/425/429 are retryable per HTTP semantics — the transport may
+  // already retry, but if one bubbles up here a future tick can still
+  // succeed once the limiter resets. Don't drop the session on those.
+  if (status === 408 || status === 425 || status === 429) return false;
+  return status >= 400 && status < 500;
+}
+
 export class DefaultAuthClient implements AuthClient {
   private session: Session | null = null;
   private refreshPromise: Promise<Session> | null = null;
@@ -258,10 +270,21 @@ export class DefaultAuthClient implements AuthClient {
         }
         try {
           await this.refreshPromise;
-        } catch {
-          this.session = null;
-          await safeRemove(this.storage, STORAGE_KEYS.session);
-          this.notify();
+        } catch (error) {
+          // Only nuke the session when the server has *definitively*
+          // rejected the refresh token — i.e. a 4xx that retrying
+          // can't fix (invalid_grant, invalid_client, access_denied).
+          // Network failures, timeouts, and 5xx are transient: the
+          // backend may be restarting, the network blipping, or a
+          // proxy returning a 502. Clearing the session in those
+          // cases logs the user out for what is effectively a hiccup
+          // and forces a re-login on the next page load. The next
+          // silentRefresh tick (60s) will retry naturally.
+          if (isPermanentRefreshFailure(error)) {
+            this.session = null;
+            await safeRemove(this.storage, STORAGE_KEYS.session);
+            this.notify();
+          }
           return null;
         }
       } else if (exp <= this.now()) {
