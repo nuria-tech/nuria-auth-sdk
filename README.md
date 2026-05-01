@@ -231,6 +231,46 @@ For One Tap / FedCM-style soft prompts, use `promptGoogleOneTap(...)`.
 On logout, call `disableGoogleAutoSelect()` so Google does not silently
 re-sign the user in.
 
+#### Custom-styled button (`attachCustomGoogleButton`)
+
+GIS' rendered button only supports a fixed set of themes and shapes. When
+a product needs a fully custom-branded "Sign in with Google" button while
+keeping FedCM-aware click handling, use `attachCustomGoogleButton`. It
+mounts the official GIS button as a transparent overlay on top of a
+caller-styled container, so real user clicks land on the GIS iframe
+(preserving user activation) and your design is what the user sees.
+
+```ts
+import { attachCustomGoogleButton } from '@nuria-tech/auth-sdk';
+
+const handle = await attachCustomGoogleButton({
+  clientId: 'google-app-client-id',
+  // The visible custom-styled element (a <div>, NOT a <button>: nested
+  // interactive elements are invalid HTML and break click bubbling). The
+  // helper auto-promotes `position: static` containers to `relative`.
+  container: document.getElementById('my-google-btn')!,
+  onCredential: async ({ idToken }) => {
+    await auth.loginWithGoogle({ idToken });
+  },
+  onError: (err) => console.error(err),
+  // All `renderGoogleSignInButton` options (except `width`, computed from
+  // the container) are forwarded — but since the GIS button is invisible
+  // (`opacity: 0`), `theme`/`size`/`text` only affect the iframe sizing.
+});
+
+// On theme/locale change, e.g. system dark-mode flip:
+await handle.refresh();
+
+// On unmount:
+handle.destroy();
+```
+
+**Sizing.** GIS clamps button width to `[200, 400]` and picks height from
+`size` (~40px for `large`). Make your visible button cover that area or
+clicks landing outside the iframe won't reach Google and the FedCM popup
+won't open. The helper observes the container and re-renders on width
+changes.
+
 ### AWS IAM Identity Center
 
 ```ts

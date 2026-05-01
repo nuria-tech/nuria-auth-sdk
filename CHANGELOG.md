@@ -4,6 +4,32 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.1.0] - 2026-04-30
+
+### Added — `attachCustomGoogleButton`
+
+New helper for shipping a custom-branded Google sign-in button while keeping
+GIS' click handling. The helper renders the official GIS button as a
+transparent overlay on top of a caller-styled container, so real user
+clicks land on the GIS iframe (preserving FedCM user activation and
+avoiding the cooldown problems that affect `prompt()`-only integrations).
+
+```ts
+import { attachCustomGoogleButton } from '@nuria-tech/auth-sdk';
+
+const handle = await attachCustomGoogleButton({
+  clientId,
+  container: myStyledButtonEl,
+  onCredential: ({ idToken }) => signIn(idToken),
+});
+// later: handle.refresh() | handle.destroy()
+```
+
+The container should be roughly the size of the natural GIS button
+(~40px tall for `size: 'large'`, width 200–400px) so the overlay fully
+covers the visible click area. The helper auto-promotes `position: static`
+containers to `relative` and keeps the overlay sized via ResizeObserver.
+
 ## [4.0.2] - 2026-04-30
 
 ### Added — Google GIS customization options

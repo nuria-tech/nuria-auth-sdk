@@ -30,12 +30,15 @@ export {
 } from './utils/oauth';
 export {
   renderGoogleSignInButton,
+  attachCustomGoogleButton,
   promptGoogleOneTap,
   cancelGooglePrompt,
   disableGoogleAutoSelect,
   GOOGLE_STORAGE_KEYS,
   type GoogleCredentialResponse,
   type RenderGoogleSignInButtonOptions,
+  type AttachCustomGoogleButtonOptions,
+  type CustomGoogleButtonHandle,
   type PromptGoogleOneTapOptions,
 } from './utils/google';
 export {

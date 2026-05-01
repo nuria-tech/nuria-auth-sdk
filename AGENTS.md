@@ -41,7 +41,7 @@ src/
   utils/
     claims.ts                     # extractRoles(), extractScopes(), extractCompanyOrigin(), extractAvatarUrl(), extractDisplayName(), getInitials()
     oauth.ts                      # buildOAuthAuthorizeUrl()
-    google.ts                     # renderGoogleSignInButton(), promptGoogleOneTap(), cancelGooglePrompt(), disableGoogleAutoSelect() — wraps Google Identity Services (GIS / FedCM); validates id_token nonce client-side
+    google.ts                     # renderGoogleSignInButton(), attachCustomGoogleButton(), promptGoogleOneTap(), cancelGooglePrompt(), disableGoogleAutoSelect() — wraps Google Identity Services (GIS / FedCM); validates id_token nonce client-side. attachCustomGoogleButton() mounts the GIS button as a transparent overlay over a caller-styled container so apps can ship their own branded button without losing FedCM user activation
     aws.ts                        # startAwsLogin(), parseAwsQueryCallback() — Authorization Code + PKCE for AWS IAM Identity Center; per-state PKCE bag in sessionStorage
   react/                          # useAuthSession, AuthProvider, useAuth
   vue/                            # useAuthSession (Vue 3 composable)
