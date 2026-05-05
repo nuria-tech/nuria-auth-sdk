@@ -4,6 +4,60 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [6.0.0] - 2026-05-05
+
+### BREAKING — legacy/idToken login methods removed
+
+Cleanup of redundant and idToken-implicit-flow methods. The SDK now
+exposes a single coherent set of login surfaces aligned with v2 OAuth
++ PKCE; legacy v1 flows continue to live in the backend's `/api/v1/*`
+routes (untouched by this release) and are NOT in the SDK contract.
+
+**Removed methods (and their types):**
+
+| Removed | Replacement | Why |
+|---|---|---|
+| `loginWithGoogle(idToken)` | `loginWithGoogleCode(code)` | Implicit `id_token` flow proved unreliable in production (FedCM cooldown / inert iframe). The OAuth 2.0 code flow via `createGoogleCodeClient` is Google's officially supported path for custom buttons. |
+| `loginWithAws(idToken)` | `startAwsLogin` (OAuth code + PKCE) | Same reason — implicit flow replaced by code flow. |
+| `loginWithCodeSent` | `startLoginCodeChallenge` | Pure alias, removed for surface clarity. |
+| `completeLoginWithCode` | `verifyLoginCode` | Pure alias. |
+| `LoginCodeChallengeOptions.destination` | (gone) | Backend resolves destination from the stored user profile; client value was ignored. |
+| `GoogleLoginOptions`, `AwsLoginOptions` types | (gone) | Type exports tied to the removed methods. |
+
+**Migration:**
+
+```ts
+// Before (v5)
+await auth.loginWithGoogle({ idToken });
+await auth.loginWithAws({ idToken });
+await auth.loginWithCodeSent({ email });
+await auth.completeLoginWithCode({ challengeId, code });
+
+// After (v6)
+await auth.loginWithGoogleCode({ code });          // popup flow via createGoogleCodeClient
+await startAwsLogin({ /* ... */ });                // OAuth code + PKCE redirect
+await auth.startLoginCodeChallenge({ email });
+await auth.verifyLoginCode({ challengeId, code });
+```
+
+### Changed — `loginWithPassword` un-deprecated, scoped to portal
+
+`loginWithPassword` was tagged `@deprecated` since the product
+direction is passwordless, but it remains the authentication primitive
+that the SSO portal (`accounts.nuria.com.br`) needs. Promoted to
+first-class v2 method with an explicit doc comment: **portal-only —
+consumer SPAs should use `startLogin()` (OAuth + PKCE) and let
+accounts handle credentials**, so the user sees a single sign-in
+surface across apps.
+
+### Notes
+
+- Backend `/v2/login`, `/v2/google` (idToken), and `/v2/sso/aws` endpoints
+  remain in the kernel for backward compatibility with any non-SDK
+  caller; they are simply no longer reached from this SDK.
+- Backend `/api/v1/*` routes are untouched and continue under the
+  existing `Sunset: 2026-12-31` header.
+
 ## [5.1.0] - 2026-05-05
 
 ### Changed — wider refresh buffer (2 min → 5 min)
