@@ -127,13 +127,7 @@ export interface LogoutOptions {
 export interface LoginCodeChallengeOptions {
   email: string;
   channel?: 'email' | 'sms';
-  /** @deprecated The backend resolves the destination from the stored user profile. */
-  destination?: string;
   purpose?: string;
-}
-
-export interface GoogleLoginOptions {
-  idToken: string;
 }
 
 export interface GoogleCodeLoginOptions {
@@ -143,10 +137,6 @@ export interface GoogleCodeLoginOptions {
    *  popup — o backend usa o sentinel `"postmessage"` do GIS. Passe a URL
    *  exata só pra fluxo redirect com URI cadastrada no GCP. */
   redirectUri?: string;
-}
-
-export interface AwsLoginOptions {
-  idToken: string;
 }
 
 export interface PasswordLoginOptions {
@@ -326,14 +316,14 @@ export interface AuthClient {
     options: LoginCodeChallengeOptions,
   ): Promise<TwoFactorChallenge>;
   verifyLoginCode(options: VerifyLoginCodeOptions): Promise<Session>;
-  loginWithCodeSent(
-    options: LoginCodeChallengeOptions,
-  ): Promise<TwoFactorChallenge>;
-  completeLoginWithCode(options: VerifyLoginCodeOptions): Promise<Session>;
-  loginWithGoogle(options: GoogleLoginOptions): Promise<Session>;
   loginWithGoogleCode(options: GoogleCodeLoginOptions): Promise<Session>;
-  loginWithAws(options: AwsLoginOptions): Promise<Session>;
-  /** @deprecated Use `loginWithCodeSent` / `startLoginCodeChallenge` instead. */
+  /**
+   * Direct password login against `/v2/login`. First-class v2 method —
+   * intended for the SSO portal (accounts.nuria.com.br) only. Consumer
+   * SPAs should always use `startLogin()` (OAuth Authorization Code +
+   * PKCE) and let accounts handle the credential collection so the user
+   * sees a single sign-in surface across apps.
+   */
   loginWithPassword(options: PasswordLoginOptions): Promise<Session>;
   resetPassword(options: { email: string }): Promise<void>;
   recoverPassword(options: {

@@ -3,10 +3,8 @@ import type {
   ActorClaim,
   AuthClient,
   AuthTransport,
-  AwsLoginOptions,
   DeviceUserCodeLookup,
   GoogleCodeLoginOptions,
-  GoogleLoginOptions,
   LoginCodeChallengeOptions,
   LoginMethodsConfig,
   LogoutOptions,
@@ -638,40 +636,6 @@ export class DefaultAuthClient implements AuthClient {
     return this.createSession(tokens);
   }
 
-  async loginWithCodeSent(
-    options: LoginCodeChallengeOptions,
-  ): Promise<TwoFactorChallenge> {
-    return this.startLoginCodeChallenge(options);
-  }
-
-  async completeLoginWithCode(
-    options: VerifyLoginCodeOptions,
-  ): Promise<Session> {
-    return this.verifyLoginCode(options);
-  }
-
-  async loginWithGoogle(options: GoogleLoginOptions): Promise<Session> {
-    if (!options?.idToken) {
-      throw new AuthError(
-        AuthErrorCode.INVALID_CONFIG,
-        'idToken is required for loginWithGoogle',
-      );
-    }
-
-    const response = await this.transport.request<Record<string, unknown>>(
-      `${this.config.baseUrl}/v2/google`,
-      {
-        method: 'POST',
-        credentials: 'include',
-        body: {
-          idToken: options.idToken,
-        },
-      },
-    );
-    const tokens = normalizeTokenSet(response.data, this.now);
-    return this.createSession(tokens);
-  }
-
   async loginWithGoogleCode(options: GoogleCodeLoginOptions): Promise<Session> {
     if (!options?.code) {
       throw new AuthError(
@@ -688,28 +652,6 @@ export class DefaultAuthClient implements AuthClient {
         body: {
           code: options.code,
           redirectUri: options.redirectUri,
-        },
-      },
-    );
-    const tokens = normalizeTokenSet(response.data, this.now);
-    return this.createSession(tokens);
-  }
-
-  async loginWithAws(options: AwsLoginOptions): Promise<Session> {
-    if (!options?.idToken) {
-      throw new AuthError(
-        AuthErrorCode.INVALID_CONFIG,
-        'idToken is required for loginWithAws',
-      );
-    }
-
-    const response = await this.transport.request<Record<string, unknown>>(
-      `${this.config.baseUrl}/v2/sso/aws`,
-      {
-        method: 'POST',
-        credentials: 'include',
-        body: {
-          idToken: options.idToken,
         },
       },
     );
@@ -846,7 +788,13 @@ export class DefaultAuthClient implements AuthClient {
     };
   }
 
-  /** @deprecated Use `loginWithCodeSent` / `startLoginCodeChallenge` instead. */
+  /**
+   * Direct password login against `/v2/login`. First-class v2 method —
+   * intended for the SSO portal (accounts.nuria.com.br) only. Consumer
+   * SPAs should use `startLogin()` (OAuth Authorization Code + PKCE)
+   * and let accounts handle the credential collection so the user sees
+   * a single sign-in surface across apps.
+   */
   async loginWithPassword(options: PasswordLoginOptions): Promise<Session> {
     if (!options?.email || !options?.password) {
       throw new AuthError(
