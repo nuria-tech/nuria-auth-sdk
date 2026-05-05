@@ -4,6 +4,45 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.1.0] - 2026-05-05
+
+### Changed — wider refresh buffer (2 min → 5 min)
+
+The threshold at which `getAccessToken()` proactively rotates the access
+token was sized for ideal-world timer behaviour. Real browsers throttle
+backgrounded tabs hard (Chrome intensive throttling caps `setInterval`
+at 1 fire/min after 5 min hidden; Safari freezes timers under memory
+pressure; mobile battery savers defer wakeups by minutes), and the
+2-min cushion was thin enough that a missed tick produced visible
+session loss. Bumped to **5 min** and extracted to a documented
+`REFRESH_BUFFER_MS` constant.
+
+Pairs with the kernel's new 60-min access TTL (was 15 min) — the SDK
+now schedules rotation at ~minute 55 with comfortable headroom for
+any throttle.
+
+### Added — bfcache and offline reactivation paths
+
+`startSilentRefresh()` now wires three listeners (was one):
+
+- `visibilitychange` (existing) — tab returns from another tab/window.
+- `pageshow` with `event.persisted=true` — bfcache restore on
+  Safari/Firefox. The page's JS state is frozen-and-thawed without a
+  full reload, so `init()` does NOT re-run; this is the only reliable
+  signal that we're resuming from cache.
+- `online` — refreshes after the network comes back, in case we were
+  offline through an expiry window.
+
+Each fires a single `getAccessToken()` which is a no-op if the access
+token is still healthy. Cleanup tracking is now an array, so
+`stopSilentRefresh()` and `logout()` detach all three.
+
+### Added — regression tests for refresh contract
+
+New `tests/silent-refresh.spec.ts` with 8 tests pinning the buffer
+threshold, each reactivation listener, and teardown — so future PRs
+that accidentally shrink the buffer or drop a listener fail CI.
+
 ## [5.0.1] - 2026-05-01
 
 ### Added — `getActor()` and `ActorClaim` (RFC 8693)
