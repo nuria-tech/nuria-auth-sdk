@@ -1089,42 +1089,6 @@ describe('AuthClient', () => {
     expect(token).toBe('almost-expired-tok');
   });
 
-  it('loginWithAws posts idToken to /v2/sso/aws and stores the session', async () => {
-    const storage = new MemoryStorageAdapter();
-    const transport = makeMockTransport({
-      access_token: 'aws-tok',
-      token_type: 'Bearer',
-      expires_in: 3600,
-    });
-
-    const client = createAuthClient({
-      ...BASE_CONFIG,
-      baseUrl: 'https://auth.example.com',
-      storage,
-      transport,
-    });
-    const session = await client.loginWithAws({ idToken: 'aws-id-token' });
-
-    expect(session.tokens.accessToken).toBe('aws-tok');
-    const calls = transport.request.mock.calls as Array<
-      [string, AuthTransportRequest]
-    >;
-    expect(calls[0]![0]).toBe('https://auth.example.com/v2/sso/aws');
-    expect(calls[0]![1].method).toBe('POST');
-    expect(calls[0]![1].credentials).toBe('include');
-    expect(calls[0]![1].body).toEqual({ idToken: 'aws-id-token' });
-  });
-
-  it('loginWithAws rejects when idToken is missing', async () => {
-    const client = createAuthClient({
-      ...BASE_CONFIG,
-      storage: new MemoryStorageAdapter(),
-    });
-    await expect(client.loginWithAws({ idToken: '' })).rejects.toMatchObject({
-      code: AuthErrorCode.INVALID_CONFIG,
-    });
-  });
-
   it('loginWithGoogleCode posts code to /v2/google/code and stores the session', async () => {
     const storage = new MemoryStorageAdapter();
     const transport = makeMockTransport({
@@ -1265,7 +1229,7 @@ describe('AuthClient', () => {
     client.onAuthStateChanged(sessionListener);
 
     await expect(
-      client.loginWithGoogle({ idToken: 'bad-id-token' }),
+      client.loginWithPassword({ email: 'a@b.com', password: 'wrong' }),
     ).rejects.toMatchObject({ code: AuthErrorCode.HTTP_ERROR });
 
     // No active session, so the 401 must NOT cascade into a logout/notify.

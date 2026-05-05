@@ -783,64 +783,6 @@ describe('createAuthClient', () => {
     expect(session.tokens.refreshToken).toBe('refresh-from-2fa');
   });
 
-  it('loginWithCodeSent is an alias of startLoginCodeChallenge', async () => {
-    const transport = makeMockTransport({
-      challengeId: 'c2',
-      channel: 'email',
-      destinationMasked: 'u***@mail.com',
-      expiresAt: 999999,
-      purpose: 'login',
-    });
-
-    const client = createAuthClient({ ...BASE_CONFIG, transport });
-    const challenge = await client.loginWithCodeSent({
-      email: 'user@example.com',
-    });
-
-    expect(challenge.challengeId).toBe('c2');
-    const calls = transport.request.mock.calls as Array<
-      [string, AuthTransportRequest]
-    >;
-    expect(calls[0]![0]).toBe('https://auth.example.com/v2/login-code/challenge');
-  });
-
-  it('completeLoginWithCode is an alias of verifyLoginCode', async () => {
-    const transport = makeMockTransport({
-      Token: 'access-from-alias',
-      ExpiresAt: Date.now() + 60_000,
-      RefreshToken: 'refresh-from-alias',
-    });
-
-    const client = createAuthClient({ ...BASE_CONFIG, transport });
-    const session = await client.completeLoginWithCode({
-      challengeId: 'c3',
-      code: '654321',
-    });
-
-    expect(session.tokens.accessToken).toBe('access-from-alias');
-  });
-
-  it('loginWithGoogle calls /v2/google and creates session', async () => {
-    const transport = makeMockTransport({
-      Token: 'google-access',
-      RefreshToken: 'google-refresh',
-      ExpiresAt: Date.now() + 60_000,
-    });
-    const client = createAuthClient({ ...BASE_CONFIG, transport });
-
-    const session = await client.loginWithGoogle({
-      idToken: 'google-id-token',
-    });
-
-    expect(session.tokens.accessToken).toBe('google-access');
-    expect(session.tokens.refreshToken).toBe('google-refresh');
-    const calls = transport.request.mock.calls as Array<
-      [string, AuthTransportRequest]
-    >;
-    expect(calls[0]![0]).toBe('https://auth.example.com/v2/google');
-    expect(calls[0]![1].method).toBe('POST');
-  });
-
   it('loginWithPassword calls /v2/login and creates session', async () => {
     const transport = makeMockTransport({
       Token: 'password-access',

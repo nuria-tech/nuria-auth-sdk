@@ -24,27 +24,8 @@ function createMockAuth() {
       tokens: { accessToken: 'token-from-code' },
       createdAt: Date.now(),
     })),
-    loginWithCodeSent: vi.fn(async () => ({
-      challengeId: 'challenge-id',
-      channel: 'email',
-      destinationMasked: 'u***@mail.com',
-      expiresAt: Date.now() + 300_000,
-      purpose: 'login',
-    })),
-    completeLoginWithCode: vi.fn(async () => ({
-      tokens: { accessToken: 'token-from-code' },
-      createdAt: Date.now(),
-    })),
-    loginWithGoogle: vi.fn(async () => ({
-      tokens: { accessToken: 'token-from-google' },
-      createdAt: Date.now(),
-    })),
     loginWithGoogleCode: vi.fn(async () => ({
       tokens: { accessToken: 'token-from-google-code' },
-      createdAt: Date.now(),
-    })),
-    loginWithAws: vi.fn(async () => ({
-      tokens: { accessToken: 'token-from-aws' },
       createdAt: Date.now(),
     })),
     loginWithPassword: vi.fn(async () => ({
