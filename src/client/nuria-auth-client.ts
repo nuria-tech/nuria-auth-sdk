@@ -34,6 +34,15 @@ import { FetchAuthTransport } from '../transport/fetch-transport';
 
 const BROADCAST_CHANNEL_NAME = 'nuria:auth:sync';
 
+// Time before `expiresAt` at which the SDK proactively rotates the access
+// token. Sized to absorb timer throttling: Chrome's intensive-throttling
+// caps `setInterval` at 1 fire/min for backgrounded tabs (>5min hidden),
+// Safari freezes timers entirely under memory pressure, and mobile battery
+// savers can defer wakeups by minutes. A 5-min cushion means a tab that
+// returns to focus mid-throttle still has time to refresh before the
+// access token expires and downstream API calls start 401'ing.
+const REFRESH_BUFFER_MS = 5 * 60 * 1000;
+
 function isPermanentRefreshFailure(error: unknown): boolean {
   if (!(error instanceof AuthError)) return false;
   if (error.code !== AuthErrorCode.HTTP_ERROR) return false;
@@ -55,7 +64,7 @@ export class DefaultAuthClient implements AuthClient {
   private readonly now: () => number;
   private readonly channel: BroadcastChannel | null;
   private silentRefreshTimer: ReturnType<typeof setInterval> | null = null;
-  private removeVisibilityListener: (() => void) | null = null;
+  private reactivationListenerRemovers: Array<() => void> = [];
 
   constructor(private readonly config: ResolvedAuthConfig) {
     this.storage = config.storage ?? new MemoryStorageAdapter();
@@ -262,7 +271,7 @@ export class DefaultAuthClient implements AuthClient {
     }
     if (!this.session) return null;
     const exp = this.session.tokens.expiresAt;
-    if (exp && exp - 120_000 <= this.now()) {
+    if (exp && exp - REFRESH_BUFFER_MS <= this.now()) {
       if (this.config.enableRefreshToken) {
         if (!this.refreshPromise) {
           this.refreshPromise = this.doRefresh().finally(() => {
@@ -751,15 +760,48 @@ export class DefaultAuthClient implements AuthClient {
       }
     }, ms);
 
+    // Reactivation listeners cover the gap left by `setInterval` when the
+    // browser throttles or freezes timers in backgrounded tabs. Each fires
+    // a one-shot `getAccessToken()` which refreshes only if we're inside
+    // REFRESH_BUFFER_MS of expiry — cheap when not needed, life-saving
+    // when the interval missed its tick.
+    const triggerCheck = () => {
+      if (this.session) this.getAccessToken().catch(() => {});
+    };
+
     if (typeof document !== 'undefined') {
-      const handler = () => {
-        if (document.visibilityState === 'visible' && this.session) {
-          this.getAccessToken().catch(() => {});
-        }
+      // Tab returns from another tab / minimized window.
+      const visHandler = () => {
+        if (document.visibilityState === 'visible') triggerCheck();
       };
-      document.addEventListener('visibilitychange', handler);
-      this.removeVisibilityListener = () =>
-        document.removeEventListener('visibilitychange', handler);
+      document.addEventListener('visibilitychange', visHandler);
+      this.reactivationListenerRemovers.push(() =>
+        document.removeEventListener('visibilitychange', visHandler),
+      );
+    }
+
+    if (typeof window !== 'undefined') {
+      // bfcache restore (back/forward navigation on Safari/Firefox). The
+      // page's JS state is frozen-and-thawed without a full reload, so
+      // `init()` does NOT re-run — `pageshow` with `persisted=true` is
+      // the only reliable signal that we're resuming from cache and the
+      // access token may have expired during the freeze.
+      const pageshowHandler = (event: PageTransitionEvent) => {
+        if (event.persisted) triggerCheck();
+      };
+      window.addEventListener('pageshow', pageshowHandler);
+      this.reactivationListenerRemovers.push(() =>
+        window.removeEventListener('pageshow', pageshowHandler),
+      );
+
+      // Network came back. If we were offline through an expiry window,
+      // the timer-driven refresh would have failed; retry now that we
+      // can actually reach `tokenEndpoint`.
+      const onlineHandler = () => triggerCheck();
+      window.addEventListener('online', onlineHandler);
+      this.reactivationListenerRemovers.push(() =>
+        window.removeEventListener('online', onlineHandler),
+      );
     }
   }
 
@@ -768,8 +810,8 @@ export class DefaultAuthClient implements AuthClient {
       clearInterval(this.silentRefreshTimer);
       this.silentRefreshTimer = null;
     }
-    this.removeVisibilityListener?.();
-    this.removeVisibilityListener = null;
+    for (const remove of this.reactivationListenerRemovers) remove();
+    this.reactivationListenerRemovers = [];
   }
 
   async changePassword(options: {
