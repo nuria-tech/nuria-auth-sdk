@@ -97,19 +97,10 @@ that the kernel supports — see [Native and headless flows](#native-and-headles
 
 **Federated providers do not use the redirect-fragment Implicit grant**
 — it is forbidden by OAuth 2.1 (RFC 9700 / Browser-Based Apps BCP). The
-two providers diverge because the spec offers no single answer that fits
-both:
+v6 SDK supports a single Google flow (the OAuth 2.0 Authorization Code
+path); the legacy id_token / FedCM flow and the AWS direct id_token
+flow were dropped in v6 (see CHANGELOG).
 
-- **Google (`google.accounts.id` — id_token)** uses **Google Identity
-  Services (GIS / FedCM)**, the path Google officially endorses for SPAs
-  after deprecating implicit. The SDK does not redirect —
-  `accounts.google.com/gsi/client` is loaded on demand and renders the
-  official button into a host element. The id_token comes back through a
-  JS callback. Nonce is generated client-side, embedded via GIS
-  `initialize({ nonce })`, and validated against the id_token claim with
-  `timingSafeEqual` before the credential is surfaced to the consumer.
-  Per Google's docs custom buttons are not supported here — use the OAuth
-  2.0 code flow below for fully custom buttons.
 - **Google (`google.accounts.oauth2.initCodeClient` — auth code)** is the
   OAuth 2.0/2.1 Authorization Code path Google officially supports for
   custom-button SPAs. `createGoogleCodeClient` initializes the GIS code
@@ -120,36 +111,20 @@ both:
   `timingSafeEqual` before invoking `onCode`. **The SDK does not exchange
   the code** — Google's `/token` lacks reliable CORS for SPAs and the
   exchange requires the GCP client's `client_secret`. The consumer
-  forwards the code to a backend endpoint that performs the exchange
-  server-side and returns a session.
-- **AWS IAM Identity Center** uses **Authorization Code + PKCE** in the
-  browser. Customer-managed applications support PKCE-only public
-  clients, so no `client_secret` is required. The PKCE bag
-  (`{ codeVerifier, nonce, redirectUri, clientId, tokenEndpoint, returnSearch }`)
-  is stored in `sessionStorage` keyed by `state` so concurrent tabs
-  cannot clobber each other. After the redirect back, the SDK parses
-  `?code&state`, exchanges at the issuer's `/token`, validates the
-  id_token nonce, and clears the bag whether the exchange succeeds or
-  fails (preventing verifier reuse).
-
-The `id`-namespace flow ultimately passes an `idToken` to
-`loginWithGoogle`, which calls `POST /v2/google`. The `oauth2`-namespace
-flow passes a code to `loginWithGoogleCode`, which calls `POST /v2/google/code`
-— the backend exchanges the code at `oauth2.googleapis.com/token` (server
-holds `client_secret`) and converges on the same legacy `LoginGoogle` path
-internally, so auto-create + session emission stay in one place. AWS uses
-`loginWithAws` → `POST /v2/sso/aws`.
+  forwards the code to `loginWithGoogleCode`, which calls
+  `POST /v2/google/code` — the backend exchanges the code at
+  `oauth2.googleapis.com/token` (server holds `client_secret`) and
+  converges on the same internal session-issuance path used by every
+  other login method, so auto-create + session emission stay in one place.
 
 ## Auth Flows
 
 | Method | Backend endpoint | Input |
 |--------|-----------------|-------|
-| `startLogin()` + `handleRedirectCallback()` | `/v2/oauth/authorize` → `/v2/oauth/token` | PKCE redirect |
-| ~~`loginWithPassword({ email, password })`~~ _(deprecated)_ | `POST /v2/login` | Direct |
-| `loginWithGoogle({ idToken })` | `POST /v2/google` | Google ID token (FedCM / `google.accounts.id`) |
+| `startLogin()` + `handleRedirectCallback()` | `/v2/oauth/authorize` → `/v2/oauth/token` | PKCE redirect (recommended for consumer SPAs) |
+| `loginWithPassword({ email, password })` | `POST /v2/login` | Direct password — portal-only (accounts.nuria.com.br) |
 | `loginWithGoogleCode({ code, redirectUri? })` | `POST /v2/google/code` | Google authorization code (custom button / `google.accounts.oauth2.initCodeClient`); backend does the `/token` exchange |
-| `loginWithAws({ idToken })` | `POST /v2/sso/aws` | AWS IAM Identity Center (SSO) ID token |
-| `loginWithCodeSent()` + `completeLoginWithCode()` | `/v2/login-code/challenge` → `/v2/2fa/verify-login` | 2FA |
+| `startLoginCodeChallenge()` + `verifyLoginCode()` | `/v2/login-code/challenge` → `/v2/2fa/verify-login` | Passwordless OTP |
 | `resetPassword({ email })` | `POST /v2/password/reset` | Public — sends reset email |
 | `recoverPassword({ token, newPassword })` | `POST /v2/password/recover` | Recovery token in `Authorization: Bearer` header |
 | `changePassword({ oldPassword, newPassword })` | `PATCH /v2/me/password` | Requires active session |
@@ -160,10 +135,11 @@ internally, so auto-create + session emission stay in one place. AWS uses
 | `revokeSession()` | `POST /v2/logout` | Best-effort server revoke of the current refresh token; does **not** clear the local session. Pair with `logout()` for full sign-out without a redirect. Errors are swallowed so callers' local cleanup always proceeds. |
 | `revokeAllSessions()` | `POST /v2/logout/global` | Best-effort **SSO-portal** sign-out: Bearer-auth, revokes every refresh token of the authenticated subject (all devices, all OAuth apps). Does NOT clear local session and does NOT affect dev tokens (separate revocation trail keyed by JTI). Use this in accounts.nuria.com.br; per-app integrations stay with `revokeSession`. |
 
-`LoginCodeChallengeOptions.destination` is deprecated and intentionally not
-serialized by `startLoginCodeChallenge()` / `loginWithCodeSent()`. The kernel
-always resolves the OTP destination from the stored user email/cellphone based
-on `channel`.
+The challenge body carries only `email`, `channel`, and `purpose` — no
+client-supplied `destination`. The kernel always resolves the OTP
+destination from the stored user email/cellphone based on `channel`,
+since honoring a client value would let an attacker who knows only an
+email divert the OTP to themselves.
 
 ## Storage Keys (localStorage / cookie)
 

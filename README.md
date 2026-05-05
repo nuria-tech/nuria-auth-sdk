@@ -63,14 +63,18 @@ Published on [npm](https://www.npmjs.com/package/@nuria-tech/auth-sdk).
 
 | Flow | Backend endpoint(s) | SDK method(s) | Result |
 |---|---|---|---|
-| Google (id_token / FedCM) | `POST /v2/google` | `loginWithGoogle({ idToken })` | `Session` tokens |
+| OAuth Authorization Code + PKCE (recommended for consumer SPAs) | `GET /v2/oauth/authorize` + `POST /v2/oauth/token` | `startLogin()` + `handleRedirectCallback(...)` | `Session` tokens after redirect roundtrip |
 | Google (auth code / custom button) | `POST /v2/google/code` | `loginWithGoogleCode({ code, redirectUri? })` | `Session` tokens |
-| AWS IAM Identity Center (SSO) | `POST /v2/sso/aws` | `loginWithAws(...)` | `Session` tokens |
-| Code sent (default) | `POST /v2/login-code/challenge` + `POST /v2/2fa/verify-login` | `loginWithCodeSent(...)` + `completeLoginWithCode(...)` | `Session` tokens after code verify |
-| Login + password _(deprecated)_ | `POST /v2/login` | `loginWithPassword(...)` | `Session` tokens |
+| Code sent (passwordless OTP) | `POST /v2/login-code/challenge` + `POST /v2/2fa/verify-login` | `startLoginCodeChallenge(...)` + `verifyLoginCode(...)` | `Session` tokens after code verify |
+| Login + password (portal-only) | `POST /v2/login` | `loginWithPassword(...)` | `Session` tokens |
 | Password reset request | `POST /v2/password/reset` | `resetPassword({ email })` | `void` — sends reset email |
 | Password recovery | `POST /v2/password/recover` | `recoverPassword({ token, newPassword })` | `void` — resets password using token |
 | Change password | `PATCH /v2/me/password` | `changePassword({ oldPassword, newPassword })` | `void` — requires active session |
+
+`loginWithPassword` is intended for the SSO portal (`accounts.nuria.com.br`)
+only — consumer SPAs should use `startLogin()` so the user sees a single
+sign-in surface across all apps. AWS IAM Identity Center is supported via
+`startAwsLogin` (OAuth code + PKCE redirect, see "Federated login" below).
 
 ### Login methods config
 
@@ -151,107 +155,19 @@ const session = await auth.verifyLoginCode({
 });
 ```
 
-Aliases with clearer naming:
+The verification destination is resolved server-side from the user's
+stored email or cellphone based on `channel`. The challenge request body
+carries only `email`, `channel`, and `purpose` — no client-supplied
+destination, since honoring it would let an attacker who knows only an
+email divert the OTP to themselves.
 
-```ts
-await auth.loginWithCodeSent({ email: 'user@company.com' });
-await auth.completeLoginWithCode({ challengeId: '...', code: '123456' });
-```
+## Federated login: Google (OAuth 2.0 Authorization Code)
 
-The verification destination is resolved server-side from the user's stored
-email or cellphone based on `channel`. `LoginCodeChallengeOptions.destination`
-is deprecated and is no longer sent in the challenge request body.
-
-## Federated login: Google and AWS IAM Identity Center (AWS SSO)
-
-The providers use **different** OAuth 2.1-compliant flows because of
-provider constraints:
-
-- **Google id_token → Google Identity Services (GIS / FedCM)
-  (`google.accounts.id`).** Google's recommended path for SPAs after
-  implicit-flow deprecation. The SDK loads `accounts.google.com/gsi/client`,
-  renders the official Sign in with Google button, and surfaces the
-  id_token via a callback — no URL fragment, no redirect. Per Google's
-  docs custom buttons are **not supported** on this path; use the code
-  flow below if you need custom branding.
-- **Google auth code → OAuth 2.0 Authorization Code (`google.accounts.oauth2`).**
-  Google's recommended path for custom-styled buttons. `createGoogleCodeClient`
-  programmatically opens the OAuth consent popup; the code arrives via
-  a JS callback. The SDK does **not** exchange the code (Google's `/token`
-  needs `client_secret` server-side and lacks reliable SPA CORS) — the
-  consumer forwards `code` to a backend endpoint that does the exchange.
-- **AWS IAM Identity Center → Authorization Code + PKCE.** AWS supports
-  PKCE-only public clients, so the browser does the code → token
-  exchange directly. The SDK generates `code_verifier` + `nonce`,
-  redirects with `response_type=code`, parses `?code&state` on return,
-  and exchanges at the issuer's `/token` endpoint.
-
-For AWS IAM Identity Center the IdP is a *customer-managed application*
-configured in your IAM Identity Center instance. Copy the issuer URL —
-`startAwsLogin` derives `/authorize` and `/token` from it (or pass
-`authorizationEndpoint` / `tokenEndpoint` explicitly).
-
-### Google (GIS)
-
-```ts
-import { renderGoogleSignInButton } from '@nuria-tech/auth-sdk';
-
-await renderGoogleSignInButton({
-  clientId: 'google-app-client-id',
-  element: document.getElementById('google-btn')!,
-  onCredential: async ({ idToken }) => {
-    await auth.loginWithGoogle({ idToken });
-  },
-  onError: (err) => console.error(err),
-  // Visual options (passed to GIS):
-  // type: 'standard' | 'icon',
-  // theme: 'outline' | 'filled_blue' | 'filled_black',
-  // size: 'large' | 'medium' | 'small',
-  // text: 'signin_with' | 'signup_with' | 'continue_with' | 'signin',
-  // shape: 'rectangular' | 'pill',
-  // logoAlignment: 'left' | 'center',
-  // width: 320,
-  // locale: 'pt-BR',
-  // state: 'signin-page',
-  // clickListener: () => console.log('Google button clicked'),
-  // GIS initialize options (also supported by promptGoogleOneTap where applicable):
-  // loginHint: 'user@nuria.com.br',
-  // hd: 'nuria.com.br',
-  // context: 'signin' | 'signup' | 'use',
-  // uxMode: 'popup' | 'redirect',
-  // cancelOnTapOutside: false,
-  // promptParentId: 'google-prompt',
-  // stateCookieDomain: 'nuria.com.br',
-  // allowedParentOrigin: ['https://app.nuria.com.br'],
-  // itpSupport: true,
-  // useFedcmForPrompt: true,
-  // useFedcmForButton: false, // opt out when the personalized button jumps layout
-  // buttonAutoSelect: false,
-});
-```
-
-The page origin must be listed in your GCP OAuth client's
-"Authorized JavaScript origins". The SDK mints a nonce per render, validates
-the `nonce` claim of the returned id_token with `timingSafeEqual`, and
-disables further reuse on success.
-
-For One Tap / FedCM-style soft prompts, use `promptGoogleOneTap(...)`.
-On logout, call `disableGoogleAutoSelect()` so Google does not silently
-re-sign the user in.
-
-#### OAuth 2.0 code flow with custom button (`createGoogleCodeClient`)
-
-`google.accounts.id` (above) is the FedCM-aware Sign-in with Google API.
-Per Google's docs, it does **not** support custom-styled buttons:
-> "Sign in with Google doesn't provide an API to programmatically initiate
-> the button flow, and using your own button is not supported since there
-> is no API to initiate the button flow when your button is clicked."
-
-When you need a fully custom button without the GIS-rendered iframe, use
-`createGoogleCodeClient`, which wraps Google's separate OAuth 2.0 code
-client (`google.accounts.oauth2.initCodeClient`). The code client supports
-programmatic invocation, fits the OAuth 2.1 Authorization Code flow, and
-returns an authorization code that your backend exchanges for tokens.
+For Google sign-in with a fully custom button, use `createGoogleCodeClient`,
+which wraps Google's `google.accounts.oauth2.initCodeClient`. The code
+client supports programmatic invocation, fits the OAuth 2.1 Authorization
+Code flow, and returns an authorization code that the backend exchanges
+for tokens at `/v2/google/code`.
 
 ```ts
 import { createGoogleCodeClient } from '@nuria-tech/auth-sdk';
@@ -296,33 +212,15 @@ endpoint — Google's `/token` does not have reliable CORS for SPAs and the
 exchange requires the GCP client's `client_secret`. The backend is the
 only place that can safely exchange the code.
 
-### AWS IAM Identity Center
-
-```ts
-import { startAwsLogin, parseAwsQueryCallback } from '@nuria-tech/auth-sdk';
-
-// Trigger flow
-await startAwsLogin({
-  clientId: 'iam-identity-center-app-client-id',
-  redirectUri: `${window.location.origin}/oauth/callback`,
-  issuerUrl: 'https://identitycenter.amazonaws.com/ssoins-XXXXXXXX/',
-  // Or, when you need custom paths:
-  //   authorizationEndpoint: 'https://oidc.us-east-1.amazonaws.com/authorize',
-  //   tokenEndpoint:         'https://oidc.us-east-1.amazonaws.com/token',
-});
-
-// Callback page (URL: /oauth/callback?code=...&state=...)
-const result = await parseAwsQueryCallback(window.location.search);
-if (result) {
-  await auth.loginWithAws({ idToken: result.idToken });
-}
-```
-
-`parseAwsQueryCallback` returns `null` for non-callback navigations and
-throws `AuthError` (`MISSING_STATE`, `STATE_MISMATCH`,
-`TOKEN_EXCHANGE_FAILED`, `CALLBACK_ERROR`) for explicit failures. The
-PKCE bag is removed from `sessionStorage` even on failure to prevent
-verifier reuse.
+> **Removed in v6.** `loginWithGoogle({ idToken })` (Google ID token via
+> GIS / FedCM `google.accounts.id`) and `loginWithAws({ idToken })` (AWS
+> IAM Identity Center direct id-token submission) were removed in v6 —
+> both were "implicit flow" patterns that proved unreliable in production
+> (FedCM cooldown, inert iframe). Migrate to `createGoogleCodeClient` +
+> `loginWithGoogleCode` for Google. AWS IAM Identity Center is no longer
+> covered by the SDK; consumers that need it should drive the OAuth 2.1
+> Authorization Code + PKCE flow themselves and POST the result to a
+> backend that handles session issuance.
 
 ## Native CLI / desktop apps — loopback redirect (RFC 8252)
 
@@ -729,12 +627,8 @@ interface AuthClient {
   checkSession(): Promise<boolean>;
   startLoginCodeChallenge(options: LoginCodeChallengeOptions): Promise<TwoFactorChallenge>;
   verifyLoginCode(options: VerifyLoginCodeOptions): Promise<Session>;
-  loginWithCodeSent(options: LoginCodeChallengeOptions): Promise<TwoFactorChallenge>;
-  completeLoginWithCode(options: VerifyLoginCodeOptions): Promise<Session>;
-  loginWithGoogle(options: GoogleLoginOptions): Promise<Session>;
   loginWithGoogleCode(options: GoogleCodeLoginOptions): Promise<Session>;
-  loginWithAws(options: AwsLoginOptions): Promise<Session>;
-  /** @deprecated Use loginWithCodeSent / startLoginCodeChallenge instead. */
+  /** Direct password login against /v2/login. Portal-only — consumer SPAs should use startLogin (OAuth + PKCE). */
   loginWithPassword(options: PasswordLoginOptions): Promise<Session>;
   resetPassword(options: { email: string }): Promise<void>;
   recoverPassword(options: { token: string; newPassword: string }): Promise<void>;
@@ -751,8 +645,6 @@ interface LoginMethodsConfig {
 interface LoginCodeChallengeOptions {
   email: string;
   channel?: 'email' | 'sms';
-  /** @deprecated The backend resolves the destination from the stored user profile. */
-  destination?: string;
   purpose?: string;
 }
 ```
