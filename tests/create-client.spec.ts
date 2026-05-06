@@ -787,7 +787,6 @@ describe('createAuthClient', () => {
 
     const challenge = await client.startLoginCodeChallenge({
       email: 'user@example.com',
-      destination: 'ignored@example.com',
     });
 
     expect(challenge.channel).toBe('email');

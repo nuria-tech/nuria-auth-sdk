@@ -992,10 +992,8 @@ export class DefaultAuthClient implements AuthClient {
           // Log only message + code, never the raw error: a subscriber may
           // throw an `AuthError` whose `details.body` carries a token or
           // other sensitive fragment of an upstream HTTP response.
-          const message =
-            err instanceof Error ? err.message : 'unknown error';
-          const code =
-            err instanceof AuthError ? ` [${err.code}]` : '';
+          const message = err instanceof Error ? err.message : 'unknown error';
+          const code = err instanceof AuthError ? ` [${err.code}]` : '';
           console.error(
             `[nuria-auth] onAuthStateChanged listener threw${code}: ${message}`,
           );

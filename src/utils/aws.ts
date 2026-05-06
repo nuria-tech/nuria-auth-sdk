@@ -129,7 +129,8 @@ function gcExpiredBags(now: number): void {
     if (!raw) continue;
     try {
       const parsed = JSON.parse(raw) as Partial<AwsPkceBag>;
-      const createdAt = typeof parsed.createdAt === 'number' ? parsed.createdAt : 0;
+      const createdAt =
+        typeof parsed.createdAt === 'number' ? parsed.createdAt : 0;
       if (now - createdAt > AWS_PKCE_BAG_TTL_MS) expired.push(key);
     } catch {
       expired.push(key);
