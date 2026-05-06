@@ -727,6 +727,47 @@ describe('createAuthClient', () => {
     expect(t1).toBe(t2);
     expect(refreshCount).toBe(1);
     const req = (transport.request.mock.calls as Array<[string, AuthTransportRequest]>)[0]![1];
+    // Refresh token is in storage and posted in the body, so the SDK omits
+    // `credentials: 'include'` to avoid riding ambient cookies along to a
+    // misconfigured tokenEndpoint.
+    expect(req.credentials).toBeUndefined();
+    const body = new URLSearchParams(req.body as string);
+    expect(body.get('refresh_token')).toBe('rt');
+  });
+
+  it('refresh sends credentials:include only when refresh token is not in storage', async () => {
+    const INITIAL_NOW = 1_000_000_000;
+    const now = vi.fn().mockReturnValue(INITIAL_NOW);
+    const storage = new MemoryStorageAdapter();
+    // Session without a refreshToken — kernel-issued cookie is the only
+    // way to identify the session, so the SDK must ride ambient cookies.
+    await storage.set(
+      'nuria:session',
+      JSON.stringify({
+        tokens: {
+          accessToken: 'initial',
+          expiresAt: INITIAL_NOW + 60_000,
+        },
+        createdAt: INITIAL_NOW,
+      }),
+    );
+    const transport = {
+      request: vi.fn().mockResolvedValue({
+        status: 200,
+        data: { access_token: 'refreshed', expires_in: 3600 },
+        headers: new Headers(),
+      }),
+    };
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      storage,
+      transport,
+      enableRefreshToken: true,
+      now,
+    });
+    now.mockReturnValue(INITIAL_NOW + 120_000);
+    await client.getAccessToken();
+    const req = (transport.request.mock.calls as Array<[string, AuthTransportRequest]>)[0]![1];
     expect(req.credentials).toBe('include');
   });
 

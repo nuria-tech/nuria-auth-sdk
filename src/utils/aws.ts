@@ -18,7 +18,17 @@ interface AwsPkceBag {
   clientId: string;
   tokenEndpoint: string;
   returnSearch: string;
+  /** Unix-seconds timestamp of bag creation; used to GC abandoned flows. */
+  createdAt: number;
 }
+
+/**
+ * Maximum lifetime of an AWS PKCE bag. AWS authorize requests timeout in
+ * minutes; anything older than this is an abandoned flow that we sweep on
+ * the next `startAwsLogin` so `sessionStorage` doesn't accumulate stale
+ * verifiers across the tab's lifetime.
+ */
+const AWS_PKCE_BAG_TTL_MS = 10 * 60 * 1000;
 
 export interface StartAwsLoginOptions {
   /**
@@ -89,7 +99,8 @@ function readBag(state: string): AwsPkceBag | null {
       typeof parsed.redirectUri !== 'string' ||
       typeof parsed.clientId !== 'string' ||
       typeof parsed.tokenEndpoint !== 'string' ||
-      typeof parsed.returnSearch !== 'string'
+      typeof parsed.returnSearch !== 'string' ||
+      typeof parsed.createdAt !== 'number'
     ) {
       return null;
     }
@@ -99,15 +110,62 @@ function readBag(state: string): AwsPkceBag | null {
   }
 }
 
-function decodeJwtNonce(jwt: string): string | null {
+/**
+ * Sweeps abandoned PKCE bags older than {@link AWS_PKCE_BAG_TTL_MS}. Called
+ * at the start of every `startAwsLogin`, so a tab that initiates a long
+ * series of AWS logins without ever completing the callback won't leak
+ * verifiers into `sessionStorage` indefinitely.
+ *
+ * Bags missing `createdAt` (legacy entries written before the field was
+ * introduced) are also evicted on first sweep.
+ */
+function gcExpiredBags(now: number): void {
+  if (typeof sessionStorage === 'undefined') return;
+  const expired: string[] = [];
+  for (let i = 0; i < sessionStorage.length; i++) {
+    const key = sessionStorage.key(i);
+    if (!key || !key.startsWith(AWS_STORAGE_KEYS.pkcePrefix)) continue;
+    const raw = sessionStorage.getItem(key);
+    if (!raw) continue;
+    try {
+      const parsed = JSON.parse(raw) as Partial<AwsPkceBag>;
+      const createdAt = typeof parsed.createdAt === 'number' ? parsed.createdAt : 0;
+      if (now - createdAt > AWS_PKCE_BAG_TTL_MS) expired.push(key);
+    } catch {
+      expired.push(key);
+    }
+  }
+  for (const key of expired) sessionStorage.removeItem(key);
+}
+
+interface AwsIdTokenClaims {
+  nonce: string | null;
+  aud: string | null;
+  exp: number | null;
+}
+
+function decodeIdTokenClaims(jwt: string): AwsIdTokenClaims {
+  const empty: AwsIdTokenClaims = { nonce: null, aud: null, exp: null };
   try {
     const parts = jwt.split('.');
-    if (parts.length !== 3) return null;
+    if (parts.length !== 3) return empty;
     const base64 = parts[1]!.replace(/-/g, '+').replace(/_/g, '/');
     const payload = JSON.parse(atob(base64)) as Record<string, unknown>;
-    return typeof payload.nonce === 'string' ? payload.nonce : null;
+    // `aud` may be a string or an array per RFC 7519 — accept either, but
+    // we only use it for an exact-match check below.
+    let aud: string | null = null;
+    if (typeof payload.aud === 'string') aud = payload.aud;
+    else if (Array.isArray(payload.aud)) {
+      const first = payload.aud.find((v) => typeof v === 'string');
+      if (typeof first === 'string') aud = first;
+    }
+    return {
+      nonce: typeof payload.nonce === 'string' ? payload.nonce : null,
+      aud,
+      exp: typeof payload.exp === 'number' ? payload.exp : null,
+    };
   } catch {
-    return null;
+    return empty;
   }
 }
 
@@ -133,6 +191,12 @@ export async function startAwsLogin(
   const tokenEndpoint = resolveTokenEndpoint(options);
   const authorizationEndpoint = resolveAuthorizationEndpoint(options);
 
+  // Evict any abandoned bags from prior aborted flows before adding a new
+  // one. Without this sweep, a long-lived tab that re-initiates login
+  // without ever completing a callback accumulates verifiers in
+  // sessionStorage forever.
+  gcExpiredBags(Date.now());
+
   const bag: AwsPkceBag = {
     codeVerifier,
     nonce,
@@ -140,6 +204,7 @@ export async function startAwsLogin(
     clientId: options.clientId,
     tokenEndpoint,
     returnSearch: options.returnSearch ?? '',
+    createdAt: Date.now(),
   };
   sessionStorage.setItem(bagKey(state), JSON.stringify(bag));
 
@@ -264,11 +329,28 @@ export async function parseAwsQueryCallback(
       );
     }
 
-    const tokenNonce = decodeJwtNonce(idToken);
-    if (!tokenNonce || !timingSafeEqual(bag.nonce, tokenNonce)) {
+    // Defense in depth: the Nuria backend must re-verify the id_token's
+    // signature and claims against the AWS JWKS, but we surface obvious
+    // problems here so we never forward a token that's already
+    // expired/wrong-audience to the kernel — and so a misconfigured
+    // tokenEndpoint that returns *any* JWT can't ride through.
+    const claims = decodeIdTokenClaims(idToken);
+    if (!claims.nonce || !timingSafeEqual(bag.nonce, claims.nonce)) {
       throw new AuthError(
         AuthErrorCode.STATE_MISMATCH,
         'AWS id_token nonce validation failed — possible replay attack',
+      );
+    }
+    if (claims.exp !== null && claims.exp * 1000 <= Date.now()) {
+      throw new AuthError(
+        AuthErrorCode.TOKEN_EXCHANGE_FAILED,
+        'AWS id_token is already expired',
+      );
+    }
+    if (claims.aud !== null && claims.aud !== bag.clientId) {
+      throw new AuthError(
+        AuthErrorCode.TOKEN_EXCHANGE_FAILED,
+        'AWS id_token audience does not match this client',
       );
     }
 

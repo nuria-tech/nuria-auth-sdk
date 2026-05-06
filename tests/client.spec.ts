@@ -355,7 +355,9 @@ describe('AuthClient', () => {
     >;
     expect(calls[0]![0]).toBe('https://auth.example.com/token');
     expect(calls[0]![1].method).toBe('POST');
-    expect(calls[0]![1].credentials).toBe('include');
+    // No `credentials: 'include'` — authorization_code exchange identifies
+    // the request via PKCE, no cookie ride-along is needed.
+    expect(calls[0]![1].credentials).toBeUndefined();
 
     const body = new URLSearchParams(calls[0]![1].body as string);
     expect(body.get('grant_type')).toBe('authorization_code');
@@ -396,7 +398,7 @@ describe('AuthClient', () => {
       transport.request.mock.calls as Array<[string, AuthTransportRequest]>
     )[0]![1];
     expect(typeof req.body).toBe('string');
-    expect(req.credentials).toBe('include');
+    expect(req.credentials).toBeUndefined();
     const params = new URLSearchParams(req.body as string);
     expect(params.get('grant_type')).toBe('authorization_code');
     expect(params.get('redirect_uri')).toBe('https://app.example.com/callback');

@@ -164,8 +164,13 @@ export class DefaultAuthClient implements AuthClient {
       // `prompt` is intentionally NOT reserved: the typed `options.prompt`
       // is convenience, but apps may pass an OIDC space-separated combo
       // (e.g. "login consent") via extraParams, which then overrides.
+      // `String(v)` defends against JS callers whose `extraParams` slips a
+      // non-string past the static type — `URLSearchParams.set` would
+      // otherwise coerce silently in surprising ways for nullish/object values.
       for (const [k, v] of Object.entries(options.extraParams)) {
-        if (!RESERVED.has(k)) params[k] = v;
+        if (!RESERVED.has(k) && v !== undefined && v !== null) {
+          params[k] = String(v);
+        }
       }
     }
 
@@ -331,11 +336,18 @@ export class DefaultAuthClient implements AuthClient {
     // network failure must NOT block the caller's local cleanup. Failing
     // here would leave the user stuck signed-in client-side after they
     // explicitly asked to sign out.
+    //
+    // `credentials: 'include'` is only sent when we don't have an explicit
+    // refresh token to put in the body — i.e. when the kernel-issued
+    // `__Host-nuria_rt` cookie is the only way to identify the session to
+    // revoke. With an explicit token we omit credentials so a misconfigured
+    // baseUrl routed through a logging proxy can't bleed every ambient
+    // cookie for that origin alongside the refresh token.
     const refreshToken = this.session?.tokens.refreshToken;
     try {
       await this.transport.request(`${this.config.baseUrl}/v2/logout`, {
         method: 'POST',
-        credentials: 'include',
+        credentials: refreshToken ? undefined : 'include',
         body: refreshToken ? { refreshToken } : {},
         timeoutMs: 5_000,
       });
@@ -420,11 +432,16 @@ export class DefaultAuthClient implements AuthClient {
     // logout-already-clicked screen. The kernel uses the access token to
     // identify the subject and writes RefreshSubjectState.GlobalRevokedAt,
     // killing every refresh row for the user in one shot.
+    //
+    // Credentials are only included when we have no Bearer to identify the
+    // subject — same rationale as revokeSession: a misconfigured baseUrl
+    // shouldn't ride ambient cookies along when an explicit auth proof is
+    // already in the request.
     const accessToken = this.session?.tokens.accessToken;
     try {
       await this.transport.request(`${this.config.baseUrl}/v2/logout/global`, {
         method: 'POST',
-        credentials: 'include',
+        credentials: accessToken ? undefined : 'include',
         headers: accessToken
           ? { Authorization: `Bearer ${accessToken}` }
           : undefined,
@@ -436,6 +453,7 @@ export class DefaultAuthClient implements AuthClient {
   }
 
   async globalLogout(options?: { returnTo?: string }): Promise<void> {
+    let canonicalReturnTo: string | undefined;
     if (options?.returnTo) {
       let returnToUrl: URL;
       try {
@@ -464,14 +482,19 @@ export class DefaultAuthClient implements AuthClient {
           'returnTo must not include URL credentials',
         );
       }
+      // Forward the canonicalized form (`URL.toString()`) — never the raw
+      // user input. Trailing whitespace, embedded NUL bytes, and unicode
+      // confusables can otherwise survive validation here yet bypass the
+      // server-side allowlist comparison if the server canonicalizes too.
+      canonicalReturnTo = returnToUrl.toString();
     }
 
     await this.logout();
 
     if (this.config.logoutEndpoint) {
       const url = new URL(this.config.logoutEndpoint);
-      if (options?.returnTo) {
-        url.searchParams.set('returnTo', options.returnTo);
+      if (canonicalReturnTo) {
+        url.searchParams.set('returnTo', canonicalReturnTo);
       }
       const logoutUrl = url.toString();
       if (this.config.onRedirect) {
@@ -838,11 +861,14 @@ export class DefaultAuthClient implements AuthClient {
     });
 
     try {
+      // Authorization-code exchange proves identity via the PKCE
+      // code_verifier + the one-shot `code` itself; no cookie ride-along is
+      // ever needed. Omitting `credentials: 'include'` means a misrouted
+      // tokenEndpoint can't pull every ambient cookie for that origin.
       const response = await this.transport.request<Record<string, unknown>>(
         this.config.tokenEndpoint,
         {
           method: 'POST',
-          credentials: 'include',
           body: body.toString(),
         },
       );
@@ -895,11 +921,16 @@ export class DefaultAuthClient implements AuthClient {
       body.set('refresh_token', refreshToken);
     }
 
+    // When the SDK has the refresh token in storage, send it explicitly and
+    // omit `credentials: 'include'` — that prevents a misrouted tokenEndpoint
+    // from pulling every ambient cookie alongside the refresh token. We only
+    // ride cookies along when no token is in storage and the kernel-issued
+    // `__Host-nuria_rt` cookie is the only way to identify the session.
     const response = await this.transport.request<Record<string, unknown>>(
       this.config.tokenEndpoint,
       {
         method: 'POST',
-        credentials: 'include',
+        credentials: refreshToken ? undefined : 'include',
         body: body.toString(),
         timeoutMs: 10_000,
       },
@@ -958,7 +989,16 @@ export class DefaultAuthClient implements AuthClient {
         handler(this.session);
       } catch (err) {
         if (typeof console !== 'undefined') {
-          console.error('[nuria-auth] onAuthStateChanged listener threw', err);
+          // Log only message + code, never the raw error: a subscriber may
+          // throw an `AuthError` whose `details.body` carries a token or
+          // other sensitive fragment of an upstream HTTP response.
+          const message =
+            err instanceof Error ? err.message : 'unknown error';
+          const code =
+            err instanceof AuthError ? ` [${err.code}]` : '';
+          console.error(
+            `[nuria-auth] onAuthStateChanged listener threw${code}: ${message}`,
+          );
         }
       }
     });

@@ -158,14 +158,12 @@ function decodeJwtNonce(jwt: string): string | null {
   }
 }
 
-// Page-scoped nonce. GIS binds the nonce at `initialize()` time, so once we
-// initialize for a client_id we keep the same nonce for the lifetime of the
-// page. Re-calling `initialize()` to rotate the nonce triggers a "called
-// multiple times" warning in the GIS logger and only the last call wins.
-//
-// Cryptographic freshness is preserved across page loads (every fresh load
-// mints a new nonce) and the value is still validated against the JWT
-// `nonce` claim on every credential response.
+// Page-scoped nonce that we rotate after every successful credential.
+// GIS binds the nonce at `initialize()` time, so re-initializing to install
+// a fresh nonce triggers a "called multiple times" warning in the GIS
+// logger. We accept that benign console noise as the price of replay
+// protection: a long-lived tab that signs in repeatedly should never reuse
+// the same nonce across more than one id_token.
 function mintAndStoreNonce(): string {
   const existing = sessionStorage.getItem(GOOGLE_STORAGE_KEYS.nonce);
   if (existing) return existing;
@@ -175,10 +173,15 @@ function mintAndStoreNonce(): string {
 }
 
 function consumeStoredNonce(): string | null {
-  // Read but do not delete: the nonce is reused for every sign-in attempt
-  // until the page is reloaded or the user explicitly logs out (which
-  // calls disableGoogleAutoSelect → clears the nonce).
-  return sessionStorage.getItem(GOOGLE_STORAGE_KEYS.nonce);
+  const value = sessionStorage.getItem(GOOGLE_STORAGE_KEYS.nonce);
+  if (value !== null) {
+    // Delete on read so the next sign-in attempt mints a fresh nonce. We
+    // also clear the GIS init key so the next render/prompt call re-runs
+    // `gsi.initialize()` with the new nonce instead of short-circuiting.
+    sessionStorage.removeItem(GOOGLE_STORAGE_KEYS.nonce);
+    initializedConfigKey = null;
+  }
+  return value;
 }
 
 // We register a *single* delegate with GIS at first initialize. Subsequent

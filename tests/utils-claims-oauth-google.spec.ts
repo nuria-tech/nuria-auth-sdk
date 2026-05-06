@@ -485,9 +485,9 @@ describe('renderGoogleSignInButton', () => {
     const arg = onCredential.mock.calls[0]![0];
     expect(arg.idToken).toBeTruthy();
     expect(arg.selectBy).toBe('btn');
-    // Nonce is page-scoped: it persists until logout / page reload, so
-    // multiple sign-in attempts in the same session can validate.
-    expect(sessionStorage.getItem(GOOGLE_STORAGE_KEYS.nonce)).toBe(nonce);
+    // Nonce is consumed on validation so it can never be reused across two
+    // id_tokens. The next render call will mint a fresh nonce and re-init.
+    expect(sessionStorage.getItem(GOOGLE_STORAGE_KEYS.nonce)).toBeNull();
   });
 
   it('forwards the GIS button state in credential responses', async () => {
