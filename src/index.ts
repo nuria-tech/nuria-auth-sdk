@@ -64,6 +64,14 @@ export {
   type PublicKeyCredentialDescriptorJSON,
 } from './utils/webauthn';
 export { base64UrlEncode, base64UrlDecode } from './core/base64url';
+export {
+  DpopSigner,
+  createDpopSigner,
+  persistDpopSigner,
+  loadDpopSigner,
+  type DpopProofParams,
+  type DpopPersistenceOptions,
+} from './utils/dpop';
 
 export type {
   AccountClient,
@@ -73,6 +81,7 @@ export type {
   AuthTransportResponse,
   AuthClient,
   AuthConfig,
+  DpopProofSigner,
   ConsentInfo,
   DataExport,
   DeviceInfo,

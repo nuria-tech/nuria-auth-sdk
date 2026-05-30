@@ -78,7 +78,10 @@ export class DpopSigner {
     y: string;
   }> {
     if (this.publicJwk) return this.publicJwk;
-    const jwk = await getCrypto().subtle.exportKey('jwk', this.keyPair.publicKey);
+    const jwk = await getCrypto().subtle.exportKey(
+      'jwk',
+      this.keyPair.publicKey,
+    );
     if (!jwk.x || !jwk.y) {
       throw new AuthError(
         AuthErrorCode.INVALID_CONFIG,
@@ -221,7 +224,10 @@ export async function persistDpopSigner(
   try {
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(storeName, 'readwrite');
-      tx.objectStore(storeName).put(signer.getKeyPair(), options.key ?? DEFAULT_KEY);
+      tx.objectStore(storeName).put(
+        signer.getKeyPair(),
+        options.key ?? DEFAULT_KEY,
+      );
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
       tx.onabort = () => reject(tx.error);

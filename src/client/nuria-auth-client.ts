@@ -85,6 +85,8 @@ export class DefaultAuthClient implements AuthClient {
       config.baseUrl,
       this.transport,
       () => this.getAccessToken(),
+      (method, url, accessToken) =>
+        this.buildAuthHeaders(method, url, accessToken),
     );
     // No global 401 → logout interceptor is wired here on purpose. The
     // refresh-failure path inside getAccessToken() already clears the session

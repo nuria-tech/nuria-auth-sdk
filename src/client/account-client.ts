@@ -182,11 +182,17 @@ export class DefaultAccountClient implements AccountClient {
         'A valid session is required for account management.',
       );
     }
-    const response = await this.transport.request<T>(`${this.baseUrl}${path}`, {
+    const url = `${this.baseUrl}${path}`;
+    const authHeaders = await this.buildAuthHeaders(
+      req.method ?? 'GET',
+      url,
+      accessToken,
+    );
+    const response = await this.transport.request<T>(url, {
       ...req,
       headers: {
         ...(req.headers ?? {}),
-        Authorization: `Bearer ${accessToken}`,
+        ...authHeaders,
       },
       timeoutMs: req.timeoutMs ?? 8_000,
     });
