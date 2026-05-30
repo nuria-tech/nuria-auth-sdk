@@ -287,6 +287,40 @@ export class DefaultAuthClient implements AuthClient {
     return this.session;
   }
 
+  /**
+   * Builds the auth headers for a resource request. With DPoP enabled the
+   * token rides under the `DPoP` scheme alongside a fresh `ath`-bound proof;
+   * otherwise it's a plain Bearer header (the v6 behavior).
+   */
+  private async buildAuthHeaders(
+    method: string,
+    url: string,
+    accessToken: string,
+  ): Promise<Record<string, string>> {
+    if (this.config.dpop) {
+      const proof = await this.config.dpop.createProof({
+        htm: method,
+        htu: url,
+        accessToken,
+      });
+      return { Authorization: `DPoP ${accessToken}`, DPoP: proof };
+    }
+    return { Authorization: `Bearer ${accessToken}` };
+  }
+
+  /**
+   * DPoP proof header for a token-endpoint request (no `ath` — the token is
+   * being minted, not presented). Empty when DPoP is disabled.
+   */
+  private async tokenRequestDpopHeaders(): Promise<Record<string, string>> {
+    if (!this.config.dpop) return {};
+    const proof = await this.config.dpop.createProof({
+      htm: 'POST',
+      htu: this.config.tokenEndpoint,
+    });
+    return { DPoP: proof };
+  }
+
   async getAccessToken(): Promise<string | null> {
     if (!this.session) {
       await this.hydrateSession();
@@ -412,15 +446,13 @@ export class DefaultAuthClient implements AuthClient {
         'A valid session is required to approve a device code.',
       );
     }
-    await this.transport.request(
-      `${this.config.baseUrl}/v2/oauth/device/approve`,
-      {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${accessToken}` },
-        body: { userCode: userCode.trim() },
-        timeoutMs: 5_000,
-      },
-    );
+    const url = `${this.config.baseUrl}/v2/oauth/device/approve`;
+    await this.transport.request(url, {
+      method: 'POST',
+      headers: await this.buildAuthHeaders('POST', url, accessToken),
+      body: { userCode: userCode.trim() },
+      timeoutMs: 5_000,
+    });
   }
 
   async denyDeviceUserCode(userCode: string): Promise<void> {
@@ -434,15 +466,13 @@ export class DefaultAuthClient implements AuthClient {
         'A valid session is required to deny a device code.',
       );
     }
-    await this.transport.request(
-      `${this.config.baseUrl}/v2/oauth/device/deny`,
-      {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${accessToken}` },
-        body: { userCode: userCode.trim() },
-        timeoutMs: 5_000,
-      },
-    );
+    const url = `${this.config.baseUrl}/v2/oauth/device/deny`;
+    await this.transport.request(url, {
+      method: 'POST',
+      headers: await this.buildAuthHeaders('POST', url, accessToken),
+      body: { userCode: userCode.trim() },
+      timeoutMs: 5_000,
+    });
   }
 
   async revokeAllSessions(): Promise<void> {
@@ -599,9 +629,14 @@ export class DefaultAuthClient implements AuthClient {
         'config.userinfoEndpoint is required for getUserinfo',
       );
     }
+    const headers = await this.buildAuthHeaders(
+      'GET',
+      this.config.userinfoEndpoint,
+      accessToken,
+    );
     const response = await this.transport.request<Record<string, unknown>>(
       this.config.userinfoEndpoint,
-      { headers: { Authorization: `Bearer ${accessToken}` } },
+      { headers },
     );
     return response.data;
   }
@@ -611,9 +646,12 @@ export class DefaultAuthClient implements AuthClient {
     if (!accessToken) return false;
     if (!this.config.userinfoEndpoint) return this.isAuthenticated();
     try {
-      await this.transport.request(this.config.userinfoEndpoint, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
+      const headers = await this.buildAuthHeaders(
+        'GET',
+        this.config.userinfoEndpoint,
+        accessToken,
+      );
+      await this.transport.request(this.config.userinfoEndpoint, { headers });
       return true;
     } catch {
       this.session = null;
@@ -812,9 +850,10 @@ export class DefaultAuthClient implements AuthClient {
     if (!accessToken) {
       throw new AuthError(AuthErrorCode.INVALID_CONFIG, 'Not authenticated');
     }
-    await this.transport.request(`${this.config.baseUrl}/v2/me/password`, {
+    const url = `${this.config.baseUrl}/v2/me/password`;
+    await this.transport.request(url, {
       method: 'PATCH',
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: await this.buildAuthHeaders('PATCH', url, accessToken),
       body: {
         oldPassword: options.oldPassword,
         newPassword: options.newPassword,
@@ -1037,10 +1076,13 @@ export class DefaultAuthClient implements AuthClient {
       // code_verifier + the one-shot `code` itself; no cookie ride-along is
       // ever needed. Omitting `credentials: 'include'` means a misrouted
       // tokenEndpoint can't pull every ambient cookie for that origin.
+      // With DPoP enabled, the proof here is what binds the issued token to
+      // our key (cnf.jkt).
       const response = await this.transport.request<Record<string, unknown>>(
         this.config.tokenEndpoint,
         {
           method: 'POST',
+          headers: await this.tokenRequestDpopHeaders(),
           body: body.toString(),
         },
       );
@@ -1098,11 +1140,13 @@ export class DefaultAuthClient implements AuthClient {
     // from pulling every ambient cookie alongside the refresh token. We only
     // ride cookies along when no token is in storage and the kernel-issued
     // `__Host-nuria_rt` cookie is the only way to identify the session.
+    // Re-bind the rotated token to the same DPoP key (fresh proof per request).
     const response = await this.transport.request<Record<string, unknown>>(
       this.config.tokenEndpoint,
       {
         method: 'POST',
         credentials: refreshToken ? undefined : 'include',
+        headers: await this.tokenRequestDpopHeaders(),
         body: body.toString(),
         timeoutMs: 10_000,
       },

@@ -241,7 +241,31 @@ export interface AuthConfig {
    * Either field can be omitted to fall back to its default.
    */
   loginMethods?: LoginMethodsConfigInput;
+  /**
+   * Enables DPoP (RFC 9449) sender-constrained access tokens. When set, the
+   * SDK attaches a DPoP proof to its token requests — so the kernel binds the
+   * issued token to this key via `cnf.jkt` — and presents the bound token on
+   * resource requests under the `DPoP` auth scheme with a fresh `ath` proof.
+   * Create one with `createDpopSigner()` (optionally persisted across reloads
+   * via `persistDpopSigner`/`loadDpopSigner`). Left unset, tokens are plain
+   * Bearer tokens exactly as before.
+   */
+  dpop?: DpopProofSigner;
   now?: () => number;
+}
+
+/**
+ * The DPoP capability the auth client depends on — the subset of
+ * {@link DpopSigner} it calls. Typed structurally so a custom signer can be
+ * supplied without importing the concrete class.
+ */
+export interface DpopProofSigner {
+  createProof(params: {
+    htm: string;
+    htu: string;
+    accessToken?: string;
+  }): Promise<string>;
+  getThumbprint(): Promise<string>;
 }
 
 export interface ResolvedAuthConfig extends AuthConfig {

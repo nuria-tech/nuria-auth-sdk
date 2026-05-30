@@ -28,6 +28,18 @@ export class DefaultAccountClient implements AccountClient {
     private readonly baseUrl: string,
     private readonly transport: AuthTransport,
     private readonly getAccessToken: () => Promise<string | null>,
+    /**
+     * Builds the auth headers for a request. Injected by the owning auth
+     * client so DPoP-bound sessions present the `DPoP` scheme + proof; falls
+     * back to a plain Bearer header when omitted.
+     */
+    private readonly buildAuthHeaders: (
+      method: string,
+      url: string,
+      accessToken: string,
+    ) => Promise<Record<string, string>> = async (_m, _u, token) => ({
+      Authorization: `Bearer ${token}`,
+    }),
   ) {}
 
   // ── Two-factor (TOTP) ────────────────────────────────────────────────
