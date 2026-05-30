@@ -630,11 +630,67 @@ interface AuthClient {
   loginWithGoogleCode(options: GoogleCodeLoginOptions): Promise<Session>;
   /** Direct password login against /v2/login. Portal-only — consumer SPAs should use startLogin (OAuth + PKCE). */
   loginWithPassword(options: PasswordLoginOptions): Promise<Session>;
+  /** Passwordless passkey (WebAuthn) login. Drives navigator.credentials.get() then mints a session. Browser only. */
+  loginWithPasskey(options?: PasskeyLoginOptions): Promise<Session>;
   resetPassword(options: { email: string }): Promise<void>;
   recoverPassword(options: { token: string; newPassword: string }): Promise<void>;
   changePassword(options: { oldPassword: string; newPassword: string }): Promise<void>;
   /** Static, synchronous — returns the resolved loginMethods from createAuthClient (defaults applied). */
   getLoginMethods(): LoginMethodsConfig;
+
+  // ── Federated OIDC IdP login (v7) ──────────────────────────────────
+  /** Lists the configured OIDC identity providers (GET /v2/login/oidc/providers). */
+  listOidcProviders(): Promise<OidcProvider[]>;
+  /** SP-initiated OIDC login: fetches the authorize URL and redirects. */
+  startOidcLogin(options: OidcLoginOptions): Promise<void>;
+  /** Reads the access token from the callback URL fragment and mints a session. */
+  handleOidcCallback(callbackUrl?: string): Promise<Session>;
+
+  // ── Step-up authentication (RFC 8176) (v7) ─────────────────────────
+  /** The session's acr/amr/auth_time, or null when unauthenticated. */
+  getAssurance(): AssuranceLevel | null;
+  /** True when the session already meets requiredAcr (+ optional max-age freshness). */
+  satisfiesStepUp(requiredAcr?: string, maxAgeSeconds?: number): boolean;
+  /** Forces a stronger/fresher re-auth via acr_values + max_age + prompt=login. */
+  stepUp(options?: StepUpOptions): Promise<void>;
+
+  // ── Device authorization verification (RFC 8628) ───────────────────
+  lookupDeviceUserCode(userCode: string): Promise<DeviceUserCodeLookup>;
+  approveDeviceUserCode(userCode: string): Promise<void>;
+  denyDeviceUserCode(userCode: string): Promise<void>;
+
+  /**
+   * Self-service account management for the signed-in subject: 2FA (TOTP),
+   * passkeys, OAuth consents, known devices, federated-identity links and
+   * LGPD data rights. Bearer-authenticated against the current session.
+   */
+  readonly account: AccountClient;
+}
+
+interface AccountClient {
+  // Two-factor (TOTP)
+  getTwoFactorStatus(): Promise<TwoFactorStatus>;
+  enrollTotp(): Promise<TotpEnrollment>;
+  confirmTotp(code: string): Promise<void>;
+  disableTotp(): Promise<void>;
+  // Passkeys (WebAuthn / FIDO2)
+  listPasskeys(): Promise<PasskeyInfo[]>;
+  enrollPasskey(name?: string): Promise<void>; // begin → navigator.credentials.create() → finish
+  deletePasskey(credentialId: string): Promise<void>;
+  // OAuth consents
+  listConsents(): Promise<ConsentInfo[]>;
+  revokeConsent(clientId: string): Promise<void>;
+  // Known devices
+  listDevices(): Promise<DeviceInfo[]>;
+  trustDevice(deviceKey: string): Promise<void>;
+  untrustDevice(deviceKey: string): Promise<void>;
+  forgetDevice(deviceKey: string): Promise<void>;
+  // Federated identity links
+  listIdentities(): Promise<FederatedIdentityInfo[]>;
+  unlinkIdentity(provider: string): Promise<void>;
+  // LGPD data-subject rights
+  exportData(): Promise<DataExport>;
+  eraseAccount(confirmEmail: string): Promise<void>;
 }
 
 interface LoginMethodsConfig {
@@ -647,6 +703,67 @@ interface LoginCodeChallengeOptions {
   channel?: 'email' | 'sms';
   purpose?: string;
 }
+```
+
+## v7 features
+
+All v7 additions are **non-breaking** over the v6 surface — opt in only where you need them.
+
+### Passkeys (WebAuthn / FIDO2)
+
+```ts
+import { isPlatformAuthenticatorAvailable } from '@nuria-tech/auth-sdk';
+
+// Enroll a passkey for the signed-in user (begin → create() → finish):
+if (await isPlatformAuthenticatorAvailable()) {
+  await auth.account.enrollPasskey('My Laptop');
+}
+const passkeys = await auth.account.listPasskeys();
+await auth.account.deletePasskey(passkeys[0].credentialId);
+
+// Passwordless login (portal): begin → get() → finish → session.
+await auth.loginWithPasskey({ email: 'me@nuria.com.br' }); // omit email for usernameless
+```
+
+### Federated OIDC IdP login
+
+```ts
+const providers = await auth.listOidcProviders(); // [{ key, displayName, ... }]
+// SP-initiated redirect to the IdP:
+await auth.startOidcLogin({
+  provider: 'azuread',
+  returnUrl: 'https://accounts.nuria.com.br/sso/callback',
+});
+// On the returnUrl page (token arrives in the URL fragment, refresh token in the __Host cookie):
+const session = await auth.handleOidcCallback();
+```
+
+### DPoP — sender-constrained tokens (RFC 9449)
+
+```ts
+import { createDpopSigner, persistDpopSigner, loadDpopSigner } from '@nuria-tech/auth-sdk';
+
+// Reuse a stable per-device key across reloads (or createDpopSigner() each session):
+const dpop = (await loadDpopSigner()) ?? await createDpopSigner();
+await persistDpopSigner(dpop);
+
+const auth = createAuthClient({ clientId, redirectUri, dpop });
+// Token requests now carry a binding proof (cnf.jkt); resource + account
+// requests present the token under the `DPoP` scheme with a fresh `ath` proof.
+// Leave `dpop` unset for plain Bearer tokens (unchanged v6 behavior).
+```
+
+### Step-up authentication (RFC 8176)
+
+```ts
+import { ACR_MULTI_FACTOR } from '@nuria-tech/auth-sdk';
+
+// Before a sensitive action, require MFA re-authenticated within 5 minutes:
+if (!auth.satisfiesStepUp(ACR_MULTI_FACTOR, 300)) {
+  await auth.stepUp({ acr: ACR_MULTI_FACTOR, maxAgeSeconds: 300 });
+  // → redirect; complete with handleRedirectCallback() on return
+}
+auth.getAssurance(); // { acr, amr: ['pwd','otp'], authTime }
 ```
 
 ## CI and publish

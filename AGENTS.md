@@ -27,9 +27,11 @@ src/
   client/
     create-client.ts              # createAuthClient() factory with defaults
     nuria-auth-client.ts          # DefaultAuthClient implementation
+    account-client.ts             # DefaultAccountClient — v7 auth.account namespace (/v2/me/*)
   core/
     types.ts                      # All public TypeScript interfaces
     pkce.ts                       # PKCE S256 challenge/verifier
+    base64url.ts                  # base64UrlEncode/Decode — shared by WebAuthn + DPoP
     utils.ts                      # STORAGE_KEYS, normalizeTokenSet(), helpers
   errors/auth-error.ts            # AuthError class + AuthErrorCode enum
   storage/
@@ -45,6 +47,9 @@ src/
     google.ts                     # renderGoogleSignInButton(), promptGoogleOneTap(), cancelGooglePrompt(), disableGoogleAutoSelect() — wraps `google.accounts.id` (Sign in with Google / FedCM); validates id_token nonce client-side. Custom-button consumers should use `google-oauth2.ts#createGoogleCodeClient` instead — Google's id namespace explicitly forbids programmatic activation from custom buttons, and the previous overlay workaround (`attachCustomGoogleButton`, removed in 5.0.0) was unreliable under FedCM cooldown / personalized-iframe layout shifts
     google-oauth2.ts              # createGoogleCodeClient() — wraps `google.accounts.oauth2.initCodeClient`; OAuth 2.0 Authorization Code flow with popup (or redirect) UX. Custom buttons are officially supported here (unlike `google.accounts.id`). Returns an auth code via JS callback; consumer forwards to backend for `/token` exchange. SDK validates the `state` round-trip with `timingSafeEqual`
     aws.ts                        # startAwsLogin(), parseAwsQueryCallback() — Authorization Code + PKCE for AWS IAM Identity Center; per-state PKCE bag in sessionStorage
+    webauthn.ts                   # (v7) createPasskeyCredential()/getPasskeyAssertion() — navigator.credentials glue + support probes; kernel does all WebAuthn verification
+    dpop.ts                       # (v7) DpopSigner, createDpopSigner/persist/load — RFC 9449 proofs (ES256, RFC 7638 jkt); IndexedDB-persisted non-extractable key
+    step-up.ts                    # (v7) ACR/AMR constants + deriveAcr/satisfiesAcr/satisfiesMaxAge/readAssurance — mirrors kernel StepUpPolicy
   react/                          # useAuthSession, AuthProvider, useAuth
   vue/                            # useAuthSession (Vue 3 composable)
   nuxt/                           # createNuxtAuthClient(), createNuxtCookieStorageAdapter()
@@ -134,6 +139,26 @@ flow were dropped in v6 (see CHANGELOG).
 | `globalLogout({ returnTo? })` | `logoutEndpoint` (configurable) | Calls `logout()` then redirects to server logout |
 | `revokeSession()` | `POST /v2/logout` | Best-effort server revoke of the current refresh token; does **not** clear the local session. Pair with `logout()` for full sign-out without a redirect. Errors are swallowed so callers' local cleanup always proceeds. |
 | `revokeAllSessions()` | `POST /v2/logout/global` | Best-effort **SSO-portal** sign-out: Bearer-auth, revokes every refresh token of the authenticated subject (all devices, all OAuth apps). Does NOT clear local session and does NOT affect dev tokens (separate revocation trail keyed by JTI). Use this in accounts.nuria.com.br; per-app integrations stay with `revokeSession`. |
+| `loginWithPasskey({ email? })` *(v7)* | `POST /v2/login/passkey/begin\|finish` | Passwordless WebAuthn. Drives `navigator.credentials.get()` between begin/finish; usernameless when `email` omitted. Browser only. |
+| `listOidcProviders()` *(v7)* | `GET /v2/login/oidc/providers` | Public list of configured federated OIDC IdPs. |
+| `startOidcLogin({ provider, returnUrl? })` *(v7)* | `GET /v2/login/oidc/{provider}/begin` → redirect | SP-initiated; fetches the authorize URL and redirects. Kernel does the code exchange on its callback. |
+| `handleOidcCallback(callbackUrl?)` *(v7)* | — (reads URL fragment) | Reads `#access_token`/`expires_at` from the callback fragment → session. Refresh token is in the `__Host` cookie (silent refresh rides it via `credentials: 'include'`). |
+| `stepUp({ acr?, maxAgeSeconds?, scopes? })` *(v7)* | redirects to authorize endpoint | Forces re-auth with `acr_values` + `max_age` + `prompt=login`. Pair with `satisfiesStepUp()` / `getAssurance()` (RFC 8176; mirrors kernel `StepUpPolicy`). |
+
+### v7 surface notes
+
+- **`auth.account`** — self-service management over `/v2/me/*`: TOTP, passkeys
+  (`enrollPasskey`/`listPasskeys`/`deletePasskey`), consents, devices,
+  federated identities, LGPD export/erase. Bearer-auth via the shared
+  `getAccessToken`.
+- **DPoP (RFC 9449)** — opt in with `createAuthClient({ dpop: createDpopSigner() })`.
+  Token requests attach a binding proof (kernel stamps `cnf.jkt`); resource +
+  account requests switch from `Authorization: Bearer` to `DPoP <token>` plus a
+  fresh `ath`-bound proof header. The `buildAuthHeaders` choke point in
+  `DefaultAuthClient` (injected into `DefaultAccountClient`) is the single place
+  the scheme is decided. Unset = plain Bearer, byte-for-byte v6 behavior.
+- **base64url** — `base64UrlEncode`/`base64UrlDecode` in `core/base64url.ts` is
+  the shared choke point for WebAuthn + DPoP binary↔string conversions.
 
 The challenge body carries only `email`, `channel`, and `purpose` — no
 client-supplied `destination`. The kernel always resolves the OTP

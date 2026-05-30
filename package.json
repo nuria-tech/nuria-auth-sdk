@@ -1,7 +1,7 @@
 {
   "name": "@nuria-tech/auth-sdk",
-  "version": "6.0.0",
-  "description": "Browser OAuth 2.1 (Authorization Code + PKCE) client SDK. Google login uses Google Identity Services (FedCM); AWS IAM Identity Center uses code+PKCE; password and 2FA login also supported.",
+  "version": "7.0.0",
+  "description": "Browser OAuth 2.1 (Authorization Code + PKCE) client SDK. Google login uses Google Identity Services (FedCM); AWS IAM Identity Center and federated OIDC IdPs use code+PKCE; password, 2FA, and passwordless passkey (WebAuthn) login supported; optional DPoP sender-constrained tokens and step-up auth; self-service account management.",
   "license": "MIT",
   "author": "Nuria Tech",
   "keywords": [
@@ -10,7 +10,10 @@
     "pkce",
     "oidc",
     "authentication",
-    "sdk"
+    "sdk",
+    "webauthn",
+    "passkey",
+    "dpop"
   ],
   "repository": {
     "type": "git",

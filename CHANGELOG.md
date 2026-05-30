@@ -4,25 +4,60 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased] — v7 (additive, non-breaking)
+## [7.0.0] - 2026-05-30 — additive, non-breaking over v6
+
+Every v7 addition is opt-in; the entire v6 surface is unchanged. The major
+bump reflects the size of the new surface, not any removal.
 
 ### Added — self-service account management (`auth.account`)
 
 A new `account` namespace on the auth client wrapping the kernel's
-`/v2/me/*` endpoints. Purely additive — the entire v6 surface is unchanged.
+`/v2/me/*` endpoints.
 
 - **2FA (TOTP):** `getTwoFactorStatus`, `enrollTotp`, `confirmTotp`, `disableTotp`.
+- **Passkeys (WebAuthn/FIDO2):** `listPasskeys`, `enrollPasskey`, `deletePasskey`.
 - **OAuth consents:** `listConsents`, `revokeConsent`.
 - **Known devices:** `listDevices`, `trustDevice`, `untrustDevice`, `forgetDevice`.
 - **Federated identities:** `listIdentities`, `unlinkIdentity`.
 - **LGPD data rights:** `exportData`, `eraseAccount`.
 
-New exported types: `AccountClient`, `TwoFactorStatus`, `TotpEnrollment`,
-`ConsentInfo`, `DeviceInfo`, `FederatedIdentityInfo`, `DataExport`.
+### Added — passkeys (WebAuthn / FIDO2)
 
-> Still planned for the v7 release: passkey (WebAuthn) enrollment +
-> passwordless login, OIDC IdP login helper, DPoP sender-constrained
-> tokens, and step-up auth. The version bump to `7.0.0` lands with those.
+- `auth.loginWithPasskey(options?)` — passwordless login over
+  `/v2/login/passkey/begin|finish` (usernameless when `email` is omitted).
+- `auth.account.enrollPasskey/listPasskeys/deletePasskey`.
+- Browser glue: `createPasskeyCredential`, `getPasskeyAssertion`,
+  `isWebAuthnSupported`, `isPlatformAuthenticatorAvailable`, plus
+  `base64UrlEncode`/`base64UrlDecode`.
+
+### Added — federated OIDC IdP login
+
+- `auth.listOidcProviders()`, `auth.startOidcLogin({ provider, returnUrl })`,
+  `auth.handleOidcCallback()` (reads the access token from the callback URL
+  fragment; refresh token stays in the `__Host` cookie).
+
+### Added — DPoP sender-constrained tokens (RFC 9449)
+
+- `createDpopSigner`, `persistDpopSigner`, `loadDpopSigner`, `DpopSigner`
+  (ES256 key, RFC 7638 `jkt` thumbprint, `dpop+jwt` proofs, IndexedDB
+  persistence).
+- Opt in via `createAuthClient({ dpop })`: token requests attach a binding
+  proof; resource + account requests present the bound token under the `DPoP`
+  scheme with a fresh `ath` proof. Unset → plain Bearer (unchanged).
+
+### Added — step-up authentication (RFC 8176)
+
+- `auth.getAssurance()`, `auth.satisfiesStepUp(requiredAcr, maxAgeSeconds?)`,
+  `auth.stepUp(options?)`.
+- Pure helpers mirroring the kernel `StepUpPolicy`: `ACR_*`/`AMR_*` constants,
+  `deriveAcr`, `satisfiesAcr`, `satisfiesMaxAge`, `readAssurance`.
+- `acr`, `amr`, `auth_time` added to `TokenClaims`.
+
+New exported types: `AccountClient`, `TwoFactorStatus`, `TotpEnrollment`,
+`ConsentInfo`, `DeviceInfo`, `FederatedIdentityInfo`, `DataExport`,
+`PasskeyInfo`, `PasskeyLoginOptions`, `OidcProvider`, `OidcLoginOptions`,
+`AssuranceLevel`, `StepUpOptions`, `DpopProofSigner`, `DpopProofParams`,
+`DpopPersistenceOptions`, and the WebAuthn option/result shapes.
 
 ## [6.0.0] - 2026-05-05
 
