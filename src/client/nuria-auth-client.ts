@@ -9,6 +9,7 @@ import type {
   LoginCodeChallengeOptions,
   LoginMethodsConfig,
   LogoutOptions,
+  PasskeyLoginOptions,
   PasswordLoginOptions,
   ResolvedAuthConfig,
   Session,
@@ -30,6 +31,10 @@ import {
 import { AuthError, AuthErrorCode } from '../errors/auth-error';
 import { MemoryStorageAdapter } from '../storage/memory-storage-adapter';
 import { FetchAuthTransport } from '../transport/fetch-transport';
+import {
+  getPasskeyAssertion,
+  type PasskeyAuthenticationOptionsJSON,
+} from '../utils/webauthn';
 import { DefaultAccountClient } from './account-client';
 
 const BROADCAST_CHANNEL_NAME = 'nuria:auth:sync';
@@ -847,6 +852,35 @@ export class DefaultAuthClient implements AuthClient {
           email: options.email,
           password: options.password,
         },
+      },
+    );
+    const tokens = normalizeTokenSet(response.data, this.now);
+    return this.createSession(tokens);
+  }
+
+  /**
+   * Passwordless passkey login. Runs the WebAuthn assertion ceremony between
+   * the kernel's begin/finish endpoints, then mints a session. Sends an
+   * `email` only to scope the credential list; usernameless when omitted.
+   */
+  async loginWithPasskey(options: PasskeyLoginOptions = {}): Promise<Session> {
+    const email = options.email?.trim();
+    const begin =
+      await this.transport.request<PasskeyAuthenticationOptionsJSON>(
+        `${this.config.baseUrl}/v2/login/passkey/begin`,
+        {
+          method: 'POST',
+          credentials: 'include',
+          body: email ? { email } : {},
+        },
+      );
+    const assertion = await getPasskeyAssertion(begin.data);
+    const response = await this.transport.request<Record<string, unknown>>(
+      `${this.config.baseUrl}/v2/login/passkey/finish`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        body: assertion,
       },
     );
     const tokens = normalizeTokenSet(response.data, this.now);

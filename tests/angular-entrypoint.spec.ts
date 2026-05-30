@@ -32,6 +32,10 @@ function createMockAuth() {
       tokens: { accessToken: 'token-from-password' },
       createdAt: Date.now(),
     })),
+    loginWithPasskey: vi.fn(async () => ({
+      tokens: { accessToken: 'token-from-passkey' },
+      createdAt: Date.now(),
+    })),
     handleRedirectCallback: vi.fn(async () => {
       throw new Error('not used');
     }),

@@ -52,6 +52,18 @@ export {
   type StartAwsLoginOptions,
   type AwsCallbackResult,
 } from './utils/aws';
+export {
+  isWebAuthnSupported,
+  isPlatformAuthenticatorAvailable,
+  createPasskeyCredential,
+  getPasskeyAssertion,
+  type PasskeyRegistrationOptionsJSON,
+  type PasskeyAuthenticationOptionsJSON,
+  type PasskeyAttestationJSON,
+  type PasskeyAssertionJSON,
+  type PublicKeyCredentialDescriptorJSON,
+} from './utils/webauthn';
+export { base64UrlEncode, base64UrlDecode } from './core/base64url';
 
 export type {
   AccountClient,
@@ -77,6 +89,8 @@ export type {
   LoginMethodsConfig,
   LoginMethodsConfigInput,
   LogoutOptions,
+  PasskeyInfo,
+  PasskeyLoginOptions,
   PasswordLoginOptions,
   VerifyLoginCodeOptions,
   TwoFactorChallenge,

@@ -6,10 +6,15 @@ import type {
   DataExport,
   DeviceInfo,
   FederatedIdentityInfo,
+  PasskeyInfo,
   TotpEnrollment,
   TwoFactorStatus,
 } from '../core/types';
 import { AuthError, AuthErrorCode } from '../errors/auth-error';
+import {
+  createPasskeyCredential,
+  type PasskeyRegistrationOptionsJSON,
+} from '../utils/webauthn';
 
 /**
  * Implements the v7 {@link AccountClient} surface. Thin Bearer-authenticated
@@ -94,12 +99,40 @@ export class DefaultAccountClient implements AccountClient {
     });
   }
 
+  // ── Passkeys (WebAuthn / FIDO2) ──────────────────────────────────────
+
+  async listPasskeys(): Promise<PasskeyInfo[]> {
+    const data = await this.authed<PasskeyInfo[]>('/v2/me/passkeys');
+    return Array.isArray(data) ? data : [];
+  }
+
+  async enrollPasskey(name?: string): Promise<void> {
+    // begin → navigator.credentials.create() → finish. The challenge is
+    // single-use and bound to this subject server-side, so the whole dance
+    // must complete on one in-flight session.
+    const options = await this.authed<PasskeyRegistrationOptionsJSON>(
+      '/v2/me/passkeys/register/begin',
+      { method: 'POST', body: name?.trim() ? { name: name.trim() } : {} },
+    );
+    const attestation = await createPasskeyCredential(options, name);
+    await this.authed('/v2/me/passkeys/register/finish', {
+      method: 'POST',
+      body: attestation,
+    });
+  }
+
+  async deletePasskey(credentialId: string): Promise<void> {
+    const id = requireValue(credentialId, 'credentialId');
+    await this.authed(`/v2/me/passkeys/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  }
+
   // ── Federated identity links ─────────────────────────────────────────
 
   async listIdentities(): Promise<FederatedIdentityInfo[]> {
-    const data = await this.authed<FederatedIdentityInfo[]>(
-      '/v2/me/identities',
-    );
+    const data =
+      await this.authed<FederatedIdentityInfo[]>('/v2/me/identities');
     return Array.isArray(data) ? data : [];
   }
 

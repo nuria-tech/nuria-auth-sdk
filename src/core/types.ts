@@ -325,6 +325,14 @@ export interface AuthClient {
    * sees a single sign-in surface across apps.
    */
   loginWithPassword(options: PasswordLoginOptions): Promise<Session>;
+  /**
+   * Passwordless passkey (WebAuthn) login against
+   * `/v2/login/passkey/begin|finish`. Drives `navigator.credentials.get()`
+   * and, on success, establishes a session exactly like the other login
+   * methods. Intended for the SSO portal; consumer SPAs should use
+   * `startLogin()`. Requires a browser with WebAuthn support.
+   */
+  loginWithPasskey(options?: PasskeyLoginOptions): Promise<Session>;
   resetPassword(options: { email: string }): Promise<void>;
   recoverPassword(options: {
     token: string;
@@ -405,6 +413,27 @@ export interface TwoFactorStatus {
   totpEnabled: boolean;
 }
 
+/** A registered passkey as returned by `GET /v2/me/passkeys`. */
+export interface PasskeyInfo {
+  credentialId: string;
+  name?: string;
+  /** Authenticator model id (AAGUID), when the authenticator disclosed one. */
+  aaguid?: string;
+  createdAt: string;
+  lastUsedAt?: string;
+}
+
+/** Options for passwordless passkey login (`AuthClient.loginWithPasskey`). */
+export interface PasskeyLoginOptions {
+  /**
+   * Email to scope the credential lookup to. Omit for a usernameless flow —
+   * the authenticator offers any resident credential for the RP and the
+   * kernel resolves the subject from the assertion (avoids account
+   * enumeration on the begin call).
+   */
+  email?: string;
+}
+
 /**
  * One-time TOTP enrollment material. The plaintext `secret` and `otpauthUri`
  * are returned only at enrollment start (render the QR / manual key) and never
@@ -452,6 +481,19 @@ export interface AccountClient {
   trustDevice(deviceKey: string): Promise<void>;
   untrustDevice(deviceKey: string): Promise<void>;
   forgetDevice(deviceKey: string): Promise<void>;
+
+  // ── Passkeys (WebAuthn / FIDO2) ────────────────────────────────────
+  /** Lists the passkeys registered to the signed-in user. */
+  listPasskeys(): Promise<PasskeyInfo[]>;
+  /**
+   * Registers a new passkey for the signed-in user. Drives
+   * `navigator.credentials.create()` between the kernel's begin/finish
+   * calls; `name` is an optional friendly label. Requires a browser with
+   * WebAuthn support and a valid session.
+   */
+  enrollPasskey(name?: string): Promise<void>;
+  /** Removes a registered passkey by its credential id. */
+  deletePasskey(credentialId: string): Promise<void>;
 
   // ── Federated identity links ───────────────────────────────────────
   listIdentities(): Promise<FederatedIdentityInfo[]>;

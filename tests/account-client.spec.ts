@@ -145,6 +145,28 @@ describe('AccountClient (v7)', () => {
     expect(forgetReq.method).toBe('DELETE');
   });
 
+  it('listPasskeys returns the array and tolerates a non-array payload', async () => {
+    const transport = makeTransport([
+      { credentialId: 'AAAA', name: 'YubiKey', createdAt: '2026-01-01' },
+    ]);
+    const client = await authedClient(transport);
+    const passkeys = await client.account.listPasskeys();
+    expect(lastCall(transport)[0]).toBe(
+      'https://auth.example.com/v2/me/passkeys',
+    );
+    expect(passkeys).toHaveLength(1);
+    expect(passkeys[0]!.name).toBe('YubiKey');
+  });
+
+  it('deletePasskey DELETEs the url-encoded credential id', async () => {
+    const transport = makeTransport({ success: true });
+    const client = await authedClient(transport);
+    await client.account.deletePasskey('a/b+c');
+    const [url, req] = lastCall(transport);
+    expect(url).toBe('https://auth.example.com/v2/me/passkeys/a%2Fb%2Bc');
+    expect(req.method).toBe('DELETE');
+  });
+
   it('eraseAccount POSTs the confirmEmail interlock', async () => {
     const transport = makeTransport({ success: true });
     const client = await authedClient(transport);
