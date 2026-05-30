@@ -2,6 +2,7 @@ import { createCodeChallenge, randomString } from '../core/pkce';
 import type {
   AccountClient,
   ActorClaim,
+  AssuranceLevel,
   AuthClient,
   AuthTransport,
   DeviceUserCodeLookup,
@@ -16,6 +17,7 @@ import type {
   ResolvedAuthConfig,
   Session,
   StartLoginOptions,
+  StepUpOptions,
   TokenClaims,
   TokenSet,
   TwoFactorChallenge,
@@ -33,6 +35,12 @@ import {
 import { AuthError, AuthErrorCode } from '../errors/auth-error';
 import { MemoryStorageAdapter } from '../storage/memory-storage-adapter';
 import { FetchAuthTransport } from '../transport/fetch-transport';
+import {
+  ACR_MULTI_FACTOR,
+  readAssurance,
+  satisfiesAcr,
+  satisfiesMaxAge,
+} from '../utils/step-up';
 import {
   getPasskeyAssertion,
   type PasskeyAuthenticationOptionsJSON,
@@ -602,6 +610,40 @@ export class DefaultAuthClient implements AuthClient {
       name: typeof name === 'string' ? name : undefined,
       email: typeof email === 'string' ? email : undefined,
     };
+  }
+
+  getAssurance(): AssuranceLevel | null {
+    if (!this.session) return null;
+    return readAssurance(this.getClaims());
+  }
+
+  satisfiesStepUp(requiredAcr?: string, maxAgeSeconds?: number): boolean {
+    const assurance = this.getAssurance();
+    if (!assurance) return false;
+    return (
+      satisfiesAcr(assurance.acr, requiredAcr) &&
+      satisfiesMaxAge(
+        assurance.authTime,
+        maxAgeSeconds,
+        Math.floor(this.now() / 1000),
+      )
+    );
+  }
+
+  async stepUp(options: StepUpOptions = {}): Promise<void> {
+    const extraParams: Record<string, string> = {
+      acr_values: options.acr ?? ACR_MULTI_FACTOR,
+    };
+    if (options.maxAgeSeconds !== undefined) {
+      extraParams.max_age = String(options.maxAgeSeconds);
+    }
+    // prompt=login forces the IdP to re-run the login UI even under a warm
+    // SSO session, so the user actually performs the stronger/fresher factor.
+    await this.startLogin({
+      prompt: 'login',
+      scopes: options.scopes,
+      extraParams,
+    });
   }
 
   hasRole(role: string): boolean {

@@ -68,6 +68,19 @@ export interface TokenClaims {
   groups?: string | string[];
   auth_provider?: string;
   /**
+   * OIDC Authentication Context Class Reference (RFC 8176 / step-up). Nuria
+   * emits `urn:nuria:acr:1` (single-factor) or `urn:nuria:acr:2`
+   * (multi-factor). Absent on refresh/app-minted tokens.
+   */
+  acr?: string;
+  /**
+   * OIDC Authentication Method References (RFC 8176): the methods used this
+   * session, e.g. `["pwd","otp"]` or `["hwk","mfa"]`. String or array form.
+   */
+  amr?: string | string[];
+  /** Epoch seconds of the original authentication event (OIDC `auth_time`). */
+  auth_time?: number;
+  /**
    * RFC 8693 §4.1 actor claim — present only on tokens minted via the
    * support-impersonation flow. See {@link ActorClaim}.
    */
@@ -324,6 +337,27 @@ export interface AuthClient {
   onAuthStateChanged(handler: (session: Session | null) => void): () => void;
   getClaims(): TokenClaims | null;
   /**
+   * Returns the assurance the current session carries — its `acr`, `amr` and
+   * `auth_time` — or `null` when there is no session. Client-side convenience
+   * for UI gating; the kernel is the authoritative gate.
+   */
+  getAssurance(): AssuranceLevel | null;
+  /**
+   * True when the current session already satisfies a step-up requirement:
+   * its `acr` is at least `requiredAcr` AND (if `maxAgeSeconds` is given) the
+   * authentication is fresh enough. Use it to decide whether a sensitive
+   * action can proceed or {@link stepUp} must run first. Mirrors the kernel's
+   * `StepUpPolicy`; a session with no assurance only meets "no requirement".
+   */
+  satisfiesStepUp(requiredAcr?: string, maxAgeSeconds?: number): boolean;
+  /**
+   * Forces a higher-assurance (or fresher) re-authentication by starting an
+   * authorization request with `acr_values` + `max_age` and `prompt=login`.
+   * Drives the same redirect as {@link startLogin}; complete it with
+   * {@link handleRedirectCallback}.
+   */
+  stepUp(options?: StepUpOptions): Promise<void>;
+  /**
    * Returns the RFC 8693 `act` claim when the current session was minted
    * through support impersonation, or `null` for regular sessions and
    * malformed payloads. UI surfaces should use this to render an
@@ -460,6 +494,35 @@ export interface FederatedIdentityInfo {
 
 export interface TwoFactorStatus {
   totpEnabled: boolean;
+}
+
+/**
+ * The assurance a session carries (OIDC `acr`/`amr`/`auth_time`, RFC 8176),
+ * distilled from its token claims by {@link AuthClient.getAssurance}.
+ */
+export interface AssuranceLevel {
+  /** `urn:nuria:acr:1` | `urn:nuria:acr:2` | undefined. */
+  acr?: string;
+  /** Methods used this session (normalized to an array), e.g. `["pwd","otp"]`. */
+  amr: string[];
+  /** Epoch seconds of the original auth event, when present. */
+  authTime?: number;
+}
+
+/** Options for {@link AuthClient.stepUp}. */
+export interface StepUpOptions {
+  /**
+   * Required assurance to step up to. Defaults to `urn:nuria:acr:2`
+   * (multi-factor). Forwarded to the authorize request as `acr_values`.
+   */
+  acr?: string;
+  /**
+   * Maximum acceptable age (seconds) of the authentication. Forwarded as
+   * `max_age`, forcing a fresh login when the current session is older.
+   */
+  maxAgeSeconds?: number;
+  /** Scopes to request on the step-up authorization (defaults to config). */
+  scopes?: string[];
 }
 
 /** A configured federated OIDC IdP as returned by `GET /v2/login/oidc/providers`. */

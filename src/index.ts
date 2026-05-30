@@ -72,6 +72,20 @@ export {
   type DpopProofParams,
   type DpopPersistenceOptions,
 } from './utils/dpop';
+export {
+  ACR_SINGLE_FACTOR,
+  ACR_MULTI_FACTOR,
+  AMR_PASSWORD,
+  AMR_OTP,
+  AMR_SMS,
+  AMR_MFA,
+  AMR_HARDWARE_KEY,
+  AMR_PIN,
+  deriveAcr,
+  satisfiesAcr,
+  satisfiesMaxAge,
+  readAssurance,
+} from './utils/step-up';
 
 export type {
   AccountClient,
@@ -79,10 +93,12 @@ export type {
   AuthTransport,
   AuthTransportRequest,
   AuthTransportResponse,
+  AssuranceLevel,
   AuthClient,
   AuthConfig,
   DpopProofSigner,
   ConsentInfo,
+  StepUpOptions,
   DataExport,
   DeviceInfo,
   DeviceUserCodeLookup,

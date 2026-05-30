@@ -162,10 +162,9 @@ describe('AuthClient + DPoP', () => {
     const transport = makeTransport({ sub: 'u1' });
     const client = await authedClient(transport);
     await client.getUserinfo();
-    const [, req] = transport.request.mock.calls.at(-1)! as [
-      string,
-      AuthTransportRequest,
-    ];
+    const [, req] = transport.request.mock.calls[
+      transport.request.mock.calls.length - 1
+    ]! as [string, AuthTransportRequest];
     expect(req.headers).toEqual({ Authorization: 'Bearer tok-abc' });
   });
 
@@ -175,10 +174,9 @@ describe('AuthClient + DPoP', () => {
     const client = await authedClient(transport, { dpop });
 
     await client.getUserinfo();
-    const [url, req] = transport.request.mock.calls.at(-1)! as [
-      string,
-      AuthTransportRequest,
-    ];
+    const [url, req] = transport.request.mock.calls[
+      transport.request.mock.calls.length - 1
+    ]! as [string, AuthTransportRequest];
     const headers = req.headers!;
     expect(headers.Authorization).toBe('DPoP tok-abc');
     expect(headers.DPoP).toBeTruthy();
@@ -193,10 +191,9 @@ describe('AuthClient + DPoP', () => {
     const transport = makeTransport([]);
     const client = await authedClient(transport, { dpop });
     await client.account.listPasskeys();
-    const [, req] = transport.request.mock.calls.at(-1)! as [
-      string,
-      AuthTransportRequest,
-    ];
+    const [, req] = transport.request.mock.calls[
+      transport.request.mock.calls.length - 1
+    ]! as [string, AuthTransportRequest];
     expect(req.headers!.Authorization).toBe('DPoP tok-abc');
     expect(req.headers!.DPoP).toBeTruthy();
   });
