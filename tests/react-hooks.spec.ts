@@ -35,6 +35,12 @@ function createMockAuthClient(): AuthClient {
       tokens: { accessToken: 'token-from-passkey' },
       createdAt: Date.now(),
     })),
+    listOidcProviders: vi.fn(async () => []),
+    startOidcLogin: vi.fn(async () => {}),
+    handleOidcCallback: vi.fn(async () => ({
+      tokens: { accessToken: 'token-from-oidc' },
+      createdAt: Date.now(),
+    })),
     handleRedirectCallback: vi.fn(async () => {
       throw new Error('not used');
     }),

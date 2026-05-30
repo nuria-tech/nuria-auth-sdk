@@ -9,6 +9,8 @@ import type {
   LoginCodeChallengeOptions,
   LoginMethodsConfig,
   LogoutOptions,
+  OidcLoginOptions,
+  OidcProvider,
   PasskeyLoginOptions,
   PasswordLoginOptions,
   ResolvedAuthConfig,
@@ -884,6 +886,130 @@ export class DefaultAuthClient implements AuthClient {
       },
     );
     const tokens = normalizeTokenSet(response.data, this.now);
+    return this.createSession(tokens);
+  }
+
+  async listOidcProviders(): Promise<OidcProvider[]> {
+    const response = await this.transport.request<unknown>(
+      `${this.config.baseUrl}/v2/login/oidc/providers`,
+      { method: 'GET', timeoutMs: 5_000 },
+    );
+    const list = Array.isArray(response.data) ? response.data : [];
+    return list.map((raw) => {
+      const p = (raw ?? {}) as Record<string, unknown>;
+      return {
+        key: String(p.key ?? ''),
+        displayName: String(p.displayName ?? ''),
+        type: String(p.type ?? 'oidc'),
+        beginUrl: String(p.beginUrl ?? ''),
+      };
+    });
+  }
+
+  async startOidcLogin(options: OidcLoginOptions): Promise<void> {
+    const provider = options?.provider?.trim();
+    if (!provider) {
+      throw new AuthError(
+        AuthErrorCode.INVALID_CONFIG,
+        'provider is required for startOidcLogin',
+      );
+    }
+    // returnUrl is forwarded to the kernel, which enforces its own
+    // *.nuria.com.br allowlist. We still reject anything that isn't a valid
+    // absolute URL so a typo can't be silently dropped server-side.
+    if (options.returnUrl !== undefined) {
+      try {
+        new URL(options.returnUrl);
+      } catch {
+        throw new AuthError(
+          AuthErrorCode.INVALID_CONFIG,
+          'returnUrl must be a valid absolute URL',
+        );
+      }
+    }
+
+    const beginUrl = new URL(
+      `${this.config.baseUrl}/v2/login/oidc/${encodeURIComponent(provider)}/begin`,
+    );
+    if (options.returnUrl) {
+      beginUrl.searchParams.set('returnUrl', options.returnUrl);
+    }
+
+    const response = await this.transport.request<{ authorizeUrl?: string }>(
+      beginUrl.toString(),
+      { method: 'GET', timeoutMs: 5_000 },
+    );
+    const authorizeUrl = response.data?.authorizeUrl;
+    if (!authorizeUrl) {
+      throw new AuthError(
+        AuthErrorCode.CALLBACK_ERROR,
+        'OIDC begin did not return an authorize URL',
+      );
+    }
+
+    if (this.config.onRedirect) {
+      await this.config.onRedirect(authorizeUrl);
+      return;
+    }
+    if (typeof window !== 'undefined') {
+      window.location.assign(authorizeUrl);
+      return;
+    }
+    throw new AuthError(
+      AuthErrorCode.INVALID_CONFIG,
+      'Missing onRedirect callback for non-browser runtime',
+    );
+  }
+
+  async handleOidcCallback(callbackUrl?: string): Promise<Session> {
+    const input =
+      callbackUrl ??
+      (typeof window !== 'undefined' ? window.location.href : '');
+    if (!input) {
+      throw new AuthError(
+        AuthErrorCode.CALLBACK_ERROR,
+        'callbackUrl required in non-browser runtime',
+      );
+    }
+
+    const url = parseUrl(input);
+    // The kernel delivers the token in the URL fragment (never the query, so
+    // it is never sent to a server or logged). An IdP/kernel error can also
+    // arrive in the fragment.
+    const fragment = url.hash.startsWith('#') ? url.hash.slice(1) : url.hash;
+    const params = new URLSearchParams(fragment);
+
+    const error = params.get('error');
+    if (error) {
+      const desc = params.get('error_description');
+      throw new AuthError(
+        AuthErrorCode.CALLBACK_ERROR,
+        desc
+          ? `OIDC login error: ${error} — ${desc}`
+          : `OIDC login error: ${error}`,
+      );
+    }
+
+    const accessToken = params.get('access_token');
+    if (!accessToken) {
+      throw new AuthError(
+        AuthErrorCode.CALLBACK_ERROR,
+        'OIDC callback fragment has no access_token',
+      );
+    }
+
+    // No refresh_token here by design — it lives in the __Host cookie. The
+    // session's silent refresh falls back to the cookie (credentials:
+    // 'include') because tokens.refreshToken is undefined.
+    const tokens = normalizeTokenSet(
+      {
+        access_token: accessToken,
+        token_type: params.get('token_type') ?? 'Bearer',
+        expiresAt: params.get('expires_at') ?? undefined,
+        auth_provider: 'oidc',
+      },
+      this.now,
+    );
     return this.createSession(tokens);
   }
 

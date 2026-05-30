@@ -333,6 +333,31 @@ export interface AuthClient {
    * `startLogin()`. Requires a browser with WebAuthn support.
    */
   loginWithPasskey(options?: PasskeyLoginOptions): Promise<Session>;
+  /**
+   * Lists the federated OIDC identity providers the kernel has configured
+   * (`GET /v2/login/oidc/providers`). Render one "Sign in with …" button per
+   * entry and pass its {@link OidcProvider.key} to {@link startOidcLogin}.
+   * Public read — no session required.
+   */
+  listOidcProviders(): Promise<OidcProvider[]>;
+  /**
+   * Starts an SP-initiated login against a federated OIDC IdP. Fetches the
+   * provider's authorize URL (`/v2/login/oidc/{provider}/begin`) — which the
+   * kernel mints with state/nonce/PKCE — and redirects the browser to it.
+   * The kernel handles the code exchange on its callback and redirects back
+   * to `returnUrl` with the access token in the URL fragment; complete the
+   * flow with {@link handleOidcCallback}.
+   */
+  startOidcLogin(options: OidcLoginOptions): Promise<void>;
+  /**
+   * Completes an OIDC IdP login by reading the access token the kernel placed
+   * in the callback URL fragment (`#access_token=…&expires_at=…`) and
+   * establishing a session. The refresh token rides in the `__Host` cookie,
+   * so silent refresh works without it being exposed to JS. Returns the new
+   * session. Throws {@link AuthErrorCode.CALLBACK_ERROR} when the fragment
+   * carries an `error`, or no token is present.
+   */
+  handleOidcCallback(callbackUrl?: string): Promise<Session>;
   resetPassword(options: { email: string }): Promise<void>;
   recoverPassword(options: {
     token: string;
@@ -411,6 +436,31 @@ export interface FederatedIdentityInfo {
 
 export interface TwoFactorStatus {
   totpEnabled: boolean;
+}
+
+/** A configured federated OIDC IdP as returned by `GET /v2/login/oidc/providers`. */
+export interface OidcProvider {
+  /** Stable key used in the begin/callback URLs (e.g. `azuread`, `okta`). */
+  key: string;
+  /** Human-readable label for the "Sign in with …" button. */
+  displayName: string;
+  /** Provider family (currently always `oidc`). */
+  type: string;
+  /** Absolute URL of this provider's begin endpoint. */
+  beginUrl: string;
+}
+
+/** Options for {@link AuthClient.startOidcLogin}. */
+export interface OidcLoginOptions {
+  /** Provider key from {@link OidcProvider.key}. */
+  provider: string;
+  /**
+   * Absolute URL to return to after the IdP round-trip. The kernel only
+   * honors `*.nuria.com.br` destinations; anything else falls back to the
+   * accounts portal. The access token arrives in the URL fragment of this
+   * destination — read it with {@link AuthClient.handleOidcCallback}.
+   */
+  returnUrl?: string;
 }
 
 /** A registered passkey as returned by `GET /v2/me/passkeys`. */

@@ -89,6 +89,8 @@ export type {
   LoginMethodsConfig,
   LoginMethodsConfigInput,
   LogoutOptions,
+  OidcLoginOptions,
+  OidcProvider,
   PasskeyInfo,
   PasskeyLoginOptions,
   PasswordLoginOptions,
