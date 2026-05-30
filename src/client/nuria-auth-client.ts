@@ -1,5 +1,6 @@
 import { createCodeChallenge, randomString } from '../core/pkce';
 import type {
+  AccountClient,
   ActorClaim,
   AuthClient,
   AuthTransport,
@@ -29,6 +30,7 @@ import {
 import { AuthError, AuthErrorCode } from '../errors/auth-error';
 import { MemoryStorageAdapter } from '../storage/memory-storage-adapter';
 import { FetchAuthTransport } from '../transport/fetch-transport';
+import { DefaultAccountClient } from './account-client';
 
 const BROADCAST_CHANNEL_NAME = 'nuria:auth:sync';
 
@@ -64,9 +66,19 @@ export class DefaultAuthClient implements AuthClient {
   private silentRefreshTimer: ReturnType<typeof setInterval> | null = null;
   private reactivationListenerRemovers: Array<() => void> = [];
 
+  /** v7 self-service account management. See {@link AccountClient}. */
+  public readonly account: AccountClient;
+
   constructor(private readonly config: ResolvedAuthConfig) {
     this.storage = config.storage ?? new MemoryStorageAdapter();
     this.transport = config.transport ?? new FetchAuthTransport();
+    // Reuses getAccessToken so account calls ride the same (silently
+    // refreshed) session token as the rest of the SDK.
+    this.account = new DefaultAccountClient(
+      config.baseUrl,
+      this.transport,
+      () => this.getAccessToken(),
+    );
     // No global 401 → logout interceptor is wired here on purpose. The
     // refresh-failure path inside getAccessToken() already clears the session
     // and notifies. A blanket 401 interceptor would wrongly log the user out

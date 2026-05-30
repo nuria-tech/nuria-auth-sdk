@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased] — v7 (additive, non-breaking)
+
+### Added — self-service account management (`auth.account`)
+
+A new `account` namespace on the auth client wrapping the kernel's
+`/v2/me/*` endpoints. Purely additive — the entire v6 surface is unchanged.
+
+- **2FA (TOTP):** `getTwoFactorStatus`, `enrollTotp`, `confirmTotp`, `disableTotp`.
+- **OAuth consents:** `listConsents`, `revokeConsent`.
+- **Known devices:** `listDevices`, `trustDevice`, `untrustDevice`, `forgetDevice`.
+- **Federated identities:** `listIdentities`, `unlinkIdentity`.
+- **LGPD data rights:** `exportData`, `eraseAccount`.
+
+New exported types: `AccountClient`, `TwoFactorStatus`, `TotpEnrollment`,
+`ConsentInfo`, `DeviceInfo`, `FederatedIdentityInfo`, `DataExport`.
+
+> Still planned for the v7 release: passkey (WebAuthn) enrollment +
+> passwordless login, OIDC IdP login helper, DPoP sender-constrained
+> tokens, and step-up auth. The version bump to `7.0.0` lands with those.
+
 ## [6.0.0] - 2026-05-05
 
 ### BREAKING — legacy/idToken login methods removed

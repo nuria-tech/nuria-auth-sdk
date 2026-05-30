@@ -54,13 +54,20 @@ export {
 } from './utils/aws';
 
 export type {
+  AccountClient,
   ActorClaim,
   AuthTransport,
   AuthTransportRequest,
   AuthTransportResponse,
   AuthClient,
   AuthConfig,
+  ConsentInfo,
+  DataExport,
+  DeviceInfo,
   DeviceUserCodeLookup,
+  FederatedIdentityInfo,
+  TotpEnrollment,
+  TwoFactorStatus,
   Session,
   TokenClaims,
   StartLoginOptions,

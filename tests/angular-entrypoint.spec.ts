@@ -82,6 +82,7 @@ function createMockAuth() {
     })),
     approveDeviceUserCode: vi.fn(async () => {}),
     denyDeviceUserCode: vi.fn(async () => {}),
+    account: {} as AuthClient['account'],
   };
 
   return { auth, unsubscribe };

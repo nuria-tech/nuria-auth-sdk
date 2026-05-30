@@ -364,6 +364,108 @@ export interface AuthClient {
    * device flow). Idempotent for already-denied codes.
    */
   denyDeviceUserCode(userCode: string): Promise<void>;
+  /**
+   * v7 — self-service account management for the signed-in subject: 2FA
+   * (TOTP), OAuth consents, known devices, federated-identity links and
+   * LGPD data rights. Every method is Bearer-authenticated against the
+   * current session. Purely additive: the v6 surface above is unchanged.
+   */
+  readonly account: AccountClient;
+}
+
+/** A consent grant as returned by `GET /v2/me/consents`. */
+export interface ConsentInfo {
+  clientId: string;
+  clientName?: string;
+  scopes: string;
+  grantedAt: string;
+  updatedAt?: string;
+}
+
+/** A known device as returned by `GET /v2/me/devices`. */
+export interface DeviceInfo {
+  deviceKey: string;
+  ipAddress?: string;
+  userAgent?: string;
+  trusted: boolean;
+  firstSeenAt: number;
+  lastSeenAt: number;
+}
+
+/** A linked federated identity as returned by `GET /v2/me/identities`. */
+export interface FederatedIdentityInfo {
+  provider: string;
+  providerSubject: string;
+  email?: string;
+  createdAt: string;
+  lastLoginAt?: string;
+}
+
+export interface TwoFactorStatus {
+  totpEnabled: boolean;
+}
+
+/**
+ * One-time TOTP enrollment material. The plaintext `secret` and `otpauthUri`
+ * are returned only at enrollment start (render the QR / manual key) and never
+ * again — the server keeps only the encrypted secret.
+ */
+export interface TotpEnrollment {
+  secret: string;
+  otpauthUri: string;
+}
+
+/**
+ * LGPD right-of-access export (`GET /v2/me/data`). Kept loosely typed — it is a
+ * snapshot document for the user to download, not an API the SDK introspects.
+ */
+export interface DataExport {
+  format?: string;
+  version?: number;
+  generatedAt?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Self-service account management surface (v7). Reached via
+ * {@link AuthClient.account}. All calls require a valid session.
+ */
+export interface AccountClient {
+  // ── Two-factor (TOTP) ──────────────────────────────────────────────
+  /** Current 2FA status for the signed-in user. */
+  getTwoFactorStatus(): Promise<TwoFactorStatus>;
+  /** Begins TOTP enrollment; returns the one-time secret + otpauth URI. */
+  enrollTotp(): Promise<TotpEnrollment>;
+  /** Confirms enrollment with a code from the authenticator app. */
+  confirmTotp(code: string): Promise<void>;
+  /** Disables TOTP for the account. */
+  disableTotp(): Promise<void>;
+
+  // ── OAuth consents ─────────────────────────────────────────────────
+  /** Lists the apps the user has granted access to. */
+  listConsents(): Promise<ConsentInfo[]>;
+  /** Revokes a previously granted consent by client id. */
+  revokeConsent(clientId: string): Promise<void>;
+
+  // ── Known devices ──────────────────────────────────────────────────
+  listDevices(): Promise<DeviceInfo[]>;
+  trustDevice(deviceKey: string): Promise<void>;
+  untrustDevice(deviceKey: string): Promise<void>;
+  forgetDevice(deviceKey: string): Promise<void>;
+
+  // ── Federated identity links ───────────────────────────────────────
+  listIdentities(): Promise<FederatedIdentityInfo[]>;
+  unlinkIdentity(provider: string): Promise<void>;
+
+  // ── LGPD data-subject rights ───────────────────────────────────────
+  /** Right of access: downloads a structured export of all personal data. */
+  exportData(): Promise<DataExport>;
+  /**
+   * Right to erasure: anonymizes the account and revokes all access.
+   * Irreversible. `confirmEmail` must equal the signed-in user's email — a
+   * deliberate interlock the server re-checks.
+   */
+  eraseAccount(confirmEmail: string): Promise<void>;
 }
 
 /**
