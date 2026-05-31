@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeTokenSet, parseUrl, timingSafeEqual } from '../src/core/utils';
+import {
+  normalizeTokenSet,
+  parseUrl,
+  timingSafeEqual,
+} from '../src/core/utils';
 import { AuthError, AuthErrorCode } from '../src/errors/auth-error';
 
 describe('Utils', () => {

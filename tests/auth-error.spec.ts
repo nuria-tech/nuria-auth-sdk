@@ -45,18 +45,13 @@ describe('AuthError', () => {
   });
 
   it('stores details when provided', () => {
-    const err = new AuthError(
-      AuthErrorCode.HTTP_ERROR,
-      'HTTP 404',
-      undefined,
-      {
-        status: 404,
-        error: 'not_found',
-        errorCode: 'resource_not_found',
-        errorDescription: 'User was not found',
-        traceId: 'trace-123',
-      },
-    );
+    const err = new AuthError(AuthErrorCode.HTTP_ERROR, 'HTTP 404', undefined, {
+      status: 404,
+      error: 'not_found',
+      errorCode: 'resource_not_found',
+      errorDescription: 'User was not found',
+      traceId: 'trace-123',
+    });
     expect(err.details.status).toBe(404);
     expect(err.details.errorCode).toBe('resource_not_found');
     expect(err.details.errorDescription).toBe('User was not found');

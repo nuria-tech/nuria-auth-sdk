@@ -133,15 +133,29 @@ async function authedClient(
   transport: ReturnType<typeof makeTransport>,
   extra: Record<string, unknown> = {},
 ) {
-  const storage = new Map<string, string>([
-    [
-      'nuria:session',
-      JSON.stringify({
-        tokens: { accessToken: 'tok-abc', expiresAt: Date.now() + 3_600_000 },
-        createdAt: Date.now(),
-      }),
-    ],
-  ]);
+  // v8: no token at rest. Seed the "has session" marker and let init()
+  // bootstrap the in-memory access token via the cookie refresh. The token
+  // endpoint must yield `tok-abc` so the rest of the assertions (Bearer/DPoP
+  // tok-abc) hold; all other URLs fall through to the test's payload.
+  const resourceRequest = transport.request;
+  transport.request = vi
+    .fn()
+    .mockImplementation(async (url: string, req?: AuthTransportRequest) => {
+      if (url === BASE_CONFIG.tokenEndpoint) {
+        return {
+          status: 200,
+          data: {
+            access_token: 'tok-abc',
+            token_type: 'Bearer',
+            expires_in: 3600,
+          },
+          headers: new Headers(),
+        };
+      }
+      return resourceRequest(url, req);
+    }) as typeof transport.request;
+
+  const storage = new Map<string, string>([['nuria:auth:has_session', '1']]);
   const client = createAuthClient({
     ...BASE_CONFIG,
     enableRefreshToken: false,

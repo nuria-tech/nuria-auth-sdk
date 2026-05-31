@@ -153,7 +153,9 @@ describe('parseAwsQueryCallback', () => {
 
   it('throws CALLBACK_ERROR when provider returns an error', async () => {
     await expect(
-      parseAwsQueryCallback('?error=access_denied&error_description=User+cancelled'),
+      parseAwsQueryCallback(
+        '?error=access_denied&error_description=User+cancelled',
+      ),
     ).rejects.toMatchObject({ code: AuthErrorCode.CALLBACK_ERROR });
   });
 
@@ -187,18 +189,24 @@ describe('parseAwsQueryCallback', () => {
       expect(params.get('code_verifier')).toBe(bag.codeVerifier);
       expect(params.get('redirect_uri')).toBe('https://app.example.com/cb');
       return new Response(
-        JSON.stringify({ id_token: mintIdToken({ nonce: bag.nonce, sub: 'u' }) }),
+        JSON.stringify({
+          id_token: mintIdToken({ nonce: bag.nonce, sub: 'u' }),
+        }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const result = await parseAwsQueryCallback(`?code=auth-code&state=${state}`);
+    const result = await parseAwsQueryCallback(
+      `?code=auth-code&state=${state}`,
+    );
     expect(result).not.toBeNull();
     expect(result!.idToken).toContain('.');
     expect(fetchMock).toHaveBeenCalledOnce();
     // PKCE bag must be removed once the exchange completes.
-    expect(sessionStorage.getItem(`${AWS_STORAGE_KEYS.pkcePrefix}${state}`)).toBeNull();
+    expect(
+      sessionStorage.getItem(`${AWS_STORAGE_KEYS.pkcePrefix}${state}`),
+    ).toBeNull();
   });
 
   it('throws STATE_MISMATCH when the id_token nonce disagrees with the bag', async () => {
@@ -223,7 +231,9 @@ describe('parseAwsQueryCallback', () => {
       parseAwsQueryCallback(`?code=c&state=${state}`),
     ).rejects.toMatchObject({ code: AuthErrorCode.STATE_MISMATCH });
     // Bag is cleared even on failure to prevent verifier reuse.
-    expect(sessionStorage.getItem(`${AWS_STORAGE_KEYS.pkcePrefix}${state}`)).toBeNull();
+    expect(
+      sessionStorage.getItem(`${AWS_STORAGE_KEYS.pkcePrefix}${state}`),
+    ).toBeNull();
   });
 
   it('throws TOKEN_EXCHANGE_FAILED when the token endpoint returns 4xx', async () => {
@@ -239,14 +249,17 @@ describe('parseAwsQueryCallback', () => {
       vi.fn(
         async () =>
           new Response(
-            JSON.stringify({ error: 'invalid_grant', error_description: 'expired' }),
+            JSON.stringify({
+              error: 'invalid_grant',
+              error_description: 'expired',
+            }),
             { status: 400, headers: { 'Content-Type': 'application/json' } },
           ),
       ),
     );
-    await expect(parseAwsQueryCallback(`?code=c&state=${state}`)).rejects.toMatchObject(
-      { code: AuthErrorCode.TOKEN_EXCHANGE_FAILED },
-    );
+    await expect(
+      parseAwsQueryCallback(`?code=c&state=${state}`),
+    ).rejects.toMatchObject({ code: AuthErrorCode.TOKEN_EXCHANGE_FAILED });
   });
 
   it('throws TOKEN_EXCHANGE_FAILED when the token response has no id_token', async () => {
@@ -267,9 +280,9 @@ describe('parseAwsQueryCallback', () => {
           }),
       ),
     );
-    await expect(parseAwsQueryCallback(`?code=c&state=${state}`)).rejects.toThrow(
-      AuthError,
-    );
+    await expect(
+      parseAwsQueryCallback(`?code=c&state=${state}`),
+    ).rejects.toThrow(AuthError);
   });
 
   it('isolates concurrent logins by state — second tab does not clobber the first', async () => {

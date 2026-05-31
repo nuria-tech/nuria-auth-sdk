@@ -355,9 +355,10 @@ describe('AuthClient', () => {
     >;
     expect(calls[0]![0]).toBe('https://auth.example.com/token');
     expect(calls[0]![1].method).toBe('POST');
-    // No `credentials: 'include'` — authorization_code exchange identifies
-    // the request via PKCE, no cookie ride-along is needed.
-    expect(calls[0]![1].credentials).toBeUndefined();
+    // v8: the authorization_code exchange sends `credentials: 'include'` so the
+    // kernel's Set-Cookie for the HttpOnly `__Host-nuria_rt` refresh token is
+    // stored by the browser — that cookie drives silent refresh from here on.
+    expect(calls[0]![1].credentials).toBe('include');
 
     const body = new URLSearchParams(calls[0]![1].body as string);
     expect(body.get('grant_type')).toBe('authorization_code');
@@ -398,7 +399,7 @@ describe('AuthClient', () => {
       transport.request.mock.calls as Array<[string, AuthTransportRequest]>
     )[0]![1];
     expect(typeof req.body).toBe('string');
-    expect(req.credentials).toBeUndefined();
+    expect(req.credentials).toBe('include');
     const params = new URLSearchParams(req.body as string);
     expect(params.get('grant_type')).toBe('authorization_code');
     expect(params.get('redirect_uri')).toBe('https://app.example.com/callback');
@@ -683,26 +684,41 @@ describe('AuthClient', () => {
   // init()
   // ---------------------------------------------------------------------------
 
-  it('init() hydrates session from storage and notifies listeners', async () => {
+  it('init() bootstraps the in-memory session via cookie refresh when the authed marker is set', async () => {
+    // v8: no token is persisted. The only at-rest signal is the non-sensitive
+    // "has session" marker; init() uses it to attempt a cookie-based silent
+    // refresh against the token endpoint and re-establish the in-memory token.
     const storage = new MemoryStorageAdapter();
-    const storedSession = {
-      tokens: { accessToken: 'stored-tok', tokenType: 'Bearer' },
-      createdAt: Date.now(),
-      provider: 'google',
-    };
-    await storage.set('nuria:session', JSON.stringify(storedSession));
+    await storage.set('nuria:auth:has_session', '1');
 
-    const client = createAuthClient({ ...BASE_CONFIG, storage });
+    const transport = makeMockTransport({
+      access_token: 'bootstrapped-tok',
+      token_type: 'Bearer',
+      expires_in: 3600,
+      auth_provider: 'google',
+    });
+
+    const client = createAuthClient({ ...BASE_CONFIG, storage, transport });
     const handler = vi.fn();
     client.onAuthStateChanged(handler);
 
     await client.init();
 
-    expect(client.getSession()?.tokens.accessToken).toBe('stored-tok');
+    // The refresh hit the token endpoint with credentials and no refresh_token.
+    const calls = transport.request.mock.calls as Array<
+      [string, AuthTransportRequest]
+    >;
+    expect(calls[0]![0]).toBe('https://auth.example.com/token');
+    expect(calls[0]![1].credentials).toBe('include');
+    const body = new URLSearchParams(calls[0]![1].body as string);
+    expect(body.get('grant_type')).toBe('refresh_token');
+    expect(body.get('refresh_token')).toBeNull();
+
+    expect(client.getSession()?.tokens.accessToken).toBe('bootstrapped-tok');
     expect(client.getSession()?.provider).toBe('google');
     expect(handler).toHaveBeenCalledWith(
       expect.objectContaining({
-        tokens: expect.objectContaining({ accessToken: 'stored-tok' }),
+        tokens: expect.objectContaining({ accessToken: 'bootstrapped-tok' }),
       }),
     );
   });
@@ -756,18 +772,16 @@ describe('AuthClient', () => {
     postMessage.mockRestore();
   });
 
-  it('init() does not broadcast session to other tabs', async () => {
+  it('init() stays anonymous without the authed marker and does not broadcast', async () => {
     const postMessage = vi.spyOn(BroadcastChannel.prototype, 'postMessage');
 
+    // v8: with no "has session" marker at rest, init() stays anonymous and
+    // performs no network call — and must not broadcast anything to other tabs.
     const storage = new MemoryStorageAdapter();
-    await storage.set(
-      'nuria:session',
-      JSON.stringify({ tokens: { accessToken: 'tok' }, createdAt: Date.now() }),
-    );
-
     const client = createAuthClient({ ...BASE_CONFIG, storage });
     await client.init();
 
+    expect(client.getSession()).toBeNull();
     expect(postMessage).not.toHaveBeenCalled();
 
     postMessage.mockRestore();
@@ -820,11 +834,9 @@ describe('AuthClient', () => {
 
   it('accepts SESSION_SYNC with null session (logout sync)', async () => {
     const storage = new MemoryStorageAdapter();
-    await storage.set(
-      'nuria:session',
-      JSON.stringify({ tokens: { accessToken: 'tok' }, createdAt: Date.now() }),
-    );
-    const client = createAuthClient({ ...BASE_CONFIG, storage });
+    await storage.set('nuria:auth:has_session', '1');
+    const transport = makeMockTransport({ access_token: 'tok' });
+    const client = createAuthClient({ ...BASE_CONFIG, storage, transport });
     await client.init();
 
     expect(client.getSession()).not.toBeNull();
@@ -1049,17 +1061,21 @@ describe('AuthClient', () => {
   // ---------------------------------------------------------------------------
 
   it('getAccessToken returns null for expired token when enableRefreshToken is false', async () => {
+    // v8: bootstrap a session whose token is already expired (the token
+    // endpoint hands back a past expiresAt). With refresh disabled,
+    // getAccessToken must clear the now-stale in-memory session and return null.
     const storage = new MemoryStorageAdapter();
-    const now = Date.now();
-    const expiredSession = {
-      tokens: { accessToken: 'expired-tok', expiresAt: now - 1000 },
-      createdAt: now - 5000,
-    };
-    await storage.set('nuria:session', JSON.stringify(expiredSession));
+    await storage.set('nuria:auth:has_session', '1');
+    const transport = makeMockTransport({
+      access_token: 'expired-tok',
+      token_type: 'Bearer',
+      expiresAt: Date.now() - 1000,
+    });
 
     const client = createAuthClient({
       ...BASE_CONFIG,
       storage,
+      transport,
       enableRefreshToken: false,
     });
     await client.init();
@@ -1071,18 +1087,22 @@ describe('AuthClient', () => {
   });
 
   it('getAccessToken returns valid token near expiry when enableRefreshToken is false', async () => {
+    // v8: bootstrap an in-memory session whose token sits inside the
+    // REFRESH_BUFFER_MS window (5min) but is not yet expired. With refresh
+    // disabled, getAccessToken must still return it rather than nuke the session.
     const storage = new MemoryStorageAdapter();
-    const now = Date.now();
-    // Token expires in 10s (within 30s window but not yet expired)
-    const session = {
-      tokens: { accessToken: 'almost-expired-tok', expiresAt: now + 10_000 },
-      createdAt: now,
-    };
-    await storage.set('nuria:session', JSON.stringify(session));
+    await storage.set('nuria:auth:has_session', '1');
+    // expires_in 120s → within the 5-min refresh buffer, not yet expired.
+    const transport = makeMockTransport({
+      access_token: 'almost-expired-tok',
+      token_type: 'Bearer',
+      expires_in: 120,
+    });
 
     const client = createAuthClient({
       ...BASE_CONFIG,
       storage,
+      transport,
       enableRefreshToken: false,
     });
     await client.init();
@@ -1114,7 +1134,10 @@ describe('AuthClient', () => {
     expect(calls[0]![0]).toBe('https://auth.example.com/v2/google/code');
     expect(calls[0]![1].method).toBe('POST');
     expect(calls[0]![1].credentials).toBe('include');
-    expect(calls[0]![1].body).toEqual({ code: '4/0Aabc', redirectUri: undefined });
+    expect(calls[0]![1].body).toEqual({
+      code: '4/0Aabc',
+      redirectUri: undefined,
+    });
   });
 
   it('loginWithGoogleCode forwards redirectUri when provided', async () => {
@@ -1239,24 +1262,32 @@ describe('AuthClient', () => {
   });
 
   it('does not auto-logout the active session on 401 from changePassword (wrong oldPassword)', async () => {
+    // v8: establish an in-memory session via the cookie-bootstrap refresh
+    // (authed marker → /token). The bootstrapped token is long-lived so
+    // getAccessToken short-circuits the refresh path and we exercise the
+    // changePassword endpoint specifically, which 401s on a wrong oldPassword.
     const storage = new MemoryStorageAdapter();
-    // Long-lived access token so getAccessToken short-circuits the refresh
-    // path and we exercise the changePassword endpoint specifically.
-    const session = {
-      tokens: { accessToken: 'live-token', expiresAt: Date.now() + 3_600_000 },
-      createdAt: Date.now(),
-    };
-    await storage.set('nuria:session', JSON.stringify(session));
+    await storage.set('nuria:auth:has_session', '1');
 
     const { FetchAuthTransport } =
       await import('../src/transport/fetch-transport');
-    const fetchFn = vi.fn(
-      async () =>
-        new Response('{"error":"invalid_credentials"}', {
-          status: 401,
-          headers: { 'content-type': 'application/json' },
-        }),
-    );
+    const fetchFn = vi.fn(async (input: URL | RequestInfo) => {
+      const url = String(input);
+      if (url === 'https://auth.example.com/token') {
+        return new Response(
+          JSON.stringify({
+            access_token: 'live-token',
+            token_type: 'Bearer',
+            expires_in: 3600,
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      return new Response('{"error":"invalid_credentials"}', {
+        status: 401,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
     const transport = new FetchAuthTransport({ fetchFn });
     const client = createAuthClient({
       ...BASE_CONFIG,
@@ -1265,6 +1296,7 @@ describe('AuthClient', () => {
       transport,
     });
     await client.init();
+    expect(client.getSession()).not.toBeNull();
 
     const sessionListener = vi.fn();
     client.onAuthStateChanged(sessionListener);
@@ -1280,9 +1312,12 @@ describe('AuthClient', () => {
     // user out of the active session.
     expect(client.getSession()).not.toBeNull();
     expect(sessionListener).not.toHaveBeenCalled();
-    // Sanity check — we hit the changePassword endpoint, not the token endpoint.
+    // Sanity check — the changePassword request hit the password endpoint
+    // (the first call was the bootstrap refresh to the token endpoint).
     const calls = fetchFn.mock.calls as unknown as Array<[string, unknown]>;
-    expect(calls[0]![0]).toBe('https://auth.example.com/v2/me/password');
+    expect(calls[calls.length - 1]![0]).toBe(
+      'https://auth.example.com/v2/me/password',
+    );
   });
 
   it('handleRedirectCallback clears PKCE artifacts when the OAuth provider returns an error', async () => {

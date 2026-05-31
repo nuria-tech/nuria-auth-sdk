@@ -29,7 +29,10 @@ describe('extractRoles', () => {
   });
 
   it('extracts from roles array', () => {
-    expect(extractRoles({ roles: ['admin', 'user'] })).toEqual(['admin', 'user']);
+    expect(extractRoles({ roles: ['admin', 'user'] })).toEqual([
+      'admin',
+      'user',
+    ]);
   });
 
   it('extracts from roles comma-separated string', () => {
@@ -41,7 +44,10 @@ describe('extractRoles', () => {
   });
 
   it('extracts from permissions', () => {
-    expect(extractRoles({ permissions: ['read', 'write'] })).toEqual(['read', 'write']);
+    expect(extractRoles({ permissions: ['read', 'write'] })).toEqual([
+      'read',
+      'write',
+    ]);
   });
 
   it('does NOT treat the OAuth scope claim as roles', () => {
@@ -58,7 +64,10 @@ describe('extractRoles', () => {
   });
 
   it('deduplicates across multiple sources', () => {
-    const result = extractRoles({ roles: 'admin,user' }, { roles: ['user', 'moderator'] });
+    const result = extractRoles(
+      { roles: 'admin,user' },
+      { roles: ['user', 'moderator'] },
+    );
     expect(result).toEqual(['admin', 'user', 'moderator']);
   });
 
@@ -87,10 +96,9 @@ describe('extractScopes', () => {
   });
 
   it('reads the array-form scopes alias (used by /v2/verify response)', () => {
-    expect(extractScopes({ scopes: ['profile:write', 'nuria:developer'] })).toEqual([
-      'profile:write',
-      'nuria:developer',
-    ]);
+    expect(
+      extractScopes({ scopes: ['profile:write', 'nuria:developer'] }),
+    ).toEqual(['profile:write', 'nuria:developer']);
   });
 
   it('merges and deduplicates scope + scopes across sources', () => {
@@ -98,11 +106,17 @@ describe('extractScopes', () => {
       { scope: 'profile:write nuria:developer' },
       { scopes: ['nuria:developer', 'myconnect:read'] },
     );
-    expect(result).toEqual(['profile:write', 'nuria:developer', 'myconnect:read']);
+    expect(result).toEqual([
+      'profile:write',
+      'nuria:developer',
+      'myconnect:read',
+    ]);
   });
 
   it('does NOT pull from roles/permissions (those are not scopes)', () => {
-    expect(extractScopes({ roles: ['admin'], permissions: ['read'] })).toEqual([]);
+    expect(extractScopes({ roles: ['admin'], permissions: ['read'] })).toEqual(
+      [],
+    );
   });
 });
 
@@ -152,23 +166,30 @@ describe('extractAvatarUrl', () => {
   });
 
   it('extracts picture', () => {
-    expect(extractAvatarUrl({ picture: 'https://x/y.png' })).toBe('https://x/y.png');
+    expect(extractAvatarUrl({ picture: 'https://x/y.png' })).toBe(
+      'https://x/y.png',
+    );
   });
 
   it('prefers avatar_url over picture', () => {
     expect(
-      extractAvatarUrl({ avatar_url: 'https://a/a.png', picture: 'https://b/b.png' }),
+      extractAvatarUrl({
+        avatar_url: 'https://a/a.png',
+        picture: 'https://b/b.png',
+      }),
     ).toBe('https://a/a.png');
   });
 
   it('returns first non-empty value across sources', () => {
-    expect(extractAvatarUrl(null, { picture: 'https://x/y.png' })).toBe('https://x/y.png');
+    expect(extractAvatarUrl(null, { picture: 'https://x/y.png' })).toBe(
+      'https://x/y.png',
+    );
   });
 
   it('skips blank values', () => {
-    expect(extractAvatarUrl({ picture: '   ' }, { picture: 'https://x/y.png' })).toBe(
-      'https://x/y.png',
-    );
+    expect(
+      extractAvatarUrl({ picture: '   ' }, { picture: 'https://x/y.png' }),
+    ).toBe('https://x/y.png');
   });
 });
 
@@ -180,9 +201,9 @@ describe('extractDisplayName', () => {
   });
 
   it('extracts subject_name first', () => {
-    expect(extractDisplayName({ subject_name: 'Lucas Passos', name: 'Other' })).toBe(
-      'Lucas Passos',
-    );
+    expect(
+      extractDisplayName({ subject_name: 'Lucas Passos', name: 'Other' }),
+    ).toBe('Lucas Passos');
   });
 
   it('falls back to given_name', () => {
@@ -195,7 +216,10 @@ describe('extractDisplayName', () => {
 
   it('prefers names before falling back to email across sources', () => {
     expect(
-      extractDisplayName({ email: 'lucas@nuria.com.br' }, { name: 'Lucas Passos' }),
+      extractDisplayName(
+        { email: 'lucas@nuria.com.br' },
+        { name: 'Lucas Passos' },
+      ),
     ).toBe('Lucas Passos');
   });
 });
@@ -252,11 +276,16 @@ describe('buildOAuthAuthorizeUrl', () => {
   });
 
   it('uses S256 as default code_challenge_method', () => {
-    expect(buildOAuthAuthorizeUrl(base)).toContain('code_challenge_method=S256');
+    expect(buildOAuthAuthorizeUrl(base)).toContain(
+      'code_challenge_method=S256',
+    );
   });
 
   it('respects custom code_challenge_method', () => {
-    const url = buildOAuthAuthorizeUrl({ ...base, codeChallengeMethod: 'plain' });
+    const url = buildOAuthAuthorizeUrl({
+      ...base,
+      codeChallengeMethod: 'plain',
+    });
     expect(url).toContain('code_challenge_method=plain');
   });
 
@@ -337,8 +366,13 @@ describe('renderGoogleSignInButton', () => {
     expect(config.use_fedcm_for_button).toBe(true);
     expect(typeof config.nonce).toBe('string');
     expect(config.nonce.length).toBe(32);
-    expect(sessionStorage.getItem(GOOGLE_STORAGE_KEYS.nonce)).toBe(config.nonce);
-    expect(gsi.renderButton).toHaveBeenCalledWith(element, expect.objectContaining({ theme: 'outline' }));
+    expect(sessionStorage.getItem(GOOGLE_STORAGE_KEYS.nonce)).toBe(
+      config.nonce,
+    );
+    expect(gsi.renderButton).toHaveBeenCalledWith(
+      element,
+      expect.objectContaining({ theme: 'outline' }),
+    );
   });
 
   it('can disable FedCM for the rendered button', async () => {
@@ -567,4 +601,3 @@ describe('disableGoogleAutoSelect', () => {
     expect(sessionStorage.getItem(GOOGLE_STORAGE_KEYS.nonce)).toBeNull();
   });
 });
-

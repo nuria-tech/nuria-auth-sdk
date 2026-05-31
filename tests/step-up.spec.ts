@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   ACR_MULTI_FACTOR,
   ACR_SINGLE_FACTOR,
@@ -67,19 +67,22 @@ const BASE_CONFIG = {
 };
 
 function clientWithClaims(claims: Record<string, unknown>, now: number) {
-  const storage = new Map<string, string>([
-    [
-      'nuria:session',
-      JSON.stringify({
-        tokens: { accessToken: fakeJwt(claims), expiresAt: now + 3_600_000 },
-        createdAt: now,
-      }),
-    ],
-  ]);
+  // v8: no token at rest. Seed the "has session" marker and bootstrap the
+  // in-memory access token via the cookie refresh — the token endpoint hands
+  // back the fake JWT so getAssurance() can decode its claims.
+  const storage = new Map<string, string>([['nuria:auth:has_session', '1']]);
+  const transport = {
+    request: vi.fn().mockImplementation(async () => ({
+      status: 200,
+      data: { access_token: fakeJwt(claims), expires_in: 3600 },
+      headers: new Headers(),
+    })),
+  };
   return createAuthClient({
     ...BASE_CONFIG,
     enableRefreshToken: false,
     now: () => now,
+    transport,
     storage: {
       get: (k) => storage.get(k) ?? null,
       set: (k, v) => void storage.set(k, v),

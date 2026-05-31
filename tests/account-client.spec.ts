@@ -9,14 +9,25 @@ const BASE_CONFIG = {
   redirectUri: 'https://app.example.com/callback',
 };
 
-/** A transport that records calls and returns a queued/default payload. */
+/**
+ * A transport that records calls and returns a queued/default payload. The
+ * token endpoint returns an access-token payload so the v8 cookie-bootstrap
+ * refresh (init → getAccessToken) succeeds; all other URLs get `data`.
+ */
 function makeTransport(data: unknown = {}) {
   return {
-    request: vi.fn().mockResolvedValue({
+    request: vi.fn().mockImplementation(async (url: string) => ({
       status: 200,
-      data,
+      data:
+        url === BASE_CONFIG.tokenEndpoint
+          ? {
+              access_token: 'access-123',
+              token_type: 'Bearer',
+              expires_in: 3600,
+            }
+          : data,
       headers: new Headers(),
-    }),
+    })),
   };
 }
 
@@ -31,23 +42,18 @@ function lastCall(
 }
 
 /**
- * Builds a client whose getAccessToken() resolves to a token, by hydrating a
- * far-future session through a storage adapter before init().
+ * Builds a client whose getAccessToken() resolves to a token. v8 keeps no
+ * token at rest: we seed the non-sensitive "has session" marker and let
+ * init() bootstrap the in-memory access token via the cookie refresh (the
+ * URL-aware transport answers the token endpoint with an access_token).
  */
 async function authedClient(transport: ReturnType<typeof makeTransport>) {
-  const storage = new Map<string, string>();
+  const storage = new Map<string, string>([['nuria:auth:has_session', '1']]);
   const adapter = {
     get: (k: string) => storage.get(k) ?? null,
     set: (k: string, v: string) => void storage.set(k, v),
     remove: (k: string) => void storage.delete(k),
   };
-  storage.set(
-    'nuria:session',
-    JSON.stringify({
-      tokens: { accessToken: 'access-123', expiresAt: Date.now() + 3_600_000 },
-      createdAt: Date.now(),
-    }),
-  );
   const client = createAuthClient({
     ...BASE_CONFIG,
     storage: adapter,

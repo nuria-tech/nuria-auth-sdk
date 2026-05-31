@@ -4,6 +4,42 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [8.0.0] - 2026-05-30 — secure token storage (BREAKING)
+
+### BREAKING — tokens are no longer persisted
+
+The SDK now keeps the **access token in memory only** and the **refresh token
+solely in the HttpOnly `__Host-nuria_rt` cookie**. Nothing token-shaped is ever
+written to `localStorage`/`sessionStorage`/JS-readable cookies — closing the
+XSS token-exfiltration exposure that motivated this release.
+
+- **No more `nuria:session` storage key.** The full session is no longer
+  serialized to the `StorageAdapter`. `getSession()`/`getClaims()` read the
+  in-memory access token; `getSession().tokens.refreshToken` is always
+  `undefined` (stripped in `createSession`).
+- **`storage` now holds only transient OAuth state** (`state`, `nonce`, PKCE
+  `code_verifier`, force-relogin marker, and the new non-sensitive
+  `nuria:auth:has_session` marker). It defaults to **`sessionStorage`** in the
+  browser (was `MemoryStorageAdapter`), since the redirect/PKCE flow needs to
+  survive a full-page navigation.
+- **Cookie-based silent refresh.** `doRefresh` always sends
+  `credentials: 'include'` and never a `refresh_token` body param; the kernel
+  resolves the `__Host-nuria_rt` cookie and rotates it. The authorization-code
+  exchange (`exchangeCode`) now also sends `credentials: 'include'` so the
+  cookie is set.
+- **Bootstrap on load.** `init()` re-establishes the in-memory session via a
+  cookie refresh **only** when the `nuria:auth:has_session` marker is present
+  (set on login, cleared on logout); otherwise it stays anonymous with no
+  network call. `getAccessToken()` follows the same rule.
+- **`revokeSession()`** posts `/v2/logout` with `credentials: 'include'` and an
+  empty body (cookie identifies the session).
+
+**Migration:** remove any `storage: new WebStorageAdapter(localStorage)` you
+passed to persist the session — it's unnecessary and no longer stores tokens.
+Make sure the app origin and the kernel can share the `__Host-nuria_rt` cookie
+(same registrable site, `credentials: 'include'`, CORS
+`Access-Control-Allow-Credentials: true`). No public method signatures changed.
+
 ## [7.0.0] - 2026-05-30 — additive, non-breaking over v6
 
 Every v7 addition is opt-in; the entire v6 surface is unchanged. The major

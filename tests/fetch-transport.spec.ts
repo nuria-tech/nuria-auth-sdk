@@ -110,7 +110,9 @@ describe('FetchAuthTransport', () => {
       text: vi.fn().mockResolvedValue(JSON.stringify({ value: 42 })),
     } as unknown as Response);
     const transport = new FetchAuthTransport({ fetchFn: fetchMock });
-    const result = await transport.request<{ value: number }>('https://example.com/api');
+    const result = await transport.request<{ value: number }>(
+      'https://example.com/api',
+    );
     expect(result.data).toEqual({ value: 42 });
   });
 
@@ -177,7 +179,10 @@ describe('FetchAuthTransport', () => {
 
   it('does not retry non-retryable status codes', async () => {
     fetchMock.mockResolvedValue(makeResponse(400, {}));
-    const transport = new FetchAuthTransport({ fetchFn: fetchMock, retries: 3 });
+    const transport = new FetchAuthTransport({
+      fetchFn: fetchMock,
+      retries: 3,
+    });
     await expect(
       transport.request('https://example.com/api'),
     ).rejects.toMatchObject({ code: AuthErrorCode.HTTP_ERROR });
@@ -188,7 +193,10 @@ describe('FetchAuthTransport', () => {
     fetchMock
       .mockResolvedValueOnce(makeResponse(503, {}))
       .mockResolvedValueOnce(makeResponse(200, { ok: true }));
-    const transport = new FetchAuthTransport({ fetchFn: fetchMock, retries: 1 });
+    const transport = new FetchAuthTransport({
+      fetchFn: fetchMock,
+      retries: 1,
+    });
     const result = await transport.request('https://example.com/api');
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(result.data).toEqual({ ok: true });
@@ -196,7 +204,10 @@ describe('FetchAuthTransport', () => {
 
   it('throws after exhausting all retries', async () => {
     fetchMock.mockResolvedValue(makeResponse(503, {}));
-    const transport = new FetchAuthTransport({ fetchFn: fetchMock, retries: 2 });
+    const transport = new FetchAuthTransport({
+      fetchFn: fetchMock,
+      retries: 2,
+    });
     await expect(
       transport.request('https://example.com/api'),
     ).rejects.toMatchObject({ code: AuthErrorCode.HTTP_ERROR });

@@ -32,19 +32,26 @@ interface CapturedConfig {
   prompt?: string;
 }
 
-const installMockOauth2 = (): { mock: MockOauth2; requestCode: ReturnType<typeof vi.fn> } => {
+const installMockOauth2 = (): {
+  mock: MockOauth2;
+  requestCode: ReturnType<typeof vi.fn>;
+} => {
   const requestCode = vi.fn();
   const mock: MockOauth2 = {
     initCodeClient: vi.fn(() => ({ requestCode })),
   };
-  (window as unknown as { google: { accounts: { oauth2: MockOauth2 } } }).google = {
+  (
+    window as unknown as { google: { accounts: { oauth2: MockOauth2 } } }
+  ).google = {
     accounts: { oauth2: mock },
   };
   return { mock, requestCode };
 };
 
 const lastConfig = (mock: MockOauth2): CapturedConfig =>
-  mock.initCodeClient.mock.calls[mock.initCodeClient.mock.calls.length - 1]![0] as CapturedConfig;
+  mock.initCodeClient.mock.calls[
+    mock.initCodeClient.mock.calls.length - 1
+  ]![0] as CapturedConfig;
 
 describe('createGoogleCodeClient', () => {
   beforeEach(() => {
@@ -68,7 +75,9 @@ describe('createGoogleCodeClient', () => {
     expect(cfg.ux_mode).toBe('popup');
     expect(typeof cfg.state).toBe('string');
     expect(cfg.state!.length).toBe(32);
-    expect(sessionStorage.getItem(GOOGLE_OAUTH2_STORAGE_KEYS.state)).toBe(cfg.state);
+    expect(sessionStorage.getItem(GOOGLE_OAUTH2_STORAGE_KEYS.state)).toBe(
+      cfg.state,
+    );
   });
 
   it('forwards login_hint, hd, select_account, prompt, and custom scope/state', async () => {
@@ -113,7 +122,9 @@ describe('createGoogleCodeClient', () => {
     });
     const cfg = lastConfig(mock);
     expect(cfg.ux_mode).toBe('redirect');
-    expect(cfg.redirect_uri).toBe('https://accounts.nuria.com.br/google/callback');
+    expect(cfg.redirect_uri).toBe(
+      'https://accounts.nuria.com.br/google/callback',
+    );
   });
 
   it('routes the code through onCode when GIS callback fires with a matching state', async () => {
@@ -189,7 +200,10 @@ describe('createGoogleCodeClient', () => {
     const onError = vi.fn();
     await createGoogleCodeClient({ clientId: 'gc', onCode, onError });
     const cfg = lastConfig(mock);
-    cfg.error_callback!({ type: 'popup_closed', message: 'Popup window closed' });
+    cfg.error_callback!({
+      type: 'popup_closed',
+      message: 'Popup window closed',
+    });
     expect(onCode).not.toHaveBeenCalled();
     expect(onError).toHaveBeenCalledOnce();
     expect(onError.mock.calls[0]![0].message).toContain('popup_closed');

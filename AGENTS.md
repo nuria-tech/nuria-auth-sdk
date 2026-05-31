@@ -166,11 +166,16 @@ destination from the stored user email/cellphone based on `channel`,
 since honoring a client value would let an attacker who knows only an
 email divert the OTP to themselves.
 
-## Storage Keys (localStorage / cookie)
+## Storage Keys (transient OAuth state only — NEVER tokens)
+
+> **v8:** tokens are never persisted. The access token is in memory only; the
+> refresh token is only in the HttpOnly `__Host-nuria_rt` cookie. The
+> `StorageAdapter` holds only the short-lived, non-credential artifacts below.
+> Default adapter is `sessionStorage` (browser) / `MemoryStorageAdapter` (SSR).
 
 | Key | Content |
 |-----|---------|
-| `nuria:session` | `Session` JSON `{ tokens: { accessToken, ... }, createdAt }` |
+| `nuria:auth:has_session` | Non-sensitive marker: "this browser has an active session." Set on login (`createSession`), cleared on logout / permanent-refresh-failure. On load, `init()`/`getAccessToken()` read it to decide whether to attempt a cookie-based silent refresh. NOT a credential. |
 | `nuria:oauth:state` | PKCE state string (cleared after callback, always via `finally`) |
 | `nuria:oauth:code_verifier` | PKCE verifier (cleared after callback, always via `finally`) |
 | `nuria:oauth:nonce` | OIDC nonce string (cleared after callback, always via `finally`) |
@@ -185,7 +190,8 @@ email divert the OTP to themselves.
 - **All endpoints and `redirectUri` must use `https://`** — `http://` is only accepted for `localhost`, `127.0.0.1`, and `[::1]` (enforced in `createAuthClient`)
 - **Nonce is always generated** in `startLogin()` and included in the authorization request; validated (timing-safe) against the `nonce` claim in the returned token when the server includes it
 - **PKCE artifacts** (`state`, `nonce`, `codeVerifier`) are always cleaned from storage via `finally` — even when token exchange fails, nonce validation fails, or a network error occurs
-- `init()` must be called once at app startup (e.g. `provideAppInitializer`) to hydrate session from storage before routing
+- **Tokens are never persisted (v8).** Access token in memory only; refresh token only in the HttpOnly `__Host-nuria_rt` cookie. `createSession` strips `refreshToken`; `doRefresh`/`exchangeCode`/login flows use `credentials: 'include'` so the cookie flows. The only thing written to storage about a session is the non-sensitive `nuria:auth:has_session` marker.
+- `init()` must be called once at app startup (e.g. `provideAppInitializer`) before routing. v8: it does NOT hydrate tokens — if the `has_session` marker is set it bootstraps the in-memory access token via a cookie refresh; otherwise it stays anonymous with no network call.
 - `isAuthenticated()` returns `true` when token is expired but `enableRefreshToken: true` — callers should use `getAccessToken()` to get an always-valid token
 - `getClaims()` decodes the JWT payload client-side for UI convenience only — **JWT signature is NOT verified**; never use these claims for server-side authorization decisions
 - `getActor()` returns the RFC 8693 §4.1 `act` claim as `ActorClaim` (`{ sub, name?, email? }`) when the session is impersonated (support flow), else `null`. Defensive parser mirrors the kernel's `ParseActor`: missing/non-object/`sub`-less payloads collapse to `null` so the call is always safe. Inert today — no producer stamps `act` yet, but the wiring is in so the impersonation rollout is purely additive.

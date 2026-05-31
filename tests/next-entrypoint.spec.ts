@@ -29,12 +29,13 @@ describe('next entrypoint', () => {
     expect(cookies.remove).toHaveBeenCalledWith('key');
   });
 
-  it('createNextAuthClient hydrates session from cookie-backed storage', async () => {
+  it('createNextAuthClient bootstraps the session from the cookie-backed authed marker', async () => {
+    // v8: no token is stored in the cookie. The only at-rest signal is the
+    // non-sensitive "has session" marker; getAccessToken() bootstraps the
+    // in-memory access token via a cookie-based refresh against the token
+    // endpoint.
     const store: Record<string, string | undefined> = {
-      'nuria:session': JSON.stringify({
-        tokens: { accessToken: 'token-from-cookie' },
-        createdAt: Date.now(),
-      }),
+      'nuria:auth:has_session': '1',
     };
 
     const cookies = {
@@ -47,12 +48,24 @@ describe('next entrypoint', () => {
       }),
     };
 
-    const auth = createNextAuthClient(BASE_CONFIG, cookies);
+    const transport = {
+      request: vi.fn().mockImplementation(async () => ({
+        status: 200,
+        data: {
+          access_token: 'token-from-cookie',
+          token_type: 'Bearer',
+          expires_in: 3600,
+        },
+        headers: new Headers(),
+      })),
+    };
+
+    const auth = createNextAuthClient({ ...BASE_CONFIG, transport }, cookies);
     const token = await auth.getAccessToken();
     expect(token).toBe('token-from-cookie');
 
     await auth.logout();
-    expect(cookies.remove).toHaveBeenCalledWith('nuria:session');
+    expect(cookies.remove).toHaveBeenCalledWith('nuria:auth:has_session');
     expect(cookies.remove).toHaveBeenCalledWith('nuria:oauth:state');
     expect(cookies.remove).toHaveBeenCalledWith('nuria:oauth:code_verifier');
   });

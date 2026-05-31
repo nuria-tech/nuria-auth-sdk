@@ -57,7 +57,10 @@ describe('BrowserCookieStorage', () => {
   });
 
   it('remove() clears the cookie (samesite consistency)', () => {
-    const storage = createBrowserCookieStorage({ secure: false, sameSite: 'lax' });
+    const storage = createBrowserCookieStorage({
+      secure: false,
+      sameSite: 'lax',
+    });
     storage.set('k', 'v');
     expect(storage.get('k')).toBe('v');
     storage.remove('k');

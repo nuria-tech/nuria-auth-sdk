@@ -5,8 +5,16 @@ import { beforeAll, describe, expect, it } from 'vitest';
 
 const ROOT_DIR = join(import.meta.dirname, '..');
 const DIST_DIR = join(ROOT_DIR, 'dist');
-const ENTRYPOINTS = ['index', 'react', 'vue', 'nuxt', 'next', 'angular'] as const;
-const SHELL_PATH = process.platform === 'win32' ? (process.env.ComSpec ?? 'cmd.exe') : '/bin/sh';
+const ENTRYPOINTS = [
+  'index',
+  'react',
+  'vue',
+  'nuxt',
+  'next',
+  'angular',
+] as const;
+const SHELL_PATH =
+  process.platform === 'win32' ? (process.env.ComSpec ?? 'cmd.exe') : '/bin/sh';
 
 function countLines(contents: string) {
   return contents.split(/\r?\n/).length;
@@ -44,8 +52,14 @@ describe('published build artifacts', () => {
 
   it('publishes minified JavaScript bundles for runtime entrypoints', () => {
     for (const entrypoint of ENTRYPOINTS) {
-      const esmBundle = readFileSync(join(DIST_DIR, `${entrypoint}.js`), 'utf8');
-      const cjsBundle = readFileSync(join(DIST_DIR, `${entrypoint}.cjs`), 'utf8');
+      const esmBundle = readFileSync(
+        join(DIST_DIR, `${entrypoint}.js`),
+        'utf8',
+      );
+      const cjsBundle = readFileSync(
+        join(DIST_DIR, `${entrypoint}.cjs`),
+        'utf8',
+      );
 
       expect(esmBundle).not.toContain('// src/');
       expect(cjsBundle).not.toContain('// src/');
@@ -66,6 +80,8 @@ describe('published build artifacts', () => {
     expect(packedFiles.some((file) => file.startsWith('dist/'))).toBe(true);
     expect(packedFiles.some((file) => file.startsWith('src/'))).toBe(false);
     expect(packedFiles.some((file) => file.startsWith('tests/'))).toBe(false);
-    expect(packedFiles.some((file) => file.startsWith('coverage/'))).toBe(false);
+    expect(packedFiles.some((file) => file.startsWith('coverage/'))).toBe(
+      false,
+    );
   }, 30_000);
 });

@@ -259,16 +259,27 @@ describe('account.enrollPasskey (end to end)', () => {
     });
     installWebAuthn({ create } as never);
 
-    const storage = new Map<string, string>([
-      [
-        'nuria:session',
-        JSON.stringify({
-          tokens: { accessToken: 'tok', expiresAt: Date.now() + 3_600_000 },
-          createdAt: Date.now(),
-        }),
-      ],
-    ]);
-    const transport = makeSequencedTransport([regOptions, {}]);
+    // v8: no token at rest. Seed the marker and let init() bootstrap the
+    // in-memory token via the cookie refresh. The token endpoint yields an
+    // access token; the begin/finish endpoints get the sequenced payloads.
+    const storage = new Map<string, string>([['nuria:auth:has_session', '1']]);
+    const sequenced = makeSequencedTransport([regOptions, {}]);
+    const transport = {
+      request: vi.fn().mockImplementation(async (url: string) => {
+        if (url === BASE_CONFIG.tokenEndpoint) {
+          return {
+            status: 200,
+            data: {
+              access_token: 'tok',
+              token_type: 'Bearer',
+              expires_in: 3600,
+            },
+            headers: new Headers(),
+          };
+        }
+        return sequenced.request();
+      }),
+    };
     const client = createAuthClient({
       ...BASE_CONFIG,
       enableRefreshToken: false,
@@ -283,8 +294,13 @@ describe('account.enrollPasskey (end to end)', () => {
 
     await client.account.enrollPasskey('My Laptop');
 
-    const [beginUrl] = calls(transport)[0]!;
-    const [finishUrl, finishReq] = calls(transport)[1]!;
+    // The first transport call is the bootstrap refresh; filter to the
+    // passkey-registration requests.
+    const passkeyCalls = calls(transport).filter(([url]) =>
+      url.includes('/passkeys/register/'),
+    );
+    const [beginUrl] = passkeyCalls[0]!;
+    const [finishUrl, finishReq] = passkeyCalls[1]!;
     expect(beginUrl).toBe(
       'https://auth.example.com/v2/me/passkeys/register/begin',
     );

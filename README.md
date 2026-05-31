@@ -441,6 +441,7 @@ Full Angular example (service + guard + callback route + status component):
 - `userinfoEndpoint`: `${baseUrl}/v2/oauth/userinfo`
 - `scope`: `openid profile email`
 - `enableRefreshToken`: `true`
+- `storage`: `sessionStorage` in the browser, else in-memory (holds only transient OAuth state — never tokens)
 
 ## Configuration
 
@@ -454,22 +455,51 @@ interface AuthConfig {
   scope?: string;
   logoutEndpoint?: string;
   userinfoEndpoint?: string;
+  /** Holds ONLY transient OAuth state (never tokens). Default: sessionStorage. */
   storage?: StorageAdapter;
   transport?: AuthTransport;
   onRedirect?: (url: string) => void | Promise<void>;
   enableRefreshToken?: boolean;
+  /** Enable DPoP (RFC 9449) sender-constrained tokens. See createDpopSigner(). */
+  dpop?: DpopProofSigner;
   now?: () => number;
 }
 ```
 
-## Storage strategy
+## Token storage (v8 — secure by default)
 
-| Adapter | Persists reload | JS-readable | SSR |
-|---|---|---|---|
-| `MemoryStorageAdapter` | No | Yes | No |
-| `WebStorageAdapter(sessionStorage)` | Per tab | Yes | No |
-| `WebStorageAdapter(localStorage)` | Yes | Yes | No |
-| `CookieStorageAdapter` | Configurable | Depends on cookie flags | Yes |
+> **Breaking change in v8.** The SDK no longer persists tokens anywhere.
+
+- **Access token: in memory only.** It is never written to `localStorage`,
+  `sessionStorage`, or any cookie — so an XSS payload has nothing at rest to
+  exfiltrate, and the token is short-lived anyway.
+- **Refresh token: HttpOnly `__Host-nuria_rt` cookie only.** It is never read
+  into JavaScript. Every login flow and the code exchange use
+  `credentials: 'include'` so the kernel can set it; silent refresh re-sends
+  the cookie (`POST /v2/oauth/token`, no `refresh_token` body param) and the
+  kernel rotates it.
+- **On reload**, the SDK re-establishes the in-memory access token via a
+  cookie-based silent refresh. It only attempts this when a **non-sensitive**
+  marker (`nuria:auth:has_session`) is present — set on login, cleared on
+  logout. The marker is not a credential.
+
+The `storage` adapter you pass now holds **only transient OAuth state**
+(`state`, `nonce`, PKCE `code_verifier`, the force-relogin and has-session
+markers) — never tokens. It must survive the authorize redirect round-trip, so
+it defaults to **`sessionStorage`** in the browser (in-memory in SSR).
+
+| Adapter | Good for | Notes |
+|---|---|---|
+| `WebStorageAdapter(sessionStorage)` | **default** (browser) | Survives the redirect, clears on tab close. Holds only transient state. |
+| `MemoryStorageAdapter` | SSR / tests | No persistence; the redirect/PKCE flow needs a persistent adapter. |
+| `WebStorageAdapter(localStorage)` | cross-tab persistence of *state* | Acceptable for the transient artifacts above; **never** stores tokens. |
+| `CookieStorageAdapter` | SSR state | For transient state in cookie-only runtimes. |
+
+> Migrating from v6/v7: drop any `storage: new WebStorageAdapter(localStorage)`
+> you used to persist the session — it is no longer needed (and no longer
+> stores tokens). Ensure your app and the kernel share a site so the
+> `__Host-nuria_rt` cookie flows (same registrable domain, `credentials:
+> 'include'`, CORS `Access-Control-Allow-Credentials: true`).
 
 ## Session health check
 

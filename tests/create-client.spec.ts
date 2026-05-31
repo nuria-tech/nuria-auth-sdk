@@ -21,6 +21,30 @@ function makeMockTransport(data: Record<string, unknown> = {}) {
   };
 }
 
+/**
+ * v8-aware transport: answers the token endpoint with an access-token payload
+ * (so the cookie-bootstrap refresh succeeds) and every other URL with `data`.
+ */
+function makeAuthedTransport(data: Record<string, unknown> = {}) {
+  return {
+    request: vi.fn().mockImplementation(async (url: string) => ({
+      status: 200,
+      data:
+        url === BASE_CONFIG.tokenEndpoint || url.endsWith('/v2/oauth/token')
+          ? { access_token: 'boot-tok', token_type: 'Bearer', expires_in: 3600 }
+          : data,
+      headers: new Headers(),
+    })),
+  };
+}
+
+/** Seeds the v8 "has session" marker so init() bootstraps an in-memory token. */
+function authedStorage() {
+  const storage = new MemoryStorageAdapter();
+  void storage.set('nuria:auth:has_session', '1');
+  return storage;
+}
+
 describe('createAuthClient', () => {
   it('creates a client with all required config fields', () => {
     const client = createAuthClient(BASE_CONFIG);
@@ -72,13 +96,20 @@ describe('createAuthClient', () => {
       'https://app.example.com/callback?code=c&state=st',
     );
 
-    const calls = transport.request.mock.calls as Array<[string, AuthTransportRequest]>;
+    const calls = transport.request.mock.calls as Array<
+      [string, AuthTransportRequest]
+    >;
     expect(calls[0]![0]).toBe('https://auth.example.com/v2/oauth/token');
   });
 
   it('throws INVALID_CONFIG when baseUrl is invalid and endpoints are omitted', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const bad = { ...BASE_CONFIG, baseUrl: 'not-url', authorizationEndpoint: undefined, tokenEndpoint: undefined } as any;
+    const bad = {
+      ...BASE_CONFIG,
+      baseUrl: 'not-url',
+      authorizationEndpoint: undefined,
+      tokenEndpoint: undefined,
+    } as any;
     expect(() => createAuthClient(bad)).toThrowError(
       expect.objectContaining({ code: AuthErrorCode.INVALID_CONFIG }),
     );
@@ -123,17 +154,24 @@ describe('createAuthClient', () => {
   });
 
   it('isAuthenticated returns true when token is expired but enableRefreshToken is true', async () => {
-    const now = vi.fn().mockReturnValue(2_000_000);
+    const now = vi.fn().mockReturnValue(2_000_000_000_000);
     const storage = new MemoryStorageAdapter();
-    await storage.set(
-      'nuria:session',
-      JSON.stringify({
-        tokens: { accessToken: 'expired-token', expiresAt: 1_000_000 },
-        createdAt: 1_000_000,
-      }),
-    );
+    await storage.set('nuria:auth:has_session', '1');
+    // The cookie bootstrap returns an already-expired access token (a past ms
+    // timestamp). With refresh enabled, isAuthenticated stays true because
+    // getAccessToken would silently renew it.
+    const transport = makeMockTransport({
+      access_token: 'expired-token',
+      expiresAt: 1_000_000_000_000,
+    });
 
-    const client = createAuthClient({ ...BASE_CONFIG, storage, now, enableRefreshToken: true });
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      storage,
+      transport,
+      now,
+      enableRefreshToken: true,
+    });
     await client.init();
 
     expect(client.isAuthenticated()).toBe(true);
@@ -150,24 +188,19 @@ describe('createAuthClient', () => {
   });
 
   it('enables refresh by default when enableRefreshToken is omitted', async () => {
-    const now = vi.fn().mockReturnValue(1_000_000);
+    const now = vi.fn().mockReturnValue(2_000_000_000_000);
     const storage = new MemoryStorageAdapter();
-    await storage.set(
-      'nuria:session',
-      JSON.stringify({
-        tokens: {
-          accessToken: 'old',
-          refreshToken: 'rt-old',
-          expiresAt: 999_000,
-        },
-        createdAt: 1_000_000,
-      }),
-    );
+    await storage.set('nuria:auth:has_session', '1');
 
+    // The token endpoint always hands back an already-expired token (a past ms
+    // timestamp, > 1e12 so it's read as milliseconds). The cookie bootstrap
+    // mints it; then getAccessToken, with refresh enabled by default, sees it
+    // expired and refreshes again — proving refresh is on without an explicit
+    // enableRefreshToken flag.
     const transport = {
       request: vi.fn().mockResolvedValue({
         status: 200,
-        data: { access_token: 'refreshed', expires_in: 3600 },
+        data: { access_token: 'refreshed', expiresAt: 1_500_000_000_000 },
         headers: new Headers(),
       }),
     };
@@ -178,20 +211,27 @@ describe('createAuthClient', () => {
       transport,
       now,
     });
+    await client.init();
 
     const token = await client.getAccessToken();
     expect(token).toBe('refreshed');
+    // init() bootstrap + the getAccessToken refresh = at least 2 token calls,
+    // confirming the near-expiry refresh actually fired.
+    expect(transport.request.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
-  it('getAccessToken returns null and clears storage when stored session is malformed', async () => {
+  it('getAccessToken does not bootstrap (no network call) when the authed marker is absent', async () => {
+    // v8: tokens are never stored. With no "has session" marker at rest, the
+    // SDK is genuinely anonymous — getAccessToken returns null immediately and
+    // must NOT attempt a cookie-based refresh against the token endpoint.
     const storage = new MemoryStorageAdapter();
-    await storage.set('nuria:session', JSON.stringify({ notTokens: true }));
+    const transport = makeMockTransport({ access_token: 'should-not-be-used' });
 
-    const client = createAuthClient({ ...BASE_CONFIG, storage });
+    const client = createAuthClient({ ...BASE_CONFIG, storage, transport });
     const token = await client.getAccessToken();
 
     expect(token).toBeNull();
-    expect(await storage.get('nuria:session')).toBeNull();
+    expect(transport.request).not.toHaveBeenCalled();
   });
 
   it('onAuthStateChanged fires after handleRedirectCallback and logout', async () => {
@@ -224,14 +264,13 @@ describe('createAuthClient', () => {
     expect(handler.mock.calls.length).toBe(handler2ndCallCount);
   });
 
-  it('revokeSession POSTs /v2/logout with the current refresh token', async () => {
+  it('revokeSession POSTs /v2/logout with credentials and an empty body (cookie-identified)', async () => {
     const storage = new MemoryStorageAdapter();
     await storage.set('nuria:oauth:state', 'st');
     await storage.set('nuria:oauth:code_verifier', 'vf');
 
     const transport = makeMockTransport({
       access_token: 'tok',
-      refresh_token: 'r-1',
     });
     const client = createAuthClient({ ...BASE_CONFIG, storage, transport });
 
@@ -242,26 +281,35 @@ describe('createAuthClient', () => {
     transport.request.mockClear();
     await client.revokeSession();
 
-    const calls = transport.request.mock.calls as Array<[string, AuthTransportRequest]>;
+    const calls = transport.request.mock.calls as Array<
+      [string, AuthTransportRequest]
+    >;
     expect(calls).toHaveLength(1);
     expect(calls[0]![0]).toBe('https://auth.example.com/v2/logout');
     expect(calls[0]![1].method).toBe('POST');
-    expect(calls[0]![1].body).toEqual({ refreshToken: 'r-1' });
+    // v8: the refresh token lives only in the HttpOnly __Host-nuria_rt cookie,
+    // so the session is identified via credentials:'include' and the body is
+    // empty — no refresh token is ever placed in JS.
+    expect(calls[0]![1].credentials).toBe('include');
+    expect(calls[0]![1].body).toEqual({});
     // revokeSession is server-side only — local session must survive so the
-    // caller can sequence revoke→logout without losing the refresh token mid-flight.
+    // caller can sequence revoke→logout.
     expect(client.getSession()).not.toBeNull();
   });
 
-  it('revokeSession sends an empty body when no refresh token is present', async () => {
+  it('revokeSession sends credentials and an empty body even with no in-memory session', async () => {
     const storage = new MemoryStorageAdapter();
     const transport = makeMockTransport({});
     const client = createAuthClient({ ...BASE_CONFIG, storage, transport });
 
     await client.revokeSession();
 
-    const calls = transport.request.mock.calls as Array<[string, AuthTransportRequest]>;
+    const calls = transport.request.mock.calls as Array<
+      [string, AuthTransportRequest]
+    >;
     expect(calls).toHaveLength(1);
     expect(calls[0]![0]).toBe('https://auth.example.com/v2/logout');
+    expect(calls[0]![1].credentials).toBe('include');
     expect(calls[0]![1].body).toEqual({});
   });
 
@@ -294,7 +342,9 @@ describe('createAuthClient', () => {
     transport.request.mockClear();
     await client.revokeAllSessions();
 
-    const calls = transport.request.mock.calls as Array<[string, AuthTransportRequest]>;
+    const calls = transport.request.mock.calls as Array<
+      [string, AuthTransportRequest]
+    >;
     expect(calls).toHaveLength(1);
     expect(calls[0]![0]).toBe('https://auth.example.com/v2/logout/global');
     expect(calls[0]![1].method).toBe('POST');
@@ -312,7 +362,9 @@ describe('createAuthClient', () => {
 
     await client.revokeAllSessions();
 
-    const calls = transport.request.mock.calls as Array<[string, AuthTransportRequest]>;
+    const calls = transport.request.mock.calls as Array<
+      [string, AuthTransportRequest]
+    >;
     expect(calls).toHaveLength(1);
     expect(calls[0]![1].headers).toBeUndefined();
   });
@@ -340,7 +392,9 @@ describe('createAuthClient', () => {
 
     const result = await client.lookupDeviceUserCode('WDJB-MJHT');
 
-    const calls = transport.request.mock.calls as Array<[string, AuthTransportRequest]>;
+    const calls = transport.request.mock.calls as Array<
+      [string, AuthTransportRequest]
+    >;
     expect(calls).toHaveLength(1);
     expect(calls[0]![0]).toBe(
       'https://auth.example.com/v2/oauth/device?user_code=WDJB-MJHT',
@@ -387,9 +441,13 @@ describe('createAuthClient', () => {
 
     await client.approveDeviceUserCode('WDJB-MJHT');
 
-    const calls = transport.request.mock.calls as Array<[string, AuthTransportRequest]>;
+    const calls = transport.request.mock.calls as Array<
+      [string, AuthTransportRequest]
+    >;
     expect(calls).toHaveLength(1);
-    expect(calls[0]![0]).toBe('https://auth.example.com/v2/oauth/device/approve');
+    expect(calls[0]![0]).toBe(
+      'https://auth.example.com/v2/oauth/device/approve',
+    );
     expect(calls[0]![1].method).toBe('POST');
     expect(calls[0]![1].headers).toEqual({ Authorization: 'Bearer tok-abc' });
     expect(calls[0]![1].body).toEqual({ userCode: 'WDJB-MJHT' });
@@ -428,7 +486,9 @@ describe('createAuthClient', () => {
 
     await client.denyDeviceUserCode('WDJB-MJHT');
 
-    const calls = transport.request.mock.calls as Array<[string, AuthTransportRequest]>;
+    const calls = transport.request.mock.calls as Array<
+      [string, AuthTransportRequest]
+    >;
     expect(calls[0]![0]).toBe('https://auth.example.com/v2/oauth/device/deny');
     expect(calls[0]![1].method).toBe('POST');
     expect(calls[0]![1].headers).toEqual({ Authorization: 'Bearer tok-xyz' });
@@ -543,17 +603,11 @@ describe('createAuthClient', () => {
   });
 
   it('getUserinfo fetches from userinfoEndpoint', async () => {
-    const storage = new MemoryStorageAdapter();
-    // Hydrate session directly
-    await storage.set(
-      'nuria:session',
-      JSON.stringify({
-        tokens: { accessToken: 'tok' },
-        createdAt: Date.now(),
-      }),
-    );
-
-    const transport = makeMockTransport({
+    // v8: establish the in-memory token via the cookie bootstrap, then call
+    // userinfo. The URL-aware transport answers /token with an access token
+    // and the userinfo endpoint with the profile payload.
+    const storage = authedStorage();
+    const transport = makeAuthedTransport({
       sub: 'user-123',
       email: 'user@example.com',
     });
@@ -564,37 +618,33 @@ describe('createAuthClient', () => {
       transport,
       userinfoEndpoint: 'https://auth.example.com/userinfo',
     });
+    await client.init();
 
     const userinfo = await client.getUserinfo();
     expect(userinfo).toEqual({ sub: 'user-123', email: 'user@example.com' });
 
     const calls = transport.request.mock.calls as Array<[string, unknown]>;
-    const userinfoCall = calls.find(([url]) =>
-      url.includes('userinfo'),
-    );
+    const userinfoCall = calls.find(([url]) => url.includes('userinfo'));
     expect(userinfoCall).toBeDefined();
   });
 
   it('getUserinfo uses default userinfoEndpoint when none is provided', async () => {
     const storage = new MemoryStorageAdapter();
-    await storage.set(
-      'nuria:session',
-      JSON.stringify({
-        tokens: { accessToken: 'tok' },
-        createdAt: Date.now(),
-      }),
-    );
+    void storage.set('nuria:auth:has_session', '1');
 
+    // baseUrl-derived endpoints: token bootstrap hits /v2/oauth/token, userinfo
+    // defaults to /v2/oauth/userinfo.
     const transport = {
-      request: vi.fn().mockResolvedValue({
+      request: vi.fn().mockImplementation(async (url: string) => ({
         status: 200,
-        data: { sub: 'user-1' },
+        data: url.endsWith('/v2/oauth/token')
+          ? { access_token: 'boot-tok', token_type: 'Bearer', expires_in: 3600 }
+          : { sub: 'user-1' },
         headers: new Headers(),
-      }),
+      })),
     };
 
-    // BASE_CONFIG has explicit tokenEndpoint/authorizationEndpoint but no userinfoEndpoint
-    // createAuthClient should default to baseUrl + /v2/oauth/userinfo
+    // No userinfoEndpoint → createAuthClient defaults to baseUrl + /v2/oauth/userinfo
     const client = createAuthClient({
       clientId: 'test-client',
       baseUrl: 'https://auth.nuria.com.br',
@@ -602,12 +652,16 @@ describe('createAuthClient', () => {
       storage,
       transport,
     });
+    await client.init();
 
     const result = await client.getUserinfo();
     expect(result).toEqual({ sub: 'user-1' });
 
     const calls = transport.request.mock.calls as Array<[string, unknown]>;
-    expect(calls[0]![0]).toBe('https://auth.nuria.com.br/v2/oauth/userinfo');
+    const userinfoCall = calls.find(([url]) =>
+      url.endsWith('/v2/oauth/userinfo'),
+    );
+    expect(userinfoCall).toBeDefined();
   });
 
   it('checkSession returns false when not authenticated', async () => {
@@ -616,29 +670,37 @@ describe('createAuthClient', () => {
   });
 
   it('checkSession returns true when server responds 200', async () => {
-    const storage = new MemoryStorageAdapter();
-    await storage.set(
-      'nuria:session',
-      JSON.stringify({ tokens: { accessToken: 'tok' }, createdAt: Date.now() }),
-    );
-    const transport = makeMockTransport({ sub: 'user-123' });
+    const storage = authedStorage();
+    const transport = makeAuthedTransport({ sub: 'user-123' });
     const client = createAuthClient({
       ...BASE_CONFIG,
       storage,
       transport,
       userinfoEndpoint: 'https://auth.example.com/userinfo',
     });
+    await client.init();
     expect(await client.checkSession()).toBe(true);
   });
 
   it('checkSession clears session and returns false when server rejects token', async () => {
-    const storage = new MemoryStorageAdapter();
-    await storage.set(
-      'nuria:session',
-      JSON.stringify({ tokens: { accessToken: 'tok' }, createdAt: Date.now() }),
-    );
+    // v8: bootstrap a real in-memory session (token endpoint succeeds), then
+    // have the userinfo probe reject — checkSession must clear the session.
+    const storage = authedStorage();
     const transport = {
-      request: vi.fn().mockRejectedValue(new Error('Unauthorized')),
+      request: vi.fn().mockImplementation(async (url: string) => {
+        if (url === BASE_CONFIG.tokenEndpoint) {
+          return {
+            status: 200,
+            data: {
+              access_token: 'boot-tok',
+              token_type: 'Bearer',
+              expires_in: 3600,
+            },
+            headers: new Headers(),
+          };
+        }
+        throw new Error('Unauthorized');
+      }),
     };
     const client = createAuthClient({
       ...BASE_CONFIG,
@@ -646,18 +708,17 @@ describe('createAuthClient', () => {
       transport,
       userinfoEndpoint: 'https://auth.example.com/userinfo',
     });
+    await client.init();
+    expect(client.getSession()).not.toBeNull();
+
     expect(await client.checkSession()).toBe(false);
     expect(client.isAuthenticated()).toBe(false);
     expect(client.getSession()).toBeNull();
   });
 
   it('checkSession returns true when session is valid and userinfo succeeds', async () => {
-    const storage = new MemoryStorageAdapter();
-    await storage.set(
-      'nuria:session',
-      JSON.stringify({ tokens: { accessToken: 'tok', expiresAt: Date.now() + 600_000 }, createdAt: Date.now() }),
-    );
-    const transport = makeMockTransport({});
+    const storage = authedStorage();
+    const transport = makeAuthedTransport({});
     const client = createAuthClient({
       clientId: 'test-client',
       baseUrl: 'https://auth.example.com',
@@ -667,6 +728,7 @@ describe('createAuthClient', () => {
       storage,
       transport,
     });
+    await client.init();
     expect(await client.checkSession()).toBe(true);
   });
 
@@ -680,32 +742,24 @@ describe('createAuthClient', () => {
   });
 
   it('getAccessToken deduplicates concurrent refresh calls', async () => {
-    let refreshCount = 0;
     const INITIAL_NOW = 1_000_000_000;
     const now = vi.fn().mockReturnValue(INITIAL_NOW);
 
-    const storage = new MemoryStorageAdapter();
-    await storage.set(
-      'nuria:session',
-      JSON.stringify({
-        tokens: {
-          accessToken: 'initial',
-          refreshToken: 'rt',
-          expiresAt: INITIAL_NOW + 60_000,
-        },
-        createdAt: INITIAL_NOW,
-      }),
-    );
+    const storage = authedStorage();
 
+    // The token endpoint mints a token expiring 60s out (within the 5-min
+    // buffer once we advance time). The bootstrap on init() establishes the
+    // in-memory session; the two concurrent getAccessToken calls below must
+    // coalesce into a SINGLE refresh.
+    // expires_in is relative to now(): the bootstrap token (minted at
+    // INITIAL_NOW) expires 60s later, well inside the 5-min refresh buffer
+    // once we advance the clock below.
     const transport = {
-      request: vi.fn().mockImplementation(async () => {
-        refreshCount++;
-        return {
-          status: 200,
-          data: { access_token: 'refreshed', expires_in: 3600 },
-          headers: new Headers(),
-        };
-      }),
+      request: vi.fn().mockImplementation(async () => ({
+        status: 200,
+        data: { access_token: 'refreshed', expires_in: 60 },
+        headers: new Headers(),
+      })),
     };
 
     const client = createAuthClient({
@@ -715,48 +769,45 @@ describe('createAuthClient', () => {
       enableRefreshToken: true,
       now,
     });
+    await client.init(); // bootstrap call #1
+    const callsAfterBootstrap = transport.request.mock.calls.length;
 
-    // Advance time past token expiry
+    // Advance time so the bootstrapped token is now inside the refresh buffer.
     now.mockReturnValue(INITIAL_NOW + 120_000);
 
-    // Fire two concurrent getAccessToken calls — should only refresh once
+    // Fire two concurrent getAccessToken calls — should only refresh once.
     const [t1, t2] = await Promise.all([
       client.getAccessToken(),
       client.getAccessToken(),
     ]);
     expect(t1).toBe(t2);
-    expect(refreshCount).toBe(1);
-    const req = (transport.request.mock.calls as Array<[string, AuthTransportRequest]>)[0]![1];
-    // Refresh token is in storage and posted in the body, so the SDK omits
-    // `credentials: 'include'` to avoid riding ambient cookies along to a
-    // misconfigured tokenEndpoint.
-    expect(req.credentials).toBeUndefined();
+    expect(transport.request.mock.calls.length - callsAfterBootstrap).toBe(1);
+    const calls = transport.request.mock.calls as Array<
+      [string, AuthTransportRequest]
+    >;
+    const req = calls[calls.length - 1]![1];
+    // v8: the refresh token is never in JS — it lives in the HttpOnly cookie,
+    // so the refresh always rides credentials:'include' and carries no
+    // refresh_token in the body.
+    expect(req.credentials).toBe('include');
     const body = new URLSearchParams(req.body as string);
-    expect(body.get('refresh_token')).toBe('rt');
+    expect(body.get('grant_type')).toBe('refresh_token');
+    expect(body.get('refresh_token')).toBeNull();
   });
 
-  it('refresh sends credentials:include only when refresh token is not in storage', async () => {
+  it('refresh always sends credentials:include and never a refresh_token body param', async () => {
     const INITIAL_NOW = 1_000_000_000;
     const now = vi.fn().mockReturnValue(INITIAL_NOW);
-    const storage = new MemoryStorageAdapter();
-    // Session without a refreshToken — kernel-issued cookie is the only
-    // way to identify the session, so the SDK must ride ambient cookies.
-    await storage.set(
-      'nuria:session',
-      JSON.stringify({
-        tokens: {
-          accessToken: 'initial',
-          expiresAt: INITIAL_NOW + 60_000,
-        },
-        createdAt: INITIAL_NOW,
-      }),
-    );
+    const storage = authedStorage();
+    // v8: the kernel-issued HttpOnly cookie is the only way to identify the
+    // session, so the SDK must always ride ambient cookies and never embed a
+    // refresh token in the request.
     const transport = {
-      request: vi.fn().mockResolvedValue({
+      request: vi.fn().mockImplementation(async () => ({
         status: 200,
-        data: { access_token: 'refreshed', expires_in: 3600 },
+        data: { access_token: 'refreshed', expires_in: 60 },
         headers: new Headers(),
-      }),
+      })),
     };
     const client = createAuthClient({
       ...BASE_CONFIG,
@@ -765,10 +816,17 @@ describe('createAuthClient', () => {
       enableRefreshToken: true,
       now,
     });
+    await client.init();
     now.mockReturnValue(INITIAL_NOW + 120_000);
     await client.getAccessToken();
-    const req = (transport.request.mock.calls as Array<[string, AuthTransportRequest]>)[0]![1];
+    const calls = transport.request.mock.calls as Array<
+      [string, AuthTransportRequest]
+    >;
+    const req = calls[calls.length - 1]![1];
     expect(req.credentials).toBe('include');
+    expect(
+      new URLSearchParams(req.body as string).get('refresh_token'),
+    ).toBeNull();
   });
 
   it('startLoginCodeChallenge calls /v2/login-code/challenge with email default', async () => {
@@ -793,7 +851,9 @@ describe('createAuthClient', () => {
     const calls = transport.request.mock.calls as Array<
       [string, AuthTransportRequest]
     >;
-    expect(calls[0]![0]).toBe('https://auth.example.com/v2/login-code/challenge');
+    expect(calls[0]![0]).toBe(
+      'https://auth.example.com/v2/login-code/challenge',
+    );
     expect(calls[0]![1].method).toBe('POST');
     expect(calls[0]![1].body).toEqual({
       email: 'user@example.com',
@@ -820,7 +880,9 @@ describe('createAuthClient', () => {
     });
 
     expect(session.tokens.accessToken).toBe('access-from-2fa');
-    expect(session.tokens.refreshToken).toBe('refresh-from-2fa');
+    // v8: the refresh token is stripped from the in-memory session — it lives
+    // only in the HttpOnly __Host-nuria_rt cookie and never surfaces in JS.
+    expect(session.tokens.refreshToken).toBeUndefined();
   });
 
   it('loginWithPassword calls /v2/login and creates session', async () => {
@@ -837,7 +899,8 @@ describe('createAuthClient', () => {
     });
 
     expect(session.tokens.accessToken).toBe('password-access');
-    expect(session.tokens.refreshToken).toBe('password-refresh');
+    // v8: refresh token is stripped from the in-memory session (cookie-only).
+    expect(session.tokens.refreshToken).toBeUndefined();
     const calls = transport.request.mock.calls as Array<
       [string, AuthTransportRequest]
     >;
@@ -847,25 +910,15 @@ describe('createAuthClient', () => {
 
   it('refresh works without refreshToken in session (cookie-first)', async () => {
     const INITIAL_NOW = 2_000_000_000;
-    const now = vi.fn().mockReturnValue(INITIAL_NOW + 120_000);
-    const storage = new MemoryStorageAdapter();
-    await storage.set(
-      'nuria:session',
-      JSON.stringify({
-        tokens: {
-          accessToken: 'initial',
-          expiresAt: INITIAL_NOW + 60_000,
-        },
-        createdAt: INITIAL_NOW,
-      }),
-    );
+    const now = vi.fn().mockReturnValue(INITIAL_NOW);
+    const storage = authedStorage();
 
     const transport = {
-      request: vi.fn().mockResolvedValue({
+      request: vi.fn().mockImplementation(async () => ({
         status: 200,
-        data: { access_token: 'refreshed', expires_in: 3600 },
+        data: { access_token: 'refreshed', expires_in: 60 },
         headers: new Headers(),
-      }),
+      })),
     };
 
     const client = createAuthClient({
@@ -875,39 +928,41 @@ describe('createAuthClient', () => {
       enableRefreshToken: true,
       now,
     });
+    await client.init();
+    // Advance past the bootstrapped token's expiry window so getAccessToken refreshes.
+    now.mockReturnValue(INITIAL_NOW + 120_000);
 
     const token = await client.getAccessToken();
     expect(token).toBe('refreshed');
 
-    const req = (transport.request.mock.calls as Array<[string, AuthTransportRequest]>)[0]![1];
+    const calls = transport.request.mock.calls as Array<
+      [string, AuthTransportRequest]
+    >;
+    const req = calls[calls.length - 1]![1];
     expect(req.credentials).toBe('include');
     const params = new URLSearchParams(req.body as string);
     expect(params.get('grant_type')).toBe('refresh_token');
     expect(params.get('refresh_token')).toBeNull();
   });
 
-  it('preserves previous refreshToken when refresh response omits it', async () => {
+  it('never keeps a refresh token in the in-memory session, even if one is returned', async () => {
+    // v8 replaces the old "preserve previous refreshToken" behavior: the
+    // refresh token is NEVER held in JS. Even when the token endpoint returns
+    // a refresh_token, createSession strips it — the cookie is the only home.
     const INITIAL_NOW = 3_000_000_000;
-    const now = vi.fn().mockReturnValue(INITIAL_NOW + 120_000);
-    const storage = new MemoryStorageAdapter();
-    await storage.set(
-      'nuria:session',
-      JSON.stringify({
-        tokens: {
-          accessToken: 'initial',
-          refreshToken: 'rt-old',
-          expiresAt: INITIAL_NOW + 60_000,
-        },
-        createdAt: INITIAL_NOW,
-      }),
-    );
+    const now = vi.fn().mockReturnValue(INITIAL_NOW);
+    const storage = authedStorage();
 
     const transport = {
-      request: vi.fn().mockResolvedValue({
+      request: vi.fn().mockImplementation(async () => ({
         status: 200,
-        data: { access_token: 'refreshed', expires_in: 3600 },
+        data: {
+          access_token: 'refreshed',
+          refresh_token: 'rt-should-be-dropped',
+          expires_in: 60,
+        },
         headers: new Headers(),
-      }),
+      })),
     };
 
     const client = createAuthClient({
@@ -917,9 +972,13 @@ describe('createAuthClient', () => {
       enableRefreshToken: true,
       now,
     });
+    await client.init();
+    expect(client.getSession()?.tokens.refreshToken).toBeUndefined();
 
+    now.mockReturnValue(INITIAL_NOW + 120_000);
     await client.getAccessToken();
-    expect(client.getSession()?.tokens.refreshToken).toBe('rt-old');
+    expect(client.getSession()?.tokens.accessToken).toBe('refreshed');
+    expect(client.getSession()?.tokens.refreshToken).toBeUndefined();
   });
 
   it('resetPassword calls POST /v2/password/reset with email', async () => {
@@ -928,24 +987,40 @@ describe('createAuthClient', () => {
 
     await client.resetPassword({ email: 'user@example.com' });
 
-    const [url, req] = transport.request.mock.calls[0] as [string, AuthTransportRequest];
+    const [url, req] = transport.request.mock.calls[0] as [
+      string,
+      AuthTransportRequest,
+    ];
     expect(url).toBe('https://auth.example.com/v2/password/reset');
     expect(req.method).toBe('POST');
-    expect((req.body as Record<string, unknown>).email).toBe('user@example.com');
+    expect((req.body as Record<string, unknown>).email).toBe(
+      'user@example.com',
+    );
   });
 
   it('resetPassword throws when email is missing', async () => {
-    const client = createAuthClient({ ...BASE_CONFIG, transport: makeMockTransport() });
-    await expect(client.resetPassword({ email: '' })).rejects.toThrow(AuthError);
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      transport: makeMockTransport(),
+    });
+    await expect(client.resetPassword({ email: '' })).rejects.toThrow(
+      AuthError,
+    );
   });
 
   it('recoverPassword calls POST /v2/password/recover with Bearer token', async () => {
     const transport = makeMockTransport();
     const client = createAuthClient({ ...BASE_CONFIG, transport });
 
-    await client.recoverPassword({ token: 'reset-token', newPassword: 'NewPass1!' });
+    await client.recoverPassword({
+      token: 'reset-token',
+      newPassword: 'NewPass1!',
+    });
 
-    const [url, req] = transport.request.mock.calls[0] as [string, AuthTransportRequest];
+    const [url, req] = transport.request.mock.calls[0] as [
+      string,
+      AuthTransportRequest,
+    ];
     expect(url).toBe('https://auth.example.com/v2/password/recover');
     expect(req.method).toBe('POST');
     expect(req.headers?.Authorization).toBe('Bearer reset-token');
@@ -953,23 +1028,47 @@ describe('createAuthClient', () => {
   });
 
   it('recoverPassword throws when token or newPassword is missing', async () => {
-    const client = createAuthClient({ ...BASE_CONFIG, transport: makeMockTransport() });
-    await expect(client.recoverPassword({ token: '', newPassword: 'x' })).rejects.toThrow(AuthError);
-    await expect(client.recoverPassword({ token: 'tk', newPassword: '' })).rejects.toThrow(AuthError);
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      transport: makeMockTransport(),
+    });
+    await expect(
+      client.recoverPassword({ token: '', newPassword: 'x' }),
+    ).rejects.toThrow(AuthError);
+    await expect(
+      client.recoverPassword({ token: 'tk', newPassword: '' }),
+    ).rejects.toThrow(AuthError);
   });
 
   it('changePassword calls PATCH /v2/me/password with Bearer access token', async () => {
-    const transport = makeMockTransport({ access_token: 'active-token', expires_in: 3600 });
-    const storage = new MemoryStorageAdapter();
-    await storage.set('nuria:session', JSON.stringify({
-      tokens: { accessToken: 'active-token', expiresAt: Date.now() + 3_600_000 },
-      createdAt: Date.now(),
+    // v8: the token endpoint mints 'active-token' for the cookie bootstrap;
+    // changePassword then rides that in-memory token as a Bearer header.
+    const transport = makeAuthedTransport({ success: true });
+    transport.request = vi.fn().mockImplementation(async (url: string) => ({
+      status: 200,
+      data:
+        url === BASE_CONFIG.tokenEndpoint
+          ? {
+              access_token: 'active-token',
+              token_type: 'Bearer',
+              expires_in: 3600,
+            }
+          : { success: true },
+      headers: new Headers(),
     }));
+    const storage = authedStorage();
     const client = createAuthClient({ ...BASE_CONFIG, transport, storage });
+    await client.init();
 
-    await client.changePassword({ oldPassword: 'OldPass1!', newPassword: 'NewPass2!' });
+    await client.changePassword({
+      oldPassword: 'OldPass1!',
+      newPassword: 'NewPass2!',
+    });
 
-    const [url, req] = transport.request.mock.calls[0] as [string, AuthTransportRequest];
+    const calls = transport.request.mock.calls as Array<
+      [string, AuthTransportRequest]
+    >;
+    const [url, req] = calls[calls.length - 1]!;
     expect(url).toBe('https://auth.example.com/v2/me/password');
     expect(req.method).toBe('PATCH');
     expect(req.headers?.Authorization).toBe('Bearer active-token');
@@ -978,9 +1077,15 @@ describe('createAuthClient', () => {
   });
 
   it('changePassword throws NOT_AUTHENTICATED when not logged in', async () => {
-    const client = createAuthClient({ ...BASE_CONFIG, transport: makeMockTransport() });
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      transport: makeMockTransport(),
+    });
     await expect(
-      client.changePassword({ oldPassword: 'OldPass1!', newPassword: 'NewPass2!' })
+      client.changePassword({
+        oldPassword: 'OldPass1!',
+        newPassword: 'NewPass2!',
+      }),
     ).rejects.toThrow(AuthError);
   });
 });
