@@ -105,15 +105,22 @@ Requer **mudanças de backend**:
 - ❌ Bem mais trabalho de backend; renovação cross-app de um app "novo" precisa
   do iframe `prompt=none` (itens 3).
 
-### Recomendação
-Para o curto prazo, **Model 1 + endurecer o achado C de forma compatível**:
-manter a renovação por cookie, mas **vincular o refresh token ao `client_id`**
+### Recomendação — **DECIDIDA (Lucas, 2026-05-31): Model 1 + hardening C compatível**
+Manter a renovação por cookie, mas **vincular o refresh token ao `client_id`**
 e, no `ExchangeRefreshToken`, permitir o cookie renovar **apenas** para o client
 que o emitiu — exceto um conjunto explícito de "first-party clients" confiáveis
 (accounts + portais internos) que podem compartilhar a sessão. Assim:
 - portais internos (`*.nuria.com.br` first-party) seguem com SSO/renovação
   silenciosa de graça;
 - clients de terceiros ficam isolados (não conseguem renovar a sessão de outro).
+
+✅ **Implementado no kernel** (`feat/auth-next-gen`, commit `96ef57a`):
+`RefreshTokenSession.ClientId`; `RefreshTokenService.Issue(...clientId)` +
+`Rotate` preserva + `GetClientId` (peek sem consumir); `FirstPartyClientPolicy`
+**gateada por env `FIRST_PARTY_OAUTH_CLIENTS`** (vazio = Model 1 atual, zero
+risco no deploy); `OAuthController` binda code/device-flow ao client e valida no
+refresh **antes** de rotacionar. 371 testes verdes. **Falta só ops setar
+`FIRST_PARTY_OAUTH_CLIENTS`** (GUIDs dos clients first-party) pra ligar.
 
 Migrar para **Model 2 pleno** (com silent-auth por iframe) só quando houver
 necessidade de SPAs de terceiros com renovação silenciosa sem redirect — aí
@@ -135,10 +142,13 @@ Falta (depende de Model 2 / backend):
   X-Frame-Options. Documentado aqui como trabalho futuro.
 
 ## Itens acionáveis
-- [ ] **Decisão do Lucas:** Model 1 (com hardening C) vs Model 2 pleno.
-- [ ] Backend: `ClientId` no `RefreshTokenSession` + validação no rotate/exchange
-      (achado C) — necessário em ambos os modelos para 3rd-party.
+- [x] **Decisão do Lucas:** Model 1 (com hardening C). *(2026-05-31)*
+- [x] Backend: `ClientId` no `RefreshTokenSession` + validação no rotate/exchange
+      (achado C). *(kernel `96ef57a`, env-gated por `FIRST_PARTY_OAUTH_CLIENTS`)*
+- [ ] **Ops:** setar `FIRST_PARTY_OAUTH_CLIENTS` (GUIDs dos clients first-party:
+      accounts + portais internos) para LIGAR a enforcement. Sem isso fica em
+      Model 1 puro (sem isolamento).
 - [ ] CORS do kernel: `Access-Control-Allow-Credentials: true` para as origens
       `*.nuria.com.br` (necessário pro cookie fluir cross-origin no refresh).
-- [ ] (Model 2) backend honrar `prompt=none` + sessão no authorize; depois
-      `silentAuthorize()` no SDK.
+- [ ] (Model 2 — adiado) backend honrar `prompt=none` + sessão no authorize;
+      depois `silentAuthorize()` no SDK.
