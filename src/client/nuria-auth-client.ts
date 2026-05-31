@@ -18,6 +18,7 @@ import type {
   Session,
   StartLoginOptions,
   StepUpOptions,
+  StorageAdapter,
   TokenClaims,
   TokenSet,
   TwoFactorChallenge,
@@ -34,6 +35,7 @@ import {
 } from '../core/utils';
 import { AuthError, AuthErrorCode } from '../errors/auth-error';
 import { MemoryStorageAdapter } from '../storage/memory-storage-adapter';
+import { WebStorageAdapter } from '../storage/web-storage-adapter';
 import { FetchAuthTransport } from '../transport/fetch-transport';
 import {
   ACR_MULTI_FACTOR,
@@ -57,6 +59,25 @@ const BROADCAST_CHANNEL_NAME = 'nuria:auth:sync';
 // returns to focus mid-throttle still has time to refresh before the
 // access token expires and downstream API calls start 401'ing.
 const REFRESH_BUFFER_MS = 5 * 60 * 1000;
+
+/**
+ * Default home for transient OAuth state (state/nonce/PKCE verifier/login
+ * markers). v8 keeps NO tokens here — only short-lived, single-use artifacts
+ * that must survive the authorize redirect round-trip. `sessionStorage` is the
+ * right scope: it persists across the same-tab navigation a redirect flow
+ * needs, yet clears on tab close. Falls back to in-memory storage in SSR /
+ * non-browser runtimes.
+ */
+function defaultStateStorage(): StorageAdapter {
+  if (typeof sessionStorage !== 'undefined') {
+    try {
+      return new WebStorageAdapter(sessionStorage);
+    } catch {
+      /* sessionStorage can throw in sandboxed iframes — fall through */
+    }
+  }
+  return new MemoryStorageAdapter();
+}
 
 function isPermanentRefreshFailure(error: unknown): boolean {
   if (!(error instanceof AuthError)) return false;
@@ -85,7 +106,7 @@ export class DefaultAuthClient implements AuthClient {
   public readonly account: AccountClient;
 
   constructor(private readonly config: ResolvedAuthConfig) {
-    this.storage = config.storage ?? new MemoryStorageAdapter();
+    this.storage = config.storage ?? defaultStateStorage();
     this.transport = config.transport ?? new FetchAuthTransport();
     // Reuses getAccessToken so account calls ride the same (silently
     // refreshed) session token as the rest of the SDK.
@@ -124,11 +145,37 @@ export class DefaultAuthClient implements AuthClient {
   }
 
   async init(): Promise<void> {
-    await this.hydrateSession();
+    // v8: there are no tokens at rest to hydrate. If this browser carries the
+    // non-sensitive "has session" marker, attempt a cookie-based silent
+    // refresh to re-establish the in-memory access token (the refresh token
+    // lives only in the __Host cookie). Failure just leaves us anonymous.
+    if ((await safeGet(this.storage, STORAGE_KEYS.authed)) === '1') {
+      try {
+        await this.bootstrapFromCookie();
+      } catch {
+        // Cookie expired / revoked / network blip — clear the stale marker so
+        // we don't retry on every load. A real session can re-arm it on login.
+        await safeRemove(this.storage, STORAGE_KEYS.authed);
+      }
+    }
     this.notify(false); // local hydration only — don't broadcast to other tabs
     if (this.config.enableRefreshToken && typeof setInterval !== 'undefined') {
       this.startSilentRefresh();
     }
+  }
+
+  /**
+   * Re-establishes the in-memory session from the HttpOnly refresh cookie.
+   * Used on load (init) when the "has session" marker is present. Throws on
+   * any failure so the caller can clear the marker.
+   */
+  private async bootstrapFromCookie(): Promise<Session> {
+    if (!this.refreshPromise) {
+      this.refreshPromise = this.doRefresh().finally(() => {
+        this.refreshPromise = null;
+      });
+    }
+    return this.refreshPromise;
   }
 
   async startLogin(options: StartLoginOptions = {}): Promise<void> {
@@ -332,10 +379,23 @@ export class DefaultAuthClient implements AuthClient {
   }
 
   async getAccessToken(): Promise<string | null> {
+    // v8: no session in memory. If this browser is marked as authenticated,
+    // try to re-mint the access token from the refresh cookie (e.g. the tab
+    // was reloaded). Otherwise we are genuinely anonymous.
     if (!this.session) {
-      await this.hydrateSession();
+      if ((await safeGet(this.storage, STORAGE_KEYS.authed)) !== '1') {
+        return null;
+      }
+      try {
+        const session = await this.bootstrapFromCookie();
+        return session.tokens.accessToken ?? null;
+      } catch (error) {
+        if (isPermanentRefreshFailure(error)) {
+          await safeRemove(this.storage, STORAGE_KEYS.authed);
+        }
+        return null;
+      }
     }
-    if (!this.session) return null;
     const exp = this.session.tokens.expiresAt;
     if (exp && exp - REFRESH_BUFFER_MS <= this.now()) {
       if (this.config.enableRefreshToken) {
@@ -358,7 +418,7 @@ export class DefaultAuthClient implements AuthClient {
           // silentRefresh tick (60s) will retry naturally.
           if (isPermanentRefreshFailure(error)) {
             this.session = null;
-            await safeRemove(this.storage, STORAGE_KEYS.session);
+            await safeRemove(this.storage, STORAGE_KEYS.authed);
             this.notify();
           }
           return null;
@@ -366,7 +426,7 @@ export class DefaultAuthClient implements AuthClient {
       } else if (exp <= this.now()) {
         // Token is actually expired and refresh is disabled — clear session
         this.session = null;
-        await safeRemove(this.storage, STORAGE_KEYS.session);
+        await safeRemove(this.storage, STORAGE_KEYS.authed);
         this.notify();
         return null;
       }
@@ -377,7 +437,7 @@ export class DefaultAuthClient implements AuthClient {
   async logout(options: LogoutOptions = {}): Promise<void> {
     this.stopSilentRefresh();
     this.session = null;
-    await safeRemove(this.storage, STORAGE_KEYS.session);
+    await safeRemove(this.storage, STORAGE_KEYS.authed);
     await safeRemove(this.storage, STORAGE_KEYS.state);
     await safeRemove(this.storage, STORAGE_KEYS.nonce);
     await safeRemove(this.storage, STORAGE_KEYS.codeVerifier);
@@ -400,18 +460,14 @@ export class DefaultAuthClient implements AuthClient {
     // here would leave the user stuck signed-in client-side after they
     // explicitly asked to sign out.
     //
-    // `credentials: 'include'` is only sent when we don't have an explicit
-    // refresh token to put in the body — i.e. when the kernel-issued
-    // `__Host-nuria_rt` cookie is the only way to identify the session to
-    // revoke. With an explicit token we omit credentials so a misconfigured
-    // baseUrl routed through a logging proxy can't bleed every ambient
-    // cookie for that origin alongside the refresh token.
-    const refreshToken = this.session?.tokens.refreshToken;
+    // v8: the refresh token is only in the HttpOnly `__Host-nuria_rt` cookie,
+    // so `credentials: 'include'` is the only way to identify the session to
+    // revoke server-side.
     try {
       await this.transport.request(`${this.config.baseUrl}/v2/logout`, {
         method: 'POST',
-        credentials: refreshToken ? undefined : 'include',
-        body: refreshToken ? { refreshToken } : {},
+        credentials: 'include',
+        body: {},
         timeoutMs: 5_000,
       });
     } catch {
@@ -699,7 +755,7 @@ export class DefaultAuthClient implements AuthClient {
       return true;
     } catch {
       this.session = null;
-      await safeRemove(this.storage, STORAGE_KEYS.session);
+      await safeRemove(this.storage, STORAGE_KEYS.authed);
       this.notify();
       return false;
     }
@@ -1117,15 +1173,16 @@ export class DefaultAuthClient implements AuthClient {
 
     try {
       // Authorization-code exchange proves identity via the PKCE
-      // code_verifier + the one-shot `code` itself; no cookie ride-along is
-      // ever needed. Omitting `credentials: 'include'` means a misrouted
-      // tokenEndpoint can't pull every ambient cookie for that origin.
-      // With DPoP enabled, the proof here is what binds the issued token to
-      // our key (cnf.jkt).
+      // code_verifier + the one-shot `code`. v8 sends `credentials: 'include'`
+      // so the kernel's Set-Cookie for the HttpOnly `__Host-nuria_rt` refresh
+      // token is actually stored by the browser — that cookie, not any JS
+      // state, is what drives silent refresh from here on. With DPoP enabled,
+      // the proof binds the issued access token to our key (cnf.jkt).
       const response = await this.transport.request<Record<string, unknown>>(
         this.config.tokenEndpoint,
         {
           method: 'POST',
+          credentials: 'include',
           headers: await this.tokenRequestDpopHeaders(),
           body: body.toString(),
         },
@@ -1170,26 +1227,21 @@ export class DefaultAuthClient implements AuthClient {
   }
 
   private async doRefresh(): Promise<Session> {
-    const refreshToken = this.session?.tokens.refreshToken;
+    // v8: the refresh token is never in JS. We identify the session purely by
+    // the HttpOnly `__Host-nuria_rt` cookie, so `credentials: 'include'` is
+    // mandatory and no refresh_token is ever placed in the body. The kernel's
+    // /v2/oauth/token resolves the cookie when the body omits the token, then
+    // rotates and re-sets it via Set-Cookie. With DPoP enabled, the proof
+    // re-binds the rotated token to our key.
     const body = new URLSearchParams({
       grant_type: 'refresh_token',
       client_id: this.config.clientId,
     });
-    if (refreshToken) {
-      body.set('refresh_token', refreshToken);
-    }
-
-    // When the SDK has the refresh token in storage, send it explicitly and
-    // omit `credentials: 'include'` — that prevents a misrouted tokenEndpoint
-    // from pulling every ambient cookie alongside the refresh token. We only
-    // ride cookies along when no token is in storage and the kernel-issued
-    // `__Host-nuria_rt` cookie is the only way to identify the session.
-    // Re-bind the rotated token to the same DPoP key (fresh proof per request).
     const response = await this.transport.request<Record<string, unknown>>(
       this.config.tokenEndpoint,
       {
         method: 'POST',
-        credentials: refreshToken ? undefined : 'include',
+        credentials: 'include',
         headers: await this.tokenRequestDpopHeaders(),
         body: body.toString(),
         timeoutMs: 10_000,
@@ -1221,22 +1273,21 @@ export class DefaultAuthClient implements AuthClient {
   }
 
   private async createSession(tokens: TokenSet): Promise<Session> {
-    const previousRefreshToken = this.session?.tokens.refreshToken;
-    const mergedTokens: TokenSet = {
-      ...tokens,
-      refreshToken: tokens.refreshToken ?? previousRefreshToken,
-    };
+    // v8: the refresh token is NEVER kept in JS — it lives solely in the
+    // HttpOnly `__Host-nuria_rt` cookie. Strip it from the in-memory session
+    // so it can't leak via getSession(), the cross-tab broadcast, or any
+    // accidental serialization. Only the short-lived access token is held.
+    const { refreshToken: _discarded, ...safeTokens } = tokens;
+    void _discarded;
 
     this.session = {
-      tokens: mergedTokens,
+      tokens: safeTokens,
       createdAt: this.now(),
       provider: tokens.authProvider ?? this.session?.provider,
     };
-    await safeSet(
-      this.storage,
-      STORAGE_KEYS.session,
-      JSON.stringify(this.session),
-    );
+    // Persist only the non-sensitive "has session" marker (NOT the token), so
+    // a later page load knows to attempt a cookie-based silent refresh.
+    await safeSet(this.storage, STORAGE_KEYS.authed, '1');
     this.notify();
     return this.session;
   }
@@ -1265,22 +1316,6 @@ export class DefaultAuthClient implements AuthClient {
         type: 'SESSION_SYNC',
         session: this.session,
       });
-    }
-  }
-
-  private async hydrateSession(): Promise<void> {
-    const raw = await safeGet(this.storage, STORAGE_KEYS.session);
-    if (!raw) return;
-    try {
-      const parsed: unknown = JSON.parse(raw);
-      if (!this.isValidSession(parsed)) {
-        await safeRemove(this.storage, STORAGE_KEYS.session);
-        return;
-      }
-      this.session = parsed;
-    } catch {
-      await safeRemove(this.storage, STORAGE_KEYS.session);
-      this.session = null;
     }
   }
 }

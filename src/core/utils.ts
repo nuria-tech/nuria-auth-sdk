@@ -2,10 +2,16 @@ import { AuthError, AuthErrorCode } from '../errors/auth-error';
 import type { StorageAdapter, TokenSet } from './types';
 
 export const STORAGE_KEYS = {
-  session: 'nuria:session',
+  // v8: the session (access token) lives in memory only and is NEVER written
+  // here — the refresh token lives solely in the HttpOnly `__Host-nuria_rt`
+  // cookie. This adapter only holds transient, non-credential OAuth state.
   state: 'nuria:oauth:state',
   codeVerifier: 'nuria:oauth:code_verifier',
   nonce: 'nuria:oauth:nonce',
+  // Non-sensitive marker: "this browser has an active session" — set on login,
+  // cleared on logout. NOT a credential. On load the SDK reads it to decide
+  // whether to attempt a cookie-based silent refresh (vs. staying anonymous).
+  authed: 'nuria:auth:has_session',
   // One-shot marker set by `logout()` (default behavior) and consumed by
   // the next `startLogin()` call to force `prompt=login` — i.e. the IdP
   // must render its login UI even if the SSO session is still warm.
