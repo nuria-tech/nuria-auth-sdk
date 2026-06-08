@@ -1,4 +1,8 @@
 # pnpm 10 settings. Single-package repo (no `packages:` globs needed).
+# Canonical home for autoInstallPeers (the .npmrc key is unread by newer pnpm)
+# so the lockfile's recorded value is stable across pnpm 10/11 and matches CI.
+autoInstallPeers: false
+
 # `overrides` moved here from package.json's `pnpm.overrides`, which pnpm 10
 # no longer reads — these pin transitive deps to minimum secure versions.
 overrides:
