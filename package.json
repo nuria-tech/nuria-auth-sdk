@@ -65,6 +65,7 @@
   "sideEffects": false,
   "scripts": {
     "build": "tsup",
+    "prepublishOnly": "tsup",
     "test": "vitest run",
     "test:build": "vitest run tests/build-artifacts.spec.ts",
     "test:coverage": "vitest run --coverage",
