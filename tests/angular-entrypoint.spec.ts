@@ -67,6 +67,7 @@ function createMockAuth() {
     }),
     revokeSession: vi.fn(async () => {}),
     revokeAllSessions: vi.fn(async () => {}),
+    hasSessionMarker: vi.fn(async () => false),
     isAuthenticated: vi.fn(() => session !== null),
     onAuthStateChanged: vi.fn((handler) => {
       listeners.add(handler);
