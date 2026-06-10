@@ -19,12 +19,11 @@ const SUPPORTED_LOGIN_METHODS: readonly LoginMethod[] = [
   'password',
   'google',
   'passwordless',
-  'aws_sso',
 ];
 
 export const DEFAULT_LOGIN_METHODS: LoginMethodsConfig = {
-  enabled: ['password', 'google'],
-  comingSoon: ['passwordless', 'aws_sso'],
+  enabled: ['password', 'google', 'passwordless'],
+  comingSoon: [],
 };
 
 function pickLoginMethods(

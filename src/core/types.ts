@@ -51,7 +51,7 @@ export interface TokenClaims {
   company_origin?: string | number;
   /**
    * Nuria-issued access tokens emit `avatar_url` (snake_case) only when a
-   * real avatar is available — Google login. Omitted for password / AWS SSO
+   * real avatar is available — Google login. Omitted for password / magic-link
    * logins so consumers can fall back to initials. Standard OIDC `picture`
    * is also accepted by the bundled claim helpers.
    */
@@ -161,7 +161,7 @@ export interface PasswordLoginOptions {
  * Login flow identifiers — closed set so consumers (login UIs) can switch on
  * the literal type without coercion.
  */
-export type LoginMethod = 'password' | 'google' | 'passwordless' | 'aws_sso';
+export type LoginMethod = 'password' | 'google' | 'passwordless';
 
 /**
  * Which login flows a UI should expose. Static config — passed at SDK init,
@@ -384,6 +384,13 @@ export interface AuthClient {
    */
   loginWithPassword(options: PasswordLoginOptions): Promise<Session>;
   /**
+   * Completes a forced password-reset after `loginWithPassword` throws
+   * `AuthErrorCode.FORCE_PASSWORD_RESET`. The `resetToken` is the scoped
+   * 15-min JWT from `AuthError.details.body.token`; the server upgrades
+   * the legacy SHA-256 hash to Argon2id and returns a full session.
+   */
+  forceResetPassword(newPassword: string, resetToken: string): Promise<Session>;
+  /**
    * Passwordless passkey (WebAuthn) login against
    * `/v2/login/passkey/begin|finish`. Drives `navigator.credentials.get()`
    * and, on success, establishes a session exactly like the other login
@@ -421,6 +428,18 @@ export interface AuthClient {
     token: string;
     newPassword: string;
   }): Promise<void>;
+  /**
+   * Sends a magic-link sign-in e-mail. Always resolves successfully so the
+   * caller cannot enumerate whether the account exists.
+   * Maps to `POST /v2/login/magic/send`.
+   */
+  sendMagicLink(options: { email: string }): Promise<void>;
+  /**
+   * Completes a magic-link sign-in by submitting the one-time token from the
+   * e-mail link. Returns a new session on success.
+   * Maps to `POST /v2/login/magic/verify`.
+   */
+  loginWithMagicLink(options: { token: string }): Promise<Session>;
   changePassword(options: {
     oldPassword: string;
     newPassword: string;
@@ -636,6 +655,43 @@ export interface AccountClient {
   listIdentities(): Promise<FederatedIdentityInfo[]>;
   unlinkIdentity(provider: string): Promise<void>;
 
+  // ── Profile ────────────────────────────────────────────────────────
+  /**
+   * Updates the signed-in user's mutable profile fields (`name`, `cellphone`).
+   * Only the supplied fields are patched — omitted fields are unchanged.
+   * Maps to `PATCH /v2/me`.
+   */
+  updateProfile(options: UpdateProfileOptions): Promise<UpdateProfileResult>;
+
+  // ── Email verification ─────────────────────────────────────────────
+  /**
+   * Sends a verification e-mail to the signed-in user's address.
+   * Maps to `POST /v2/me/email/verify/send`.
+   */
+  sendEmailVerification(): Promise<void>;
+  /**
+   * Confirms the e-mail verification using the one-time token from the link.
+   * No session required — the token is self-authenticating.
+   * Maps to `POST /v2/email/verify/confirm`.
+   */
+  confirmEmailVerification(token: string): Promise<void>;
+
+  // ── Phone verification ─────────────────────────────────────────────
+  /**
+   * Sends a verification SMS to the signed-in user's phone number and
+   * returns a challenge that must be completed with `confirmPhoneVerification`.
+   * Maps to `POST /v2/me/phone/verify/send`.
+   */
+  sendPhoneVerification(): Promise<PhoneVerificationChallenge>;
+  /**
+   * Confirms the phone verification by submitting the OTP code from the SMS.
+   * Maps to `POST /v2/me/phone/verify/confirm`.
+   */
+  confirmPhoneVerification(options: {
+    challengeId: string;
+    code: string;
+  }): Promise<void>;
+
   // ── LGPD data-subject rights ───────────────────────────────────────
   /** Right of access: downloads a structured export of all personal data. */
   exportData(): Promise<DataExport>;
@@ -657,4 +713,28 @@ export interface DeviceUserCodeLookup {
   clientName: string;
   scope?: string;
   expiresAt: string;
+}
+
+/** Options for `AccountClient.updateProfile`. */
+export interface UpdateProfileOptions {
+  /** Display name. */
+  name?: string;
+  /** Mobile phone number (E.164 recommended). */
+  cellphone?: string;
+}
+
+/** Shape returned by `PATCH /v2/me` (subset of the full user response). */
+export interface UpdateProfileResult {
+  name?: string;
+  email?: string;
+  cellphone?: string;
+  [key: string]: unknown;
+}
+
+/** Describes the verification status after `sendPhoneVerification()`. */
+export interface PhoneVerificationChallenge {
+  challengeId: string;
+  channel: string;
+  destinationMasked: string;
+  expiresAt: number;
 }

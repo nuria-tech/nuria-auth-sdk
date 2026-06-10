@@ -227,8 +227,8 @@ describe('AuthClient', () => {
     const client = createAuthClient({
       ...BASE_CONFIG,
       loginMethods: {
-        enabled: ['password', 'google'],
-        comingSoon: ['aws_sso', 'passwordless'],
+        enabled: ['password', 'google', 'passwordless'],
+        comingSoon: [],
       },
       onRedirect: (url) => {
         capturedUrl = url;
@@ -238,11 +238,9 @@ describe('AuthClient', () => {
     await client.startLogin();
     const parsed = new URL(capturedUrl);
     expect(parsed.searchParams.get('login_methods_enabled')).toBe(
-      'password,google',
+      'password,google,passwordless',
     );
-    expect(parsed.searchParams.get('login_methods_coming_soon')).toBe(
-      'aws_sso,passwordless',
-    );
+    expect(parsed.searchParams.get('login_methods_coming_soon')).toBeNull();
   });
 
   it('startLogin extraParams cannot override login_methods_* (reserved)', async () => {
@@ -257,8 +255,8 @@ describe('AuthClient', () => {
 
     await client.startLogin({
       extraParams: {
-        login_methods_enabled: 'aws_sso',
-        login_methods_coming_soon: 'aws_sso',
+        login_methods_enabled: 'passwordless',
+        login_methods_coming_soon: 'passwordless',
       },
     });
     const parsed = new URL(capturedUrl);
@@ -1183,8 +1181,8 @@ describe('AuthClient', () => {
       storage: new MemoryStorageAdapter(),
     });
     expect(client.getLoginMethods()).toEqual({
-      enabled: ['password', 'google'],
-      comingSoon: ['passwordless', 'aws_sso'],
+      enabled: ['password', 'google', 'passwordless'],
+      comingSoon: [],
     });
   });
 
@@ -1192,17 +1190,11 @@ describe('AuthClient', () => {
     const client = createAuthClient({
       ...BASE_CONFIG,
       storage: new MemoryStorageAdapter(),
-      // only override `enabled` — `comingSoon` should fall back to defaults
-      loginMethods: { enabled: ['password', 'google', 'passwordless'] },
+      // override enabled only; comingSoon falls back to default (empty)
+      loginMethods: { enabled: ['password'] },
     });
-    expect(client.getLoginMethods().enabled).toEqual([
-      'password',
-      'google',
-      'passwordless',
-    ]);
-    // 'passwordless' got promoted to enabled, so it must be stripped from
-    // the default comingSoon list to avoid double-rendering.
-    expect(client.getLoginMethods().comingSoon).toEqual(['aws_sso']);
+    expect(client.getLoginMethods().enabled).toEqual(['password']);
+    expect(client.getLoginMethods().comingSoon).toEqual([]);
   });
 
   it('getLoginMethods drops unknown values, dedups, lowercases', async () => {
@@ -1212,12 +1204,12 @@ describe('AuthClient', () => {
       loginMethods: {
         // intentional garbage to prove the resolver filters it
         enabled: ['PASSWORD', 'google', 'google', 'wat'] as never,
-        comingSoon: [' aws_sso ', 'totally_unknown'] as never,
+        comingSoon: ['totally_unknown'] as never,
       },
     });
     expect(client.getLoginMethods()).toEqual({
       enabled: ['password', 'google'],
-      comingSoon: ['aws_sso'],
+      comingSoon: [],
     });
   });
 
@@ -1227,8 +1219,12 @@ describe('AuthClient', () => {
       storage: new MemoryStorageAdapter(),
     });
     const ref = client.getLoginMethods();
-    ref.enabled.push('aws_sso');
-    expect(client.getLoginMethods().enabled).toEqual(['password', 'google']);
+    ref.enabled.push('passwordless' as never);
+    expect(client.getLoginMethods().enabled).toEqual([
+      'password',
+      'google',
+      'passwordless',
+    ]);
   });
 
   it('does not auto-logout on 401 from a login attempt when no session exists', async () => {

@@ -46,13 +46,6 @@ export {
   type GoogleCodeClientHandle,
 } from './utils/google-oauth2';
 export {
-  startAwsLogin,
-  parseAwsQueryCallback,
-  AWS_STORAGE_KEYS,
-  type StartAwsLoginOptions,
-  type AwsCallbackResult,
-} from './utils/aws';
-export {
   isWebAuthnSupported,
   isPlatformAuthenticatorAvailable,
   createPasskeyCredential,
@@ -103,6 +96,7 @@ export type {
   DeviceInfo,
   DeviceUserCodeLookup,
   FederatedIdentityInfo,
+  PhoneVerificationChallenge,
   TotpEnrollment,
   TwoFactorStatus,
   Session,
@@ -119,6 +113,8 @@ export type {
   PasskeyInfo,
   PasskeyLoginOptions,
   PasswordLoginOptions,
+  UpdateProfileOptions,
+  UpdateProfileResult,
   VerifyLoginCodeOptions,
   TwoFactorChallenge,
   StorageAdapter,
