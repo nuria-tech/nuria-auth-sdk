@@ -191,4 +191,107 @@ describe('AccountClient (v7)', () => {
     });
     expect(transport.request).not.toHaveBeenCalled();
   });
+
+  it('updateProfile PATCHes /v2/me with name and cellphone', async () => {
+    const transport = makeTransport({ name: 'Nova Nome', cellphone: '+5511999999999' });
+    const client = await authedClient(transport);
+
+    const result = await client.account.updateProfile({
+      name: 'Nova Nome',
+      cellphone: '+5511999999999',
+    });
+
+    const [url, req] = lastCall(transport);
+    expect(url).toBe('https://auth.example.com/v2/me');
+    expect(req.method).toBe('PATCH');
+    expect(req.headers).toEqual({ Authorization: 'Bearer access-123' });
+    expect(req.body).toEqual({ name: 'Nova Nome', cellphone: '+5511999999999' });
+    expect(result.name).toBe('Nova Nome');
+  });
+
+  it('updateProfile rejects when no fields are provided', async () => {
+    const transport = makeTransport({});
+    const client = await authedClient(transport);
+    await expect(client.account.updateProfile({})).rejects.toMatchObject({
+      code: AuthErrorCode.INVALID_CONFIG,
+    });
+    expect(transport.request).toHaveBeenCalledOnce(); // only the bootstrap token call
+  });
+
+  it('sendEmailVerification POSTs /v2/me/email/verify/send', async () => {
+    const transport = makeTransport({ success: true });
+    const client = await authedClient(transport);
+
+    await client.account.sendEmailVerification();
+
+    const [url, req] = lastCall(transport);
+    expect(url).toBe('https://auth.example.com/v2/me/email/verify/send');
+    expect(req.method).toBe('POST');
+    expect(req.headers).toEqual({ Authorization: 'Bearer access-123' });
+  });
+
+  it('confirmEmailVerification POSTs /v2/email/verify/confirm without auth', async () => {
+    const transport = makeTransport({ success: true });
+    const client = await authedClient(transport);
+
+    await client.account.confirmEmailVerification('my-one-time-token');
+
+    const [url, req] = lastCall(transport);
+    expect(url).toBe('https://auth.example.com/v2/email/verify/confirm');
+    expect(req.method).toBe('POST');
+    expect(req.body).toEqual({ token: 'my-one-time-token' });
+    // confirmEmailVerification bypasses auth headers — no Authorization sent
+    expect((req.headers as Record<string, string> | undefined)?.Authorization).toBeUndefined();
+  });
+
+  it('confirmEmailVerification rejects empty token', async () => {
+    const transport = makeTransport({});
+    const client = await authedClient(transport);
+    await expect(client.account.confirmEmailVerification('')).rejects.toMatchObject({
+      code: AuthErrorCode.INVALID_CONFIG,
+    });
+  });
+
+  it('sendPhoneVerification POSTs /v2/me/phone/verify/send and returns a challenge', async () => {
+    const transport = makeTransport({
+      challengeId: 'ph-ch-1',
+      channel: 'sms',
+      destinationMasked: '+55119****9999',
+      expiresAt: 9999999,
+    });
+    const client = await authedClient(transport);
+
+    const challenge = await client.account.sendPhoneVerification();
+
+    const [url, req] = lastCall(transport);
+    expect(url).toBe('https://auth.example.com/v2/me/phone/verify/send');
+    expect(req.method).toBe('POST');
+    expect(challenge.challengeId).toBe('ph-ch-1');
+    expect(challenge.channel).toBe('sms');
+    expect(challenge.destinationMasked).toBe('+55119****9999');
+  });
+
+  it('confirmPhoneVerification POSTs /v2/me/phone/verify/confirm', async () => {
+    const transport = makeTransport({ success: true });
+    const client = await authedClient(transport);
+
+    await client.account.confirmPhoneVerification({
+      challengeId: 'ph-ch-1',
+      code: '123456',
+    });
+
+    const [url, req] = lastCall(transport);
+    expect(url).toBe('https://auth.example.com/v2/me/phone/verify/confirm');
+    expect(req.method).toBe('POST');
+    expect(req.body).toEqual({ challengeId: 'ph-ch-1', code: '123456' });
+    expect(req.headers).toEqual({ Authorization: 'Bearer access-123' });
+  });
+
+  it('confirmPhoneVerification rejects missing fields', async () => {
+    const transport = makeTransport({});
+    const client = await authedClient(transport);
+    await expect(
+      client.account.confirmPhoneVerification({ challengeId: '', code: '123' }),
+    ).rejects.toMatchObject({ code: AuthErrorCode.INVALID_CONFIG });
+  });
 });

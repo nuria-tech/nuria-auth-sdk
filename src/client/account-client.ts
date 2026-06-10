@@ -7,8 +7,11 @@ import type {
   DeviceInfo,
   FederatedIdentityInfo,
   PasskeyInfo,
+  PhoneVerificationChallenge,
   TotpEnrollment,
   TwoFactorStatus,
+  UpdateProfileOptions,
+  UpdateProfileResult,
 } from '../core/types';
 import { AuthError, AuthErrorCode } from '../errors/auth-error';
 import {
@@ -152,6 +155,71 @@ export class DefaultAccountClient implements AccountClient {
     const p = requireValue(provider, 'provider');
     await this.authed(`/v2/me/identities/${encodeURIComponent(p)}`, {
       method: 'DELETE',
+    });
+  }
+
+  // ── Profile ──────────────────────────────────────────────────────────
+
+  async updateProfile(options: UpdateProfileOptions): Promise<UpdateProfileResult> {
+    if (!options.name && !options.cellphone) {
+      throw new AuthError(
+        AuthErrorCode.INVALID_CONFIG,
+        'At least one of name or cellphone is required for updateProfile',
+      );
+    }
+    const body: Record<string, string> = {};
+    if (options.name !== undefined) body.name = options.name;
+    if (options.cellphone !== undefined) body.cellphone = options.cellphone;
+    return this.authed<UpdateProfileResult>('/v2/me', {
+      method: 'PATCH',
+      body,
+    });
+  }
+
+  // ── Email verification ────────────────────────────────────────────────
+
+  async sendEmailVerification(): Promise<void> {
+    await this.authed('/v2/me/email/verify/send', { method: 'POST' });
+  }
+
+  async confirmEmailVerification(token: string): Promise<void> {
+    const t = requireValue(token, 'token');
+    // No session required — token is self-authenticating. Use transport directly.
+    await this.transport.request(`${this.baseUrl}/v2/email/verify/confirm`, {
+      method: 'POST',
+      body: { token: t },
+      timeoutMs: 8_000,
+    });
+  }
+
+  // ── Phone verification ────────────────────────────────────────────────
+
+  async sendPhoneVerification(): Promise<PhoneVerificationChallenge> {
+    const data = await this.authed<Record<string, unknown>>(
+      '/v2/me/phone/verify/send',
+      { method: 'POST' },
+    );
+    return {
+      challengeId: String(data.challengeId ?? ''),
+      channel: String(data.channel ?? ''),
+      destinationMasked: String(data.destinationMasked ?? ''),
+      expiresAt: Number(data.expiresAt ?? 0),
+    };
+  }
+
+  async confirmPhoneVerification(options: {
+    challengeId: string;
+    code: string;
+  }): Promise<void> {
+    if (!options?.challengeId || !options?.code) {
+      throw new AuthError(
+        AuthErrorCode.INVALID_CONFIG,
+        'challengeId and code are required for confirmPhoneVerification',
+      );
+    }
+    await this.authed('/v2/me/phone/verify/confirm', {
+      method: 'POST',
+      body: { challengeId: options.challengeId, code: options.code },
     });
   }
 

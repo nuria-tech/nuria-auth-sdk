@@ -624,7 +624,7 @@ export class DefaultAuthClient implements AuthClient {
     const accessToken = this.session?.tokens.accessToken;
     if (!accessToken) return false;
     const exp = this.session?.tokens.expiresAt;
-    if (!exp || exp > this.now()) return true;
+    if (exp == null || exp > this.now()) return true;
     // Token expired — still considered authenticated if refresh is enabled,
     // because getAccessToken() will silently renew it.
     return this.config.enableRefreshToken === true;
@@ -869,6 +869,38 @@ export class DefaultAuthClient implements AuthClient {
     });
   }
 
+  async sendMagicLink(options: { email: string }): Promise<void> {
+    if (!options?.email) {
+      throw new AuthError(
+        AuthErrorCode.INVALID_CONFIG,
+        'email is required for sendMagicLink',
+      );
+    }
+    await this.transport.request(`${this.config.baseUrl}/v2/login/magic/send`, {
+      method: 'POST',
+      body: { email: options.email },
+    });
+  }
+
+  async loginWithMagicLink(options: { token: string }): Promise<Session> {
+    if (!options?.token) {
+      throw new AuthError(
+        AuthErrorCode.INVALID_CONFIG,
+        'token is required for loginWithMagicLink',
+      );
+    }
+    const response = await this.transport.request<Record<string, unknown>>(
+      `${this.config.baseUrl}/v2/login/magic/verify`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        body: { token: options.token },
+      },
+    );
+    const tokens = normalizeTokenSet(response.data, this.now);
+    return this.createSession(tokens);
+  }
+
   startSilentRefresh(intervalMs?: number): void {
     this.stopSilentRefresh();
 
@@ -993,6 +1025,28 @@ export class DefaultAuthClient implements AuthClient {
           email: options.email,
           password: options.password,
         },
+      },
+    );
+    if (response.data.requiresPasswordReset === true) {
+      throw new AuthError(
+        AuthErrorCode.FORCE_PASSWORD_RESET,
+        'Password hash must be upgraded — call forceResetPassword() with the reset token from AuthError.details.body',
+        undefined,
+        { body: response.data },
+      );
+    }
+    const tokens = normalizeTokenSet(response.data, this.now);
+    return this.createSession(tokens);
+  }
+
+  async forceResetPassword(newPassword: string, resetToken: string): Promise<Session> {
+    const response = await this.transport.request<Record<string, unknown>>(
+      `${this.config.baseUrl}/v2/password/force-reset`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: { Authorization: `Bearer ${resetToken}` },
+        body: { newPassword },
       },
     );
     const tokens = normalizeTokenSet(response.data, this.now);

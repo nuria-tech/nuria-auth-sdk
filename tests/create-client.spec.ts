@@ -1088,4 +1088,51 @@ describe('createAuthClient', () => {
       }),
     ).rejects.toThrow(AuthError);
   });
+
+  it('sendMagicLink calls POST /v2/login/magic/send with email', async () => {
+    const transport = makeMockTransport({ success: true });
+    const client = createAuthClient({ ...BASE_CONFIG, transport });
+
+    await client.sendMagicLink({ email: 'user@nuria.com.br' });
+
+    const calls = transport.request.mock.calls as Array<[string, AuthTransportRequest]>;
+    expect(calls).toHaveLength(1);
+    expect(calls[0]![0]).toBe('https://auth.example.com/v2/login/magic/send');
+    expect(calls[0]![1].method).toBe('POST');
+    expect(calls[0]![1].body).toEqual({ email: 'user@nuria.com.br' });
+  });
+
+  it('sendMagicLink throws INVALID_CONFIG when email is missing', async () => {
+    const client = createAuthClient({ ...BASE_CONFIG, transport: makeMockTransport() });
+    await expect(client.sendMagicLink({ email: '' })).rejects.toMatchObject({
+      code: AuthErrorCode.INVALID_CONFIG,
+    });
+  });
+
+  it('loginWithMagicLink calls POST /v2/login/magic/verify with credentials and creates session', async () => {
+    const transport = makeMockTransport({
+      Token: 'magic-access-token',
+      ExpiresAt: Date.now() + 60_000,
+    });
+    const client = createAuthClient({ ...BASE_CONFIG, transport });
+
+    const session = await client.loginWithMagicLink({ token: 'one-time-link-token' });
+
+    expect(session.tokens.accessToken).toBe('magic-access-token');
+    // v8: refresh token is never in JS
+    expect(session.tokens.refreshToken).toBeUndefined();
+
+    const calls = transport.request.mock.calls as Array<[string, AuthTransportRequest]>;
+    expect(calls[0]![0]).toBe('https://auth.example.com/v2/login/magic/verify');
+    expect(calls[0]![1].method).toBe('POST');
+    expect(calls[0]![1].credentials).toBe('include');
+    expect(calls[0]![1].body).toEqual({ token: 'one-time-link-token' });
+  });
+
+  it('loginWithMagicLink throws INVALID_CONFIG when token is missing', async () => {
+    const client = createAuthClient({ ...BASE_CONFIG, transport: makeMockTransport() });
+    await expect(client.loginWithMagicLink({ token: '' })).rejects.toMatchObject({
+      code: AuthErrorCode.INVALID_CONFIG,
+    });
+  });
 });
