@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [9.0.4] - 2026-06-10
+
+### Fixed
+
+- Prettier formatting in `tryRestoreSessionFromCache` and `createSession` that
+  was causing the CI lint step to fail, preventing the 9.0.3 npm publish.
+
 ## [9.0.3] - 2026-06-10
 
 ### Changed

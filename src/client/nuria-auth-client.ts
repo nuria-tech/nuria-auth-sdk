@@ -184,7 +184,10 @@ export class DefaultAuthClient implements AuthClient {
     if (!at || !expStr) return false;
     const exp = Number(expStr);
     if (!exp || exp - REFRESH_BUFFER_MS <= this.now()) return false;
-    this.session = { tokens: { accessToken: at, expiresAt: exp }, createdAt: this.now() };
+    this.session = {
+      tokens: { accessToken: at, expiresAt: exp },
+      createdAt: this.now(),
+    };
     return true;
   }
 
@@ -1400,7 +1403,11 @@ export class DefaultAuthClient implements AuthClient {
     // token is still valid. The RT stays in the HttpOnly cookie.
     if (safeTokens.accessToken && safeTokens.expiresAt) {
       await safeSet(this.storage, STORAGE_KEYS.at, safeTokens.accessToken);
-      await safeSet(this.storage, STORAGE_KEYS.atExp, String(safeTokens.expiresAt));
+      await safeSet(
+        this.storage,
+        STORAGE_KEYS.atExp,
+        String(safeTokens.expiresAt),
+      );
     }
     this.notify();
     return this.session;
