@@ -134,18 +134,30 @@ describe('startOidcLogin', () => {
 });
 
 describe('handleOidcCallback', () => {
-  it('reads the access token from the URL fragment and creates a session', async () => {
-    const transport = makeSequencedTransport([{}]);
+  it('exchanges the oidc_code bridge code and creates a session', async () => {
+    // First call: /v2/login/oidc/redeem returns the access token in JSON.
+    const transport = makeSequencedTransport([
+      {
+        access_token: 'oidc-access',
+        token_type: 'Bearer',
+        expires_at: '2999-01-01T00:00:00.000Z',
+      },
+    ]);
     const client = createAuthClient({
       ...BASE_CONFIG,
       transport: transport as never,
       enableRefreshToken: false,
     });
 
-    const url =
-      'https://accounts.nuria.com.br/sso/callback' +
-      '#access_token=oidc-access&expires_at=2999-01-01T00:00:00.000Z&token_type=Bearer';
-    const session = await client.handleOidcCallback(url);
+    const callbackUrl =
+      'https://accounts.nuria.com.br/sso/callback?oidc_code=abc123def456';
+    const session = await client.handleOidcCallback(callbackUrl);
+
+    const [redeemUrl, redeemReq] = calls(transport)[0]!;
+    expect(redeemUrl).toBe('https://auth.example.com/v2/login/oidc/redeem');
+    expect(redeemReq.method).toBe('POST');
+    expect(redeemReq.body).toEqual({ code: 'abc123def456' });
+    expect(redeemReq.credentials).toBe('include');
 
     expect(session.tokens.accessToken).toBe('oidc-access');
     expect(session.tokens.refreshToken).toBeUndefined();
@@ -156,19 +168,33 @@ describe('handleOidcCallback', () => {
     expect(client.isAuthenticated()).toBe(true);
   });
 
-  it('surfaces an error carried in the fragment', async () => {
+  it('surfaces an error carried in the query string', async () => {
     const client = createAuthClient(BASE_CONFIG);
     await expect(
       client.handleOidcCallback(
-        'https://app/cb#error=access_denied&error_description=nope',
+        'https://app/cb?error=access_denied&error_description=nope',
       ),
     ).rejects.toMatchObject({ code: AuthErrorCode.CALLBACK_ERROR });
   });
 
-  it('throws when the fragment has no access token', async () => {
+  it('throws when the callback has no oidc_code', async () => {
     const client = createAuthClient(BASE_CONFIG);
     await expect(
-      client.handleOidcCallback('https://app/cb#state=abc'),
+      client.handleOidcCallback('https://app/cb?state=abc'),
+    ).rejects.toMatchObject({ code: AuthErrorCode.CALLBACK_ERROR });
+  });
+
+  it('throws when the redeem endpoint returns no access_token', async () => {
+    const transport = makeSequencedTransport([{ error: 'code_expired' }]);
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      transport: transport as never,
+      enableRefreshToken: false,
+    });
+    await expect(
+      client.handleOidcCallback(
+        'https://accounts.nuria.com.br/sso/callback?oidc_code=stale',
+      ),
     ).rejects.toMatchObject({ code: AuthErrorCode.CALLBACK_ERROR });
   });
 });

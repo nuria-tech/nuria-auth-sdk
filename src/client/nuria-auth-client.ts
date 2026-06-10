@@ -1166,15 +1166,13 @@ export class DefaultAuthClient implements AuthClient {
     }
 
     const url = parseUrl(input);
-    // The kernel delivers the token in the URL fragment (never the query, so
-    // it is never sent to a server or logged). An IdP/kernel error can also
-    // arrive in the fragment.
-    const fragment = url.hash.startsWith('#') ? url.hash.slice(1) : url.hash;
-    const params = new URLSearchParams(fragment);
+    const qs = new URLSearchParams(
+      url.search.startsWith('?') ? url.search.slice(1) : url.search,
+    );
 
-    const error = params.get('error');
+    const error = qs.get('error');
     if (error) {
-      const desc = params.get('error_description');
+      const desc = qs.get('error_description');
       throw new AuthError(
         AuthErrorCode.CALLBACK_ERROR,
         desc
@@ -1183,22 +1181,41 @@ export class DefaultAuthClient implements AuthClient {
       );
     }
 
-    const accessToken = params.get('access_token');
-    if (!accessToken) {
+    const bridgeCode = qs.get('oidc_code');
+    if (!bridgeCode) {
       throw new AuthError(
         AuthErrorCode.CALLBACK_ERROR,
-        'OIDC callback fragment has no access_token',
+        'OIDC callback has no oidc_code',
       );
     }
 
-    // No refresh_token here by design — it lives in the __Host cookie. The
-    // session's silent refresh falls back to the cookie (credentials:
-    // 'include') because tokens.refreshToken is undefined.
+    // Exchange the short-lived bridge code for tokens. The access token is
+    // returned in the JSON body — never in the URL — and the refresh token is
+    // already in the __Host cookie set on the preceding /callback redirect.
+    const response = await this.transport.request<{
+      access_token?: string;
+      token_type?: string;
+      expires_at?: string;
+    }>(`${this.config.baseUrl}/v2/login/oidc/redeem`, {
+      method: 'POST',
+      body: { code: bridgeCode },
+      credentials: 'include',
+      timeoutMs: 10_000,
+    });
+
+    const accessToken = response.data?.access_token;
+    if (!accessToken) {
+      throw new AuthError(
+        AuthErrorCode.CALLBACK_ERROR,
+        'OIDC redeem did not return an access_token',
+      );
+    }
+
     const tokens = normalizeTokenSet(
       {
         access_token: accessToken,
-        token_type: params.get('token_type') ?? 'Bearer',
-        expiresAt: params.get('expires_at') ?? undefined,
+        token_type: response.data?.token_type ?? 'Bearer',
+        expiresAt: response.data?.expires_at,
         auth_provider: 'oidc',
       },
       this.now,
