@@ -480,6 +480,16 @@ export interface AuthClient {
    * LGPD data rights. Every method is Bearer-authenticated against the
    * current session. Purely additive: the v6 surface above is unchanged.
    */
+  /**
+   * Returns true when the session-presence marker (`nuria:auth:has_session`)
+   * is set in storage — WITHOUT making any network request. Use this as a
+   * lightweight check when `getAccessToken()` returned null to distinguish
+   * "genuinely not logged in" from "init failed transiently (cold Lambda,
+   * CTRL+SHIFT+R RT rotation race)". When the marker is present and no token
+   * is in memory, the user's session may still be recoverable — give it a
+   * moment and retry.
+   */
+  hasSessionMarker(): Promise<boolean>;
   readonly account: AccountClient;
 }
 

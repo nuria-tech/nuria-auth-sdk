@@ -440,6 +440,10 @@ export class DefaultAuthClient implements AuthClient {
     return this.session?.tokens.accessToken ?? null;
   }
 
+  async hasSessionMarker(): Promise<boolean> {
+    return (await safeGet(this.storage, STORAGE_KEYS.authed)) === '1';
+  }
+
   async logout(options: LogoutOptions = {}): Promise<void> {
     this.stopSilentRefresh();
     this.session = null;
