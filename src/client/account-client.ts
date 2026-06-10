@@ -8,6 +8,7 @@ import type {
   FederatedIdentityInfo,
   PasskeyInfo,
   PhoneVerificationChallenge,
+  SessionInfo,
   TotpEnrollment,
   TwoFactorStatus,
   UpdateProfileOptions,
@@ -82,6 +83,20 @@ export class DefaultAccountClient implements AccountClient {
   async revokeConsent(clientId: string): Promise<void> {
     const id = requireValue(clientId, 'clientId');
     await this.authed(`/v2/me/consents/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // ── Active sessions ──────────────────────────────────────────────────
+
+  async listSessions(): Promise<SessionInfo[]> {
+    const data = await this.authed<SessionInfo[]>('/v2/me/sessions');
+    return Array.isArray(data) ? data : [];
+  }
+
+  async revokeSession(sessionId: string): Promise<void> {
+    const id = requireValue(sessionId, 'sessionId');
+    await this.authed(`/v2/me/sessions/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     });
   }

@@ -112,6 +112,7 @@ export type {
   OidcProvider,
   PasskeyInfo,
   PasskeyLoginOptions,
+  SessionInfo,
   PasswordLoginOptions,
   UpdateProfileOptions,
   UpdateProfileResult,

@@ -579,6 +579,20 @@ export interface OidcLoginOptions {
   returnUrl?: string;
 }
 
+/** An active refresh-token session as returned by `GET /v2/me/sessions`. */
+export interface SessionInfo {
+  sessionId: string;
+  /** Source IP captured at login time, when available. */
+  ipAddress?: string;
+  /** User-Agent captured at login time, when available. */
+  userAgent?: string;
+  /** OAuth client the session was issued to; null for first-party (Accounts portal) sessions. */
+  clientId?: string;
+  createdAt: string;
+  expiresAt: string;
+  lastUsedAt?: string;
+}
+
 /** A registered passkey as returned by `GET /v2/me/passkeys`. */
 export interface PasskeyInfo {
   credentialId: string;
@@ -641,6 +655,12 @@ export interface AccountClient {
   listConsents(): Promise<ConsentInfo[]>;
   /** Revokes a previously granted consent by client id. */
   revokeConsent(clientId: string): Promise<void>;
+
+  // ── Active sessions ────────────────────────────────────────────────
+  /** Lists all active (non-expired, non-revoked) refresh-token sessions for the signed-in user. */
+  listSessions(): Promise<SessionInfo[]>;
+  /** Revokes a single session by its session ID. */
+  revokeSession(sessionId: string): Promise<void>;
 
   // ── Known devices ──────────────────────────────────────────────────
   listDevices(): Promise<DeviceInfo[]>;
