@@ -160,7 +160,9 @@ export class DefaultAccountClient implements AccountClient {
 
   // ── Profile ──────────────────────────────────────────────────────────
 
-  async updateProfile(options: UpdateProfileOptions): Promise<UpdateProfileResult> {
+  async updateProfile(
+    options: UpdateProfileOptions,
+  ): Promise<UpdateProfileResult> {
     if (!options.name && !options.cellphone) {
       throw new AuthError(
         AuthErrorCode.INVALID_CONFIG,

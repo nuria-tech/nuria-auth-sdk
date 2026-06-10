@@ -1039,7 +1039,10 @@ export class DefaultAuthClient implements AuthClient {
     return this.createSession(tokens);
   }
 
-  async forceResetPassword(newPassword: string, resetToken: string): Promise<Session> {
+  async forceResetPassword(
+    newPassword: string,
+    resetToken: string,
+  ): Promise<Session> {
     const response = await this.transport.request<Record<string, unknown>>(
       `${this.config.baseUrl}/v2/password/force-reset`,
       {

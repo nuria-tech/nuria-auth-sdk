@@ -1443,7 +1443,7 @@ describe('AuthClient', () => {
 
     expect(session.tokens.accessToken).toBe('full-session-token');
 
-    const [url, init] = fetchFn.mock.calls[0] as [string, RequestInit];
+    const [url, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe('https://auth.example.com/v2/password/force-reset');
     expect((init.headers as Record<string, string>)['Authorization']).toBe(
       'Bearer reset-jwt',

@@ -95,6 +95,11 @@ function createMockAuthClient(): AuthClient {
     })),
     approveDeviceUserCode: vi.fn(async () => {}),
     denyDeviceUserCode: vi.fn(async () => {}),
+    sendMagicLink: vi.fn(async () => {}),
+    loginWithMagicLink: vi.fn(async () => ({
+      tokens: { accessToken: 'token-from-magic' },
+      createdAt: Date.now(),
+    })),
     account: {} as AuthClient['account'],
   };
 }

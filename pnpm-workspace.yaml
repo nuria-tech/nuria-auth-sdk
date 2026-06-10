@@ -27,3 +27,6 @@ onlyBuiltDependencies:
   - esbuild
   - '@parcel/watcher'
   - sharp
+
+allowBuilds:
+  esbuild: true
