@@ -10,6 +10,7 @@ export enum AuthErrorCode {
   NETWORK_ERROR = 'NETWORK_ERROR',
   HTTP_ERROR = 'HTTP_ERROR',
   UNAUTHENTICATED = 'UNAUTHENTICATED',
+  FORCE_PASSWORD_RESET = 'FORCE_PASSWORD_RESET',
 }
 
 export interface AuthErrorDetails {

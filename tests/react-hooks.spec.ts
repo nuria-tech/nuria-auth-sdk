@@ -31,6 +31,10 @@ function createMockAuthClient(): AuthClient {
       tokens: { accessToken: 'token-from-password' },
       createdAt: Date.now(),
     })),
+    forceResetPassword: vi.fn(async () => ({
+      tokens: { accessToken: 'token-after-force-reset' },
+      createdAt: Date.now(),
+    })),
     loginWithPasskey: vi.fn(async () => ({
       tokens: { accessToken: 'token-from-passkey' },
       createdAt: Date.now(),

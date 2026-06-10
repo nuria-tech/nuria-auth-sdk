@@ -1390,4 +1390,66 @@ describe('AuthClient', () => {
     expect(await storage.get('nuria:oauth:nonce')).toBeNull();
     expect(await storage.get('nuria:oauth:code_verifier')).toBeNull();
   });
+
+  it('loginWithPassword throws FORCE_PASSWORD_RESET when server returns requiresPasswordReset: true', async () => {
+    const resetPayload = {
+      actor: 'user-guid-123',
+      token: 'scoped.jwt.token',
+      expiresAt: '2099-01-01T00:00:00Z',
+      requiresPasswordReset: true,
+    };
+    const transport = makeMockTransport(resetPayload);
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      baseUrl: 'https://auth.example.com',
+      storage: new MemoryStorageAdapter(),
+      transport,
+    });
+
+    const error = await client
+      .loginWithPassword({ email: 'legacy@example.com', password: 'pass' })
+      .catch((e) => e);
+
+    expect(error.code).toBe(AuthErrorCode.FORCE_PASSWORD_RESET);
+    expect((error.details.body as Record<string, unknown>).token).toBe(
+      'scoped.jwt.token',
+    );
+    // Must NOT establish a session — caller must complete the reset first.
+    expect(client.getSession()).toBeNull();
+  });
+
+  it('forceResetPassword posts to /v2/password/force-reset with Bearer header and returns a Session', async () => {
+    const { FetchAuthTransport } =
+      await import('../src/transport/fetch-transport');
+    const fetchFn = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          access_token: 'full-session-token',
+          token_type: 'Bearer',
+          expires_in: 3600,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    const transport = new FetchAuthTransport({ fetchFn });
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      baseUrl: 'https://auth.example.com',
+      storage: new MemoryStorageAdapter(),
+      transport,
+    });
+
+    const session = await client.forceResetPassword('NewP@ss1!', 'reset-jwt');
+
+    expect(session.tokens.accessToken).toBe('full-session-token');
+
+    const [url, init] = fetchFn.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://auth.example.com/v2/password/force-reset');
+    expect((init.headers as Record<string, string>)['Authorization']).toBe(
+      'Bearer reset-jwt',
+    );
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      newPassword: 'NewP@ss1!',
+    });
+  });
 });
