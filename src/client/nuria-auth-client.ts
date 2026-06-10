@@ -152,10 +152,16 @@ export class DefaultAuthClient implements AuthClient {
     if ((await safeGet(this.storage, STORAGE_KEYS.authed)) === '1') {
       try {
         await this.bootstrapFromCookie();
-      } catch {
-        // Cookie expired / revoked / network blip — clear the stale marker so
-        // we don't retry on every load. A real session can re-arm it on login.
-        await safeRemove(this.storage, STORAGE_KEYS.authed);
+      } catch (error) {
+        // Only wipe the "has session" marker when the server definitively
+        // rejected our credentials (4xx). Transient failures — cold-start
+        // Lambda timeouts, network blips, CORS hiccups on hard-refresh — leave
+        // the marker intact so the middleware's getAccessToken() can retry in
+        // the same page-load (the Lambda will be warm by then). Consistent with
+        // the same guard in getAccessToken().
+        if (isPermanentRefreshFailure(error)) {
+          await safeRemove(this.storage, STORAGE_KEYS.authed);
+        }
       }
     }
     this.notify(false); // local hydration only — don't broadcast to other tabs
