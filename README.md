@@ -66,15 +66,17 @@ Published on [npm](https://www.npmjs.com/package/@nuria-tech/auth-sdk).
 | OAuth Authorization Code + PKCE (recommended for consumer SPAs) | `GET /v2/oauth/authorize` + `POST /v2/oauth/token` | `startLogin()` + `handleRedirectCallback(...)` | `Session` tokens after redirect roundtrip |
 | Google (auth code / custom button) | `POST /v2/google/code` | `loginWithGoogleCode({ code, redirectUri? })` | `Session` tokens |
 | Code sent (passwordless OTP) | `POST /v2/login-code/challenge` + `POST /v2/2fa/verify-login` | `startLoginCodeChallenge(...)` + `verifyLoginCode(...)` | `Session` tokens after code verify |
-| Login + password (portal-only) | `POST /v2/login` | `loginWithPassword(...)` | `Session` tokens |
+| Magic link (passwordless, email-delivered) | `POST /v2/login/magic/send` + `POST /v2/login/magic/verify` | `sendMagicLink({ email })` + `loginWithMagicLink({ token })` | `Session` tokens after link click |
+| Login + password (portal-only) | `POST /v2/login` | `loginWithPassword(...)` | `Session` tokens (or `FORCE_PASSWORD_RESET` error) |
+| Force password reset | `POST /v2/password/force-reset` | `forceResetPassword(newPassword, resetToken)` | `Session` tokens |
 | Password reset request | `POST /v2/password/reset` | `resetPassword({ email })` | `void` — sends reset email |
 | Password recovery | `POST /v2/password/recover` | `recoverPassword({ token, newPassword })` | `void` — resets password using token |
 | Change password | `PATCH /v2/me/password` | `changePassword({ oldPassword, newPassword })` | `void` — requires active session |
+| Federated OIDC IdP | `GET /v2/login/oidc/{p}/begin` → `POST /v2/login/oidc/redeem` | `startOidcLogin(...)` + `handleOidcCallback()` | `Session` tokens via bridge-code exchange |
 
 `loginWithPassword` is intended for the SSO portal (`accounts.nuria.com.br`)
 only — consumer SPAs should use `startLogin()` so the user sees a single
-sign-in surface across all apps. AWS IAM Identity Center is supported via
-`startAwsLogin` (OAuth code + PKCE redirect, see "Federated login" below).
+sign-in surface across all apps.
 
 ### Login methods config
 
@@ -89,14 +91,14 @@ const auth = createAuthClient({
   redirectUri: '...',
   loginMethods: {
     enabled: ['password', 'google', 'passwordless'],
-    comingSoon: ['aws_sso'],
+    comingSoon: [],
   },
 });
 
 // Custom login UI: read the resolved config back synchronously.
 const cfg = auth.getLoginMethods();
 if (cfg.enabled.includes('google')) renderGoogleButton();
-if (cfg.comingSoon.includes('aws_sso')) renderAwsSsoTeaser();
+if (cfg.enabled.includes('passwordless')) renderMagicLinkForm();
 
 // Standard path (redirect to Nuria accounts): startLogin() automatically
 // serializes loginMethods into `?login_methods_enabled=` and
@@ -106,9 +108,9 @@ await auth.startLogin();
 ```
 
 Either field can be omitted — missing fields fall back to
-`DEFAULT_LOGIN_METHODS` (`enabled: ['password', 'google']`,
-`comingSoon: ['passwordless', 'aws_sso']`). Unknown values are dropped;
-methods listed in `enabled` are stripped from `comingSoon` automatically.
+`DEFAULT_LOGIN_METHODS` (`enabled: ['password', 'google', 'passwordless']`,
+`comingSoon: []`). Unknown values are dropped; methods listed in `enabled`
+are stripped from `comingSoon` automatically.
 
 **Security note**: this is a UI hint, not an auth gate. The kernel is the
 authoritative boundary. A crafted URL with arbitrary `login_methods_*`
@@ -658,10 +660,16 @@ interface AuthClient {
   startLoginCodeChallenge(options: LoginCodeChallengeOptions): Promise<TwoFactorChallenge>;
   verifyLoginCode(options: VerifyLoginCodeOptions): Promise<Session>;
   loginWithGoogleCode(options: GoogleCodeLoginOptions): Promise<Session>;
-  /** Direct password login against /v2/login. Portal-only — consumer SPAs should use startLogin (OAuth + PKCE). */
+  /** Direct password login against /v2/login. Portal-only — consumer SPAs should use startLogin (OAuth + PKCE). Throws FORCE_PASSWORD_RESET when server requires a password upgrade. */
   loginWithPassword(options: PasswordLoginOptions): Promise<Session>;
+  /** Exchanges a scoped reset token (from a FORCE_PASSWORD_RESET error) for a full session. POST /v2/password/force-reset. */
+  forceResetPassword(newPassword: string, resetToken: string): Promise<Session>;
   /** Passwordless passkey (WebAuthn) login. Drives navigator.credentials.get() then mints a session. Browser only. */
   loginWithPasskey(options?: PasskeyLoginOptions): Promise<Session>;
+  /** Sends a magic-link email. POST /v2/login/magic/send. */
+  sendMagicLink(options: { email: string }): Promise<void>;
+  /** Exchanges the magic-link token (from the emailed URL) for a session. POST /v2/login/magic/verify. */
+  loginWithMagicLink(options: { token: string }): Promise<Session>;
   resetPassword(options: { email: string }): Promise<void>;
   recoverPassword(options: { token: string; newPassword: string }): Promise<void>;
   changePassword(options: { oldPassword: string; newPassword: string }): Promise<void>;
@@ -673,7 +681,13 @@ interface AuthClient {
   listOidcProviders(): Promise<OidcProvider[]>;
   /** SP-initiated OIDC login: fetches the authorize URL and redirects. */
   startOidcLogin(options: OidcLoginOptions): Promise<void>;
-  /** Reads the access token from the callback URL fragment and mints a session. */
+  /**
+   * Reads the short-lived bridge code from the callback URL query string
+   * (?oidc_code=…), exchanges it at POST /v2/login/oidc/redeem, and mints a
+   * session. The refresh token arrives in the __Host cookie set on the preceding
+   * kernel /callback redirect; the access token is returned in the JSON body —
+   * never in the URL.
+   */
   handleOidcCallback(callbackUrl?: string): Promise<Session>;
 
   // ── Step-up authentication (RFC 8176) (v7) ─────────────────────────
@@ -698,6 +712,14 @@ interface AuthClient {
 }
 
 interface AccountClient {
+  // Profile
+  updateProfile(options: UpdateProfileOptions): Promise<UpdateProfileResult>;
+  // Email verification
+  sendEmailVerification(): Promise<void>;
+  confirmEmailVerification(token: string): Promise<void>; // no session required
+  // Phone verification
+  sendPhoneVerification(): Promise<PhoneVerificationChallenge>;
+  confirmPhoneVerification(options: { challengeId: string; code: string }): Promise<void>;
   // Two-factor (TOTP)
   getTwoFactorStatus(): Promise<TwoFactorStatus>;
   enrollTotp(): Promise<TotpEnrollment>;
@@ -724,8 +746,8 @@ interface AccountClient {
 }
 
 interface LoginMethodsConfig {
-  enabled: ('password' | 'google' | 'passwordless' | 'aws_sso')[];
-  comingSoon: ('password' | 'google' | 'passwordless' | 'aws_sso')[];
+  enabled: ('password' | 'google' | 'passwordless')[];
+  comingSoon: ('password' | 'google' | 'passwordless')[];
 }
 
 interface LoginCodeChallengeOptions {
@@ -734,6 +756,25 @@ interface LoginCodeChallengeOptions {
   purpose?: string;
 }
 ```
+
+## Magic link (passwordless)
+
+Send a one-time link to the user's email; when they click it the token in the
+link URL authenticates them directly — no password required.
+
+```ts
+// 1. User types their email and requests a link
+await auth.sendMagicLink({ email: 'user@example.com' });
+
+// 2. User clicks the link in the email — your app handles the redirect
+//    and extracts ?token= from the URL
+const params = new URLSearchParams(window.location.search);
+const session = await auth.loginWithMagicLink({ token: params.get('token')! });
+```
+
+The magic link is single-use and short-lived (15 minutes). The token is
+delivered in the link URL as `?token=<id>.<secret>` — only a hash of the
+secret is stored server-side, so a database leak does not yield usable tokens.
 
 ## v7 features
 
@@ -764,7 +805,10 @@ await auth.startOidcLogin({
   provider: 'azuread',
   returnUrl: 'https://accounts.nuria.com.br/sso/callback',
 });
-// On the returnUrl page (token arrives in the URL fragment, refresh token in the __Host cookie):
+// On the returnUrl page — kernel delivers ?oidc_code=… (bridge code).
+// handleOidcCallback() exchanges it at /v2/login/oidc/redeem; access token
+// comes back in the JSON body. Refresh token was already set in the
+// __Host-nuria_rt cookie on the preceding kernel /callback redirect.
 const session = await auth.handleOidcCallback();
 ```
 

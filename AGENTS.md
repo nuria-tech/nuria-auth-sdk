@@ -46,7 +46,7 @@ src/
     gis-loader.ts                 # loadGisScript() / GIS_SCRIPT_URL — single page-scoped loader for accounts.google.com/gsi/client; shared by google.ts and google-oauth2.ts so the script tag is fetched once
     google.ts                     # renderGoogleSignInButton(), promptGoogleOneTap(), cancelGooglePrompt(), disableGoogleAutoSelect() — wraps `google.accounts.id` (Sign in with Google / FedCM); validates id_token nonce client-side. Custom-button consumers should use `google-oauth2.ts#createGoogleCodeClient` instead — Google's id namespace explicitly forbids programmatic activation from custom buttons, and the previous overlay workaround (`attachCustomGoogleButton`, removed in 5.0.0) was unreliable under FedCM cooldown / personalized-iframe layout shifts
     google-oauth2.ts              # createGoogleCodeClient() — wraps `google.accounts.oauth2.initCodeClient`; OAuth 2.0 Authorization Code flow with popup (or redirect) UX. Custom buttons are officially supported here (unlike `google.accounts.id`). Returns an auth code via JS callback; consumer forwards to backend for `/token` exchange. SDK validates the `state` round-trip with `timingSafeEqual`
-    aws.ts                        # startAwsLogin(), parseAwsQueryCallback() — Authorization Code + PKCE for AWS IAM Identity Center; per-state PKCE bag in sessionStorage
+    aws.ts                        # REMOVED in v9 — AWS IAM Identity Center helper was incomplete (no loginWithAwsSsoToken to exchange the id_token with the backend)
     webauthn.ts                   # (v7) createPasskeyCredential()/getPasskeyAssertion() — navigator.credentials glue + support probes; kernel does all WebAuthn verification
     dpop.ts                       # (v7) DpopSigner, createDpopSigner/persist/load — RFC 9449 proofs (ES256, RFC 7638 jkt); IndexedDB-persisted non-extractable key
     step-up.ts                    # (v7) ACR/AMR constants + deriveAcr/satisfiesAcr/satisfiesMaxAge/readAssurance — mirrors kernel StepUpPolicy
@@ -62,7 +62,7 @@ tests/                            # Vitest test suite (*.spec.ts)
 
 | Import | File | Contents |
 |--------|------|----------|
-| `@nuria-tech/auth-sdk` | `dist/index.js` | `createAuthClient`, storage adapters, transport, errors, types, `extractRoles`, `extractScopes`, `extractCompanyOrigin`, `extractAvatarUrl`, `extractDisplayName`, `getInitials`, `buildOAuthAuthorizeUrl`, Google + AWS IAM Identity Center (SSO) OAuth helpers |
+| `@nuria-tech/auth-sdk` | `dist/index.js` | `createAuthClient`, storage adapters, transport, errors, types, `extractRoles`, `extractScopes`, `extractCompanyOrigin`, `extractAvatarUrl`, `extractDisplayName`, `getInitials`, `buildOAuthAuthorizeUrl`, Google OAuth helpers |
 | `@nuria-tech/auth-sdk/react` | `dist/react.js` | `useAuthSession`, `AuthProvider`, `useAuth` |
 | `@nuria-tech/auth-sdk/vue` | `dist/vue.js` | `useAuthSession` |
 | `@nuria-tech/auth-sdk/nuxt` | `dist/nuxt.js` | `createNuxtAuthClient`, `createNuxtCookieStorageAdapter` |
@@ -127,13 +127,16 @@ flow were dropped in v6 (see CHANGELOG).
 | Method | Backend endpoint | Input |
 |--------|-----------------|-------|
 | `startLogin()` + `handleRedirectCallback()` | `/v2/oauth/authorize` → `/v2/oauth/token` | PKCE redirect (recommended for consumer SPAs) |
-| `loginWithPassword({ email, password })` | `POST /v2/login` | Direct password — portal-only (accounts.nuria.com.br) |
+| `loginWithPassword({ email, password })` | `POST /v2/login` | Direct password — portal-only (accounts.nuria.com.br). Throws `FORCE_PASSWORD_RESET` when server requires a password upgrade. |
+| `forceResetPassword(newPassword, resetToken)` | `POST /v2/password/force-reset` | Exchanges the scoped reset token (from `FORCE_PASSWORD_RESET` error) for a full session. |
 | `loginWithGoogleCode({ code, redirectUri? })` | `POST /v2/google/code` | Google authorization code (custom button / `google.accounts.oauth2.initCodeClient`); backend does the `/token` exchange |
+| `sendMagicLink({ email })` | `POST /v2/login/magic/send` | Sends a magic-link email. |
+| `loginWithMagicLink({ token })` | `POST /v2/login/magic/verify` | Exchanges the magic-link token for a session. `credentials: 'include'` so the RT cookie is set. |
 | `startLoginCodeChallenge()` + `verifyLoginCode()` | `/v2/login-code/challenge` → `/v2/2fa/verify-login` | Passwordless OTP |
 | `resetPassword({ email })` | `POST /v2/password/reset` | Public — sends reset email |
 | `recoverPassword({ token, newPassword })` | `POST /v2/password/recover` | Recovery token in `Authorization: Bearer` header |
 | `changePassword({ oldPassword, newPassword })` | `PATCH /v2/me/password` | Requires active session |
-| `getLoginMethods()` | — (static) | Returns the resolved `loginMethods` config (`{ enabled, comingSoon }` of `'password' \| 'google' \| 'passwordless' \| 'aws_sso'`) — value passed to `createAuthClient` merged with `DEFAULT_LOGIN_METHODS` (`enabled: ['password','google']`, `comingSoon: ['passwordless','aws_sso']`). Unknown values are dropped; methods in `enabled` are stripped from `comingSoon`. |
+| `getLoginMethods()` | — (static) | Returns the resolved `loginMethods` config (`{ enabled, comingSoon }` of `'password' \| 'google' \| 'passwordless'`) — value passed to `createAuthClient` merged with `DEFAULT_LOGIN_METHODS` (`enabled: ['password','google','passwordless']`, `comingSoon: []`). Unknown values are dropped; methods in `enabled` are stripped from `comingSoon`. |
 | `startLogin()` (extends behaviour) | redirects to authorize endpoint | Also serializes `config.loginMethods.enabled` / `comingSoon` as CSV query params `login_methods_enabled` / `login_methods_coming_soon`. The kernel forwards them on the `/v2/oauth/authorize → accounts/signin` redirect, so the centralized login UI renders the right buttons for the calling app. Pure UI hint — kernel still enforces auth. `extraParams` cannot override these (reserved). |
 | `logout()` | — (local only) | Clears storage + notifies listeners; no server call |
 | `globalLogout({ returnTo? })` | `logoutEndpoint` (configurable) | Calls `logout()` then redirects to server logout |
@@ -142,15 +145,27 @@ flow were dropped in v6 (see CHANGELOG).
 | `loginWithPasskey({ email? })` *(v7)* | `POST /v2/login/passkey/begin\|finish` | Passwordless WebAuthn. Drives `navigator.credentials.get()` between begin/finish; usernameless when `email` omitted. Browser only. |
 | `listOidcProviders()` *(v7)* | `GET /v2/login/oidc/providers` | Public list of configured federated OIDC IdPs. |
 | `startOidcLogin({ provider, returnUrl? })` *(v7)* | `GET /v2/login/oidc/{provider}/begin` → redirect | SP-initiated; fetches the authorize URL and redirects. Kernel does the code exchange on its callback. |
-| `handleOidcCallback(callbackUrl?)` *(v7)* | — (reads URL fragment) | Reads `#access_token`/`expires_at` from the callback fragment → session. Refresh token is in the `__Host` cookie (silent refresh rides it via `credentials: 'include'`). |
+| `handleOidcCallback(callbackUrl?)` *(v7, updated v9)* | `POST /v2/login/oidc/redeem` | Reads `?oidc_code=` from the callback URL, POSTs it to the kernel, receives the access token in the JSON body. Refresh token is in the `__Host` cookie set on the preceding kernel `/callback` redirect. The old implicit-flow `#access_token=` pattern was removed in v9 (OAuth 2.1 §2.1.2). |
 | `stepUp({ acr?, maxAgeSeconds?, scopes? })` *(v7)* | redirects to authorize endpoint | Forces re-auth with `acr_values` + `max_age` + `prompt=login`. Pair with `satisfiesStepUp()` / `getAssurance()` (RFC 8176; mirrors kernel `StepUpPolicy`). |
+
+### v9 additions
+
+- **Magic-link login:** `sendMagicLink({ email })` → `POST /v2/login/magic/send`;
+  `loginWithMagicLink({ token })` → `POST /v2/login/magic/verify`.
+- **`auth.account` new methods:** `updateProfile` (`PATCH /v2/me`),
+  `sendEmailVerification` (`POST /v2/me/email/verify/send`),
+  `confirmEmailVerification(token)` (`POST /v2/email/verify/confirm`, no session),
+  `sendPhoneVerification` (`POST /v2/me/phone/verify/send` → `PhoneVerificationChallenge`),
+  `confirmPhoneVerification({ challengeId, code })` (`POST /v2/me/phone/verify/confirm`).
+- **`forceResetPassword(newPassword, resetToken)`** — `POST /v2/password/force-reset`.
+  Called when `loginWithPassword` throws `FORCE_PASSWORD_RESET`.
 
 ### v7 surface notes
 
-- **`auth.account`** — self-service management over `/v2/me/*`: TOTP, passkeys
-  (`enrollPasskey`/`listPasskeys`/`deletePasskey`), consents, devices,
-  federated identities, LGPD export/erase. Bearer-auth via the shared
-  `getAccessToken`.
+- **`auth.account`** — self-service management over `/v2/me/*`: profile, email/phone
+  verification, TOTP, passkeys (`enrollPasskey`/`listPasskeys`/`deletePasskey`),
+  consents, devices, federated identities, LGPD export/erase. Bearer-auth via the
+  shared `getAccessToken`.
 - **DPoP (RFC 9449)** — opt in with `createAuthClient({ dpop: createDpopSigner() })`.
   Token requests attach a binding proof (kernel stamps `cnf.jkt`); resource +
   account requests switch from `Authorization: Bearer` to `DPoP <token>` plus a
@@ -181,7 +196,6 @@ email divert the OTP to themselves.
 | `nuria:oauth:nonce` | OIDC nonce string (cleared after callback, always via `finally`) |
 | `nuria:google:nonce` | GIS nonce (cleared once the credential callback validates it; `disableGoogleAutoSelect()` also clears it) |
 | `nuria:google-oauth2:state` | OAuth 2.0 code-flow CSRF state (cleared after `createGoogleCodeClient`'s callback validates the round-trip) |
-| `nuria:aws:pkce:<state>` | Per-flight AWS PKCE bag — `{ codeVerifier, nonce, redirectUri, clientId, tokenEndpoint, returnSearch }`. Removed by `parseAwsQueryCallback` whether the exchange succeeds or fails. |
 | `nuria:auth:force_relogin_next` | One-shot marker armed by `logout()` (default) and consumed by the next `startLogin()` to inject `prompt=login`. Cleared on consumption *after* the redirect dispatch succeeds — if `onRedirect` throws, the marker remains armed for the user's retry. Cleared explicitly by `logout({ keepSso: true })`. |
 
 ## Architecture Rules

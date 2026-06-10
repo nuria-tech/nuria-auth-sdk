@@ -4,6 +4,88 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [9.0.0] - 2026-06-10
+
+### BREAKING — AWS SSO removed
+
+`startAwsLogin`, `parseAwsQueryCallback`, `AWS_STORAGE_KEYS`,
+`StartAwsLoginOptions`, and `AwsCallbackResult` are gone. The AWS IAM Identity
+Center flow was incomplete — the helper returned an `idToken` but there was no
+`loginWithAwsSsoToken()` to exchange it with the Nuria backend. Consumers that
+need AWS federation should drive the standard OAuth 2.1 Authorization Code +
+PKCE flow on their own (the backend `/v2/sso/aws` endpoint continues to exist for
+non-SDK callers).
+
+`LoginMethod` no longer includes `'aws_sso'`. `DEFAULT_LOGIN_METHODS` is now
+`{ enabled: ['password', 'google', 'passwordless'], comingSoon: [] }`.
+
+### BREAKING — `handleOidcCallback` no longer reads token from URL fragment
+
+The OIDC callback flow now delivers a **bridge code** (`?oidc_code=…`) instead of
+`#access_token=…`. The SDK exchanges that code at `POST /v2/login/oidc/redeem`
+and receives the access token in the JSON body — eliminating the deprecated
+implicit-flow pattern (OAuth 2.1 §2.1.2; token visible in browser history and
+`Referer` headers).
+
+**Migration:** the browser-side code does not change — `handleOidcCallback()` is
+still the one call you make on the return page. The kernel version must be
+≥ 2026-06-10 (commit `80ac557`) to emit `?oidc_code=` rather than `#access_token=`.
+SPAs running the old kernel with the new SDK (or vice-versa) will throw
+`CALLBACK_ERROR`.
+
+### Added — magic-link login
+
+Two new methods on `AuthClient`:
+
+```ts
+// Step 1 — send the link
+await auth.sendMagicLink({ email: 'user@example.com' });
+
+// Step 2 — user clicks link, URL carries ?token=…
+const session = await auth.loginWithMagicLink({ token });
+```
+
+- `sendMagicLink({ email })` → `POST /v2/login/magic/send`
+- `loginWithMagicLink({ token })` → `POST /v2/login/magic/verify`
+
+### Added — account self-service: profile, email + phone verification
+
+New methods on `auth.account`:
+
+- `updateProfile({ name?, cellphone? })` → `PATCH /v2/me`
+- `sendEmailVerification()` → `POST /v2/me/email/verify/send`
+- `confirmEmailVerification(token)` → `POST /v2/email/verify/confirm` *(no session required)*
+- `sendPhoneVerification()` → `POST /v2/me/phone/verify/send` → `PhoneVerificationChallenge`
+- `confirmPhoneVerification({ challengeId, code })` → `POST /v2/me/phone/verify/confirm`
+
+New exported types: `UpdateProfileOptions`, `UpdateProfileResult`,
+`PhoneVerificationChallenge`.
+
+### Added — `forceResetPassword` flow
+
+`loginWithPassword` now throws `AuthError(AuthErrorCode.FORCE_PASSWORD_RESET)`
+when the server returns `requiresPasswordReset: true`. The error's `details.body`
+carries the scoped reset token. Exchange it:
+
+```ts
+try {
+  await auth.loginWithPassword({ email, password });
+} catch (e) {
+  if (e instanceof AuthError && e.code === AuthErrorCode.FORCE_PASSWORD_RESET) {
+    const resetToken = (e.details.body as { token: string }).token;
+    await auth.forceResetPassword(newPassword, resetToken);
+  }
+}
+```
+
+`forceResetPassword(newPassword, resetToken)` → `POST /v2/password/force-reset`
+with `Authorization: Bearer <resetToken>`. Returns a `Session`.
+
+### Fixed — `isAuthenticated()` type guard (`exp == null`)
+
+`isAuthenticated()` was using `!exp` to check for a missing expiry, which
+incorrectly treated `exp = 0` (epoch) as "no expiry". Fixed to `exp == null`.
+
 ## [8.0.0] - 2026-05-30 — secure token storage (BREAKING)
 
 ### BREAKING — tokens are no longer persisted
