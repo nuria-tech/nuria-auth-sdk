@@ -12,6 +12,12 @@ export const STORAGE_KEYS = {
   // cleared on logout. NOT a credential. On load the SDK reads it to decide
   // whether to attempt a cookie-based silent refresh (vs. staying anonymous).
   authed: 'nuria:auth:has_session',
+  // Short-lived access token cached in localStorage so page reloads
+  // (CTRL+SHIFT+R) can skip the /refresh round-trip when the token is still
+  // valid. The RT stays in the HttpOnly cookie; this is not a rotation path.
+  // Cleared on logout and on any permanent server rejection.
+  at: 'nuria:auth:at',
+  atExp: 'nuria:auth:at_exp',
   // One-shot marker set by `logout()` (default behavior) and consumed by
   // the next `startLogin()` call to force `prompt=login` — i.e. the IdP
   // must render its login UI even if the SSO session is still warm.

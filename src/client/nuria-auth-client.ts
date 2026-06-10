@@ -150,17 +150,22 @@ export class DefaultAuthClient implements AuthClient {
     // refresh to re-establish the in-memory access token (the refresh token
     // lives only in the __Host cookie). Failure just leaves us anonymous.
     if ((await safeGet(this.storage, STORAGE_KEYS.authed)) === '1') {
-      try {
-        await this.bootstrapFromCookie();
-      } catch (error) {
-        // Only wipe the "has session" marker when the server definitively
-        // rejected our credentials (4xx). Transient failures — cold-start
-        // Lambda timeouts, network blips, CORS hiccups on hard-refresh — leave
-        // the marker intact so the middleware's getAccessToken() can retry in
-        // the same page-load (the Lambda will be warm by then). Consistent with
-        // the same guard in getAccessToken().
-        if (isPermanentRefreshFailure(error)) {
-          await safeRemove(this.storage, STORAGE_KEYS.authed);
+      // Fast path: restore from the cached AT if it is still valid. This
+      // survives CTRL+SHIFT+R and any page reload — no network call needed.
+      const restoredFromCache = await this.tryRestoreSessionFromCache();
+      if (!restoredFromCache) {
+        try {
+          await this.bootstrapFromCookie();
+        } catch (error) {
+          // Only wipe the "has session" marker when the server definitively
+          // rejected our credentials (4xx). Transient failures — cold-start
+          // Lambda timeouts, network blips, CORS hiccups on hard-refresh — leave
+          // the marker intact so the middleware's getAccessToken() can retry in
+          // the same page-load (the Lambda will be warm by then). Consistent with
+          // the same guard in getAccessToken().
+          if (isPermanentRefreshFailure(error)) {
+            await this.clearStoredSession();
+          }
         }
       }
     }
@@ -168,6 +173,27 @@ export class DefaultAuthClient implements AuthClient {
     if (this.config.enableRefreshToken && typeof setInterval !== 'undefined') {
       this.startSilentRefresh();
     }
+  }
+
+  /** Restores the in-memory session from the localStorage AT cache. Returns
+   *  true when the cache was valid and the session was restored without a
+   *  network call — false when the cache is missing or expired. */
+  private async tryRestoreSessionFromCache(): Promise<boolean> {
+    const at = await safeGet(this.storage, STORAGE_KEYS.at);
+    const expStr = await safeGet(this.storage, STORAGE_KEYS.atExp);
+    if (!at || !expStr) return false;
+    const exp = Number(expStr);
+    if (!exp || exp - REFRESH_BUFFER_MS <= this.now()) return false;
+    this.session = { tokens: { accessToken: at, expiresAt: exp }, createdAt: this.now() };
+    return true;
+  }
+
+  /** Removes all session-related localStorage entries. Called on logout and
+   *  on any permanent server rejection of credentials. */
+  private async clearStoredSession(): Promise<void> {
+    await safeRemove(this.storage, STORAGE_KEYS.authed);
+    await safeRemove(this.storage, STORAGE_KEYS.at);
+    await safeRemove(this.storage, STORAGE_KEYS.atExp);
   }
 
   /**
@@ -397,7 +423,7 @@ export class DefaultAuthClient implements AuthClient {
         return session.tokens.accessToken ?? null;
       } catch (error) {
         if (isPermanentRefreshFailure(error)) {
-          await safeRemove(this.storage, STORAGE_KEYS.authed);
+          await this.clearStoredSession();
         }
         return null;
       }
@@ -424,7 +450,7 @@ export class DefaultAuthClient implements AuthClient {
           // silentRefresh tick (60s) will retry naturally.
           if (isPermanentRefreshFailure(error)) {
             this.session = null;
-            await safeRemove(this.storage, STORAGE_KEYS.authed);
+            await this.clearStoredSession();
             this.notify();
           }
           return null;
@@ -432,7 +458,7 @@ export class DefaultAuthClient implements AuthClient {
       } else if (exp <= this.now()) {
         // Token is actually expired and refresh is disabled — clear session
         this.session = null;
-        await safeRemove(this.storage, STORAGE_KEYS.authed);
+        await this.clearStoredSession();
         this.notify();
         return null;
       }
@@ -447,7 +473,7 @@ export class DefaultAuthClient implements AuthClient {
   async logout(options: LogoutOptions = {}): Promise<void> {
     this.stopSilentRefresh();
     this.session = null;
-    await safeRemove(this.storage, STORAGE_KEYS.authed);
+    await this.clearStoredSession();
     await safeRemove(this.storage, STORAGE_KEYS.state);
     await safeRemove(this.storage, STORAGE_KEYS.nonce);
     await safeRemove(this.storage, STORAGE_KEYS.codeVerifier);
@@ -765,7 +791,7 @@ export class DefaultAuthClient implements AuthClient {
       return true;
     } catch {
       this.session = null;
-      await safeRemove(this.storage, STORAGE_KEYS.authed);
+      await this.clearStoredSession();
       this.notify();
       return false;
     }
@@ -1369,9 +1395,13 @@ export class DefaultAuthClient implements AuthClient {
       createdAt: this.now(),
       provider: tokens.authProvider ?? this.session?.provider,
     };
-    // Persist only the non-sensitive "has session" marker (NOT the token), so
-    // a later page load knows to attempt a cookie-based silent refresh.
     await safeSet(this.storage, STORAGE_KEYS.authed, '1');
+    // Cache the AT so init() can skip /refresh on the next page load when the
+    // token is still valid. The RT stays in the HttpOnly cookie.
+    if (safeTokens.accessToken && safeTokens.expiresAt) {
+      await safeSet(this.storage, STORAGE_KEYS.at, safeTokens.accessToken);
+      await safeSet(this.storage, STORAGE_KEYS.atExp, String(safeTokens.expiresAt));
+    }
     this.notify();
     return this.session;
   }

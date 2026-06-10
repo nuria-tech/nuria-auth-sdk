@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [9.0.3] - 2026-06-10
+
+### Changed
+
+- **Reload-resilient session** — the access token is now cached in `localStorage`
+  (`nuria:auth:at` + `nuria:auth:at_exp`) after every successful refresh or login.
+  On `init()`, if the cached AT is still valid, the SDK restores the session
+  immediately without any network call. This eliminates the CTRL+SHIFT+R logout
+  race: rapid reloads no longer trigger concurrent `/refresh` requests whose
+  `Set-Cookie` gets cancelled. The refresh token remains exclusively in the
+  `HttpOnly` cookie — this is not a rotation path. The cache is cleared on
+  `logout()`, `revokeSession()`, and any permanent server rejection (4xx).
+
 ## [9.0.2] - 2026-06-10
 
 ### Added
