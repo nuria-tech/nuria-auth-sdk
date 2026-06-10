@@ -4,6 +4,55 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [9.0.2] - 2026-06-10
+
+### Added
+
+- **`AuthClient.hasSessionMarker()`** — zero-network check that returns `true`
+  when the `nuria:auth:has_session` storage key is set. Middleware and server
+  components can use this to distinguish a genuine "not logged in" state (marker
+  absent) from a transient init failure (marker present, token null — e.g. a
+  CTRL+SHIFT+R RT rotation race). No HTTP call is made.
+
+- **`auth.account.listSessions()`** — lists the caller's active refresh-token
+  sessions (`GET /v2/me/sessions`). Each `SessionInfo` entry includes
+  `sessionId`, `ipAddress`, `userAgent`, `clientId`, `createdAt`,
+  `expiresAt`, and `lastUsedAt`.
+
+- **`auth.account.revokeSession(sessionId)`** — revokes a specific session by
+  its ID (`DELETE /v2/me/sessions/{id}`). Allows a user to sign out individual
+  devices from the account security page.
+
+### Fixed
+
+- **Middleware resilience to rapid CTRL+SHIFT+R** — when `getAccessToken()`
+  returns null but `hasSessionMarker()` is true (refresh token rotation race),
+  the Nuxt global middleware now waits 900 ms and retries once before treating
+  the user as logged out. Prevents spurious `/signin` redirects after 2–3 hard
+  reloads in quick succession.
+
+---
+
+## [9.0.1] - 2026-06-10
+
+### Fixed
+
+- **`init()` no longer clears the session marker on transient refresh failures.**
+  Previously, any error during `bootstrapFromCookie()` in `init()` removed
+  `nuria:auth:has_session`, causing a hard logout on cold-Lambda starts and
+  brief network blips. The marker is now only removed when the server returns a
+  definitive 4xx (e.g. `401 Invalid token`) — network errors, `408`, `425`, and
+  `429` leave the marker intact so the next `getAccessToken()` call can retry.
+
+- **`FORCE_PASSWORD_RESET` error code exposed** — `AuthErrorCode.FORCE_PASSWORD_RESET`
+  is now exported so callers can detect the legacy-hash upgrade path without
+  checking raw strings.
+
+- **`updateProfile({ name?, cellphone? })`** added to `auth.account` →
+  `PATCH /v2/me`. Allows in-place name/phone updates from the accounts portal.
+
+---
+
 ## [9.0.0] - 2026-06-10
 
 ### BREAKING — AWS SSO removed
