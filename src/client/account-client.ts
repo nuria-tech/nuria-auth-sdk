@@ -3,6 +3,7 @@ import type {
   AuthTransport,
   AuthTransportRequest,
   ConsentInfo,
+  ConsentStatusResult,
   DataExport,
   DeviceInfo,
   FederatedIdentityInfo,
@@ -84,6 +85,25 @@ export class DefaultAccountClient implements AccountClient {
     const id = requireValue(clientId, 'clientId');
     await this.authed(`/v2/me/consents/${encodeURIComponent(id)}`, {
       method: 'DELETE',
+    });
+  }
+
+  async getConsentStatus(
+    clientId: string,
+    scope: string,
+  ): Promise<ConsentStatusResult> {
+    const id = requireValue(clientId, 'clientId');
+    const params = new URLSearchParams({ client_id: id, scope });
+    return this.authed<ConsentStatusResult>(
+      `/v2/oauth/consent/status?${params}`,
+    );
+  }
+
+  async grantConsent(clientId: string, scope: string): Promise<void> {
+    const id = requireValue(clientId, 'clientId');
+    await this.authed('/v2/oauth/consent', {
+      method: 'POST',
+      body: { client_id: id, scope },
     });
   }
 

@@ -91,6 +91,7 @@ export type {
   AuthConfig,
   DpopProofSigner,
   ConsentInfo,
+  ConsentStatusResult,
   StepUpOptions,
   DataExport,
   DeviceInfo,

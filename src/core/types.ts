@@ -695,7 +695,10 @@ export interface AccountClient {
   /** Revokes a previously granted consent by client id. */
   revokeConsent(clientId: string): Promise<void>;
   /** Checks whether the user has consented to a client for the given scopes. */
-  getConsentStatus(clientId: string, scope: string): Promise<ConsentStatusResult>;
+  getConsentStatus(
+    clientId: string,
+    scope: string,
+  ): Promise<ConsentStatusResult>;
   /** Records consent for a client+scope set. */
   grantConsent(clientId: string, scope: string): Promise<void>;
 
