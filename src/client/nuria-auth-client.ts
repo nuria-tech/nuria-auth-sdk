@@ -186,22 +186,17 @@ export class DefaultAuthClient implements AuthClient {
       }
     }
     if ((await safeGet(this.storage, STORAGE_KEYS.authed)) === '1') {
-      // Fast path: restore from the cached AT if it is still valid. This
-      // survives CTRL+SHIFT+R and any page reload — no network call needed.
-      const restoredFromCache = await this.tryRestoreSessionFromCache();
-      if (!restoredFromCache) {
-        try {
-          await this.bootstrapFromCookie();
-        } catch (error) {
-          // Only wipe the "has session" marker when the server definitively
-          // rejected our credentials (4xx). Transient failures — cold-start
-          // Lambda timeouts, network blips, CORS hiccups on hard-refresh — leave
-          // the marker intact so the middleware's getAccessToken() can retry in
-          // the same page-load (the Lambda will be warm by then). Consistent with
-          // the same guard in getAccessToken().
-          if (isPermanentRefreshFailure(error)) {
-            await this.clearStoredSession();
-          }
+      try {
+        await this.bootstrapFromCookie();
+      } catch (error) {
+        // Only wipe the "has session" marker when the server definitively
+        // rejected our credentials (4xx). Transient failures — cold-start
+        // Lambda timeouts, network blips, CORS hiccups on hard-refresh — leave
+        // the marker intact so the middleware's getAccessToken() can retry in
+        // the same page-load (the Lambda will be warm by then). Consistent with
+        // the same guard in getAccessToken().
+        if (isPermanentRefreshFailure(error)) {
+          await this.clearStoredSession();
         }
       }
     }
@@ -1434,17 +1429,10 @@ export class DefaultAuthClient implements AuthClient {
       createdAt: this.now(),
       provider: tokens.authProvider ?? this.session?.provider,
     };
+    // Only the non-sensitive "has session" marker is persisted — the AT stays
+    // in memory only. Caching the AT in localStorage would expose it to XSS,
+    // defeating the purpose of keeping the RT in an HttpOnly cookie.
     await safeSet(this.storage, STORAGE_KEYS.authed, '1');
-    // Cache the AT so init() can skip /refresh on the next page load when the
-    // token is still valid. The RT stays in the HttpOnly cookie.
-    if (safeTokens.accessToken && safeTokens.expiresAt) {
-      await safeSet(this.storage, STORAGE_KEYS.at, safeTokens.accessToken);
-      await safeSet(
-        this.storage,
-        STORAGE_KEYS.atExp,
-        String(safeTokens.expiresAt),
-      );
-    }
     this.notify();
     return this.session;
   }

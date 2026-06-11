@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [9.1.4] - 2026-06-11
+
+### Security
+
+- **Remove access token from localStorage** — `createSession()` no longer
+  writes the AT or its expiry to the storage adapter. Only the non-sensitive
+  `has_session` marker (`'1'`) is persisted. The AT stays in memory only,
+  consistent with the v8 design goal of keeping all sensitive tokens out of
+  JS-accessible storage. On every page reload, `init()` calls `/refresh` via
+  the HttpOnly cookie — no performance shortcut that trades security for speed.
+
 ## [9.1.3] - 2026-06-11
 
 ### Changed
