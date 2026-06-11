@@ -763,7 +763,7 @@ interface AccountClient {
   // Two-factor (TOTP)
   getTwoFactorStatus(): Promise<TwoFactorStatus>;
   enrollTotp(): Promise<TotpEnrollment>;
-  confirmTotp(code: string): Promise<void>;
+  confirmTotp(code: string): Promise<{ enabled: boolean; recoveryCodes: string[] }>;
   disableTotp(): Promise<void>;
   // Passkeys (WebAuthn / FIDO2)
   listPasskeys(): Promise<PasskeyInfo[]>;
@@ -772,6 +772,8 @@ interface AccountClient {
   // OAuth consents
   listConsents(): Promise<ConsentInfo[]>;
   revokeConsent(clientId: string): Promise<void>;
+  getConsentStatus(clientId: string, scope: string): Promise<ConsentStatusResult>;
+  grantConsent(clientId: string, scope: string): Promise<void>;
   // Known devices
   listDevices(): Promise<DeviceInfo[]>;
   trustDevice(deviceKey: string): Promise<void>;
