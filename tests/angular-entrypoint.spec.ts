@@ -76,6 +76,7 @@ function createMockAuth() {
         listeners.delete(handler);
       };
     }),
+    ready: Promise.resolve(),
     init: vi.fn(async () => {}),
     getClaims: vi.fn(() => null),
     getActor: vi.fn(() => null),

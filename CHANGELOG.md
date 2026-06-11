@@ -4,7 +4,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [9.0.6] - 2026-06-10
+## [9.0.7] - 2026-06-11
+
+### Fixed
+
+- **Mock type errors** — `AuthClient` mock objects in `angular-entrypoint.spec.ts`
+  and `react-hooks.spec.ts` were missing the `ready` property introduced in
+  9.0.6, causing `tsc --noEmit` to fail and block the CI publish pipeline.
+
+### Added
+
+- **`auth.account.getConsentStatus(clientId, scope)`** — queries
+  `GET /v2/oauth/consent/status` and returns a `ConsentStatusResult`
+  (`{ granted, missing_scopes, granted_scopes, client_name }`). Used by the
+  OAuth consent screen to decide whether to prompt the user.
+
+- **`auth.account.grantConsent(clientId, scope)`** — posts to
+  `POST /v2/oauth/consent`. Persists the user's consent decision so the
+  authorization server can skip the prompt on future requests with the same
+  scope.
+
+## [9.0.6] - 2026-06-11
 
 ### Added
 

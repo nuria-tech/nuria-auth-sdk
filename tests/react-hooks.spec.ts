@@ -77,6 +77,7 @@ function createMockAuthClient(): AuthClient {
     resetPassword: vi.fn(async () => {}),
     recoverPassword: vi.fn(async () => {}),
     changePassword: vi.fn(async () => {}),
+    ready: Promise.resolve(),
     init: vi.fn(async () => {}),
     getClaims: vi.fn(() => null),
     getActor: vi.fn(() => null),
