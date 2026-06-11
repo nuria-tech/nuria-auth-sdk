@@ -684,10 +684,16 @@ export interface AccountClient {
   getTwoFactorStatus(): Promise<TwoFactorStatus>;
   /** Begins TOTP enrollment; returns the one-time secret + otpauth URI. */
   enrollTotp(): Promise<TotpEnrollment>;
-  /** Confirms enrollment with a code from the authenticator app. */
-  confirmTotp(code: string): Promise<void>;
+  /** Confirms enrollment with a code from the authenticator app. Returns the initial recovery codes — show once. */
+  confirmTotp(
+    code: string,
+  ): Promise<{ enabled: boolean; recoveryCodes: string[] }>;
   /** Disables TOTP for the account. */
   disableTotp(): Promise<void>;
+  /** Returns the existing TOTP recovery codes, or null if TOTP is not enabled. */
+  getRecoveryCodes(): Promise<string[] | null>;
+  /** Regenerates 10 fresh recovery codes, invalidating the previous set. */
+  regenerateRecoveryCodes(): Promise<string[]>;
 
   // ── OAuth consents ─────────────────────────────────────────────────
   /** Lists the apps the user has granted access to. */

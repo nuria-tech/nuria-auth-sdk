@@ -62,16 +62,44 @@ export class DefaultAccountClient implements AccountClient {
     return { secret: data?.secret ?? '', otpauthUri: data?.otpauthUri ?? '' };
   }
 
-  async confirmTotp(code: string): Promise<void> {
+  async confirmTotp(
+    code: string,
+  ): Promise<{ enabled: boolean; recoveryCodes: string[] }> {
     const trimmed = requireValue(code, 'code');
-    await this.authed('/v2/me/2fa/totp/confirm', {
-      method: 'POST',
-      body: { code: trimmed },
-    });
+    const data = await this.authed<{
+      success?: boolean;
+      recovery_codes?: string[];
+    }>('/v2/me/2fa/totp/confirm', { method: 'POST', body: { code: trimmed } });
+    return {
+      enabled: data?.success === true,
+      recoveryCodes: Array.isArray(data?.recovery_codes)
+        ? data.recovery_codes
+        : [],
+    };
   }
 
   async disableTotp(): Promise<void> {
     await this.authed('/v2/me/2fa/totp', { method: 'DELETE' });
+  }
+
+  async getRecoveryCodes(): Promise<string[] | null> {
+    try {
+      const data = await this.authed<{ recovery_codes?: string[] }>(
+        '/v2/me/2fa/totp/recovery-codes',
+      );
+      return Array.isArray(data?.recovery_codes) ? data.recovery_codes : null;
+    } catch (e: unknown) {
+      if ((e as { status?: number })?.status === 404) return null;
+      throw e;
+    }
+  }
+
+  async regenerateRecoveryCodes(): Promise<string[]> {
+    const data = await this.authed<{ recovery_codes?: string[] }>(
+      '/v2/me/2fa/totp/recovery-codes',
+      { method: 'POST' },
+    );
+    return Array.isArray(data?.recovery_codes) ? data.recovery_codes : [];
   }
 
   // ── OAuth consents ───────────────────────────────────────────────────
