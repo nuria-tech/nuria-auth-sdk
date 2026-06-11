@@ -1,12 +1,14 @@
 import type {
   AuthClient,
   AuthConfig,
+  DpopProofSigner,
   LoginMethod,
   LoginMethodsConfig,
   LoginMethodsConfigInput,
   ResolvedAuthConfig,
 } from '../core/types';
 import { AuthError, AuthErrorCode } from '../errors/auth-error';
+import { AutoDpopSigner } from '../utils/dpop';
 import { DefaultAuthClient } from './nuria-auth-client';
 
 const DEFAULT_AUTH_BASE_URL = 'https://auth.nuria.com.br';
@@ -124,6 +126,16 @@ function resolveEndpoint(
   return new URL(fallbackPath, `${baseUrl}/`).toString();
 }
 
+function resolveDpop(dpop: AuthConfig['dpop']): DpopProofSigner | undefined {
+  if (dpop === false) return undefined;
+  if (dpop === 'auto' || dpop === undefined) {
+    // Enable automatically in browser environments. Skip in SSR / Node.js where
+    // window and crypto.subtle may be absent or DPoP makes no sense.
+    return typeof window !== 'undefined' ? new AutoDpopSigner() : undefined;
+  }
+  return dpop;
+}
+
 export function createAuthClient(config: AuthConfig): AuthClient {
   if (!config?.clientId) {
     throw new AuthError(
@@ -183,6 +195,7 @@ export function createAuthClient(config: AuthConfig): AuthClient {
     ...config,
     baseUrl,
     logoutEndpoint,
+    dpop: resolveDpop(config.dpop),
     scope: String(config.scope ?? '').trim() || DEFAULT_SCOPE,
     enableRefreshToken: config.enableRefreshToken ?? true,
     silentRefreshIntervalMs: config.silentRefreshIntervalMs ?? 60_000,

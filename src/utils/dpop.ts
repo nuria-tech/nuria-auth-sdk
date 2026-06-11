@@ -1,6 +1,7 @@
 import { base64UrlEncode } from '../core/base64url';
 import { randomString } from '../core/pkce';
 import { AuthError, AuthErrorCode } from '../errors/auth-error';
+import type { DpopProofSigner } from '../core/types';
 
 /**
  * DPoP (RFC 9449) client-side proof signer. Holds an ES256 key pair and mints
@@ -234,6 +235,57 @@ export async function persistDpopSigner(
     });
   } finally {
     db.close();
+  }
+}
+
+/**
+ * Internal signer used when `dpop: "auto"` (or unset) in {@link AuthConfig}.
+ *
+ * On first use it tries to load a persisted key pair from IndexedDB. On a cache
+ * miss it generates a fresh ES256 key and persists it so the same `cnf.jkt`
+ * binding survives page reloads. If IndexedDB is unavailable (e.g. private
+ * browsing on some browsers) it falls back to an ephemeral in-memory key that
+ * works for the current page session but produces a new binding on the next
+ * reload. If the Web Crypto API itself is unavailable the promise rejects — the
+ * caller is responsible for deciding whether to surface the error.
+ *
+ * Not exported: consumers use `dpop: "auto"` or omit the field; they never
+ * instantiate this class directly.
+ */
+export class AutoDpopSigner implements DpopProofSigner {
+  private readonly ready: Promise<DpopProofSigner>;
+
+  constructor() {
+    this.ready = this.init();
+  }
+
+  private async init(): Promise<DpopProofSigner> {
+    try {
+      const existing = await loadDpopSigner();
+      if (existing) return existing;
+      const fresh = await createDpopSigner();
+      await persistDpopSigner(fresh).catch(() => {
+        // Persistence failure is non-fatal: the in-memory key works for this
+        // session; the next reload will generate a new key and try again.
+      });
+      return fresh;
+    } catch {
+      // IndexedDB unavailable (e.g. Safari private mode) — fall back to an
+      // ephemeral key that lives only for this page session.
+      return createDpopSigner();
+    }
+  }
+
+  createProof(params: {
+    htm: string;
+    htu: string;
+    accessToken?: string;
+  }): Promise<string> {
+    return this.ready.then((s) => s.createProof(params));
+  }
+
+  getThumbprint(): Promise<string> {
+    return this.ready.then((s) => s.getThumbprint());
   }
 }
 

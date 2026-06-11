@@ -259,11 +259,18 @@ export interface AuthConfig {
    * SDK attaches a DPoP proof to its token requests — so the kernel binds the
    * issued token to this key via `cnf.jkt` — and presents the bound token on
    * resource requests under the `DPoP` auth scheme with a fresh `ath` proof.
-   * Create one with `createDpopSigner()` (optionally persisted across reloads
-   * via `persistDpopSigner`/`loadDpopSigner`). Left unset, tokens are plain
-   * Bearer tokens exactly as before.
+   * Controls DPoP (RFC 9449) sender-constrained tokens:
+   *
+   * - `"auto"` *(default in browser environments)* — the client generates and
+   *   persists an ES256 key pair in IndexedDB automatically, falling back to an
+   *   ephemeral in-memory key when IndexedDB is unavailable.
+   * - `false` — DPoP is disabled; tokens are plain Bearer tokens.
+   * - `DpopProofSigner` — bring your own signer (custom key storage, HSM, etc.).
+   *
+   * When `createAuthClient` is called in a non-browser context (SSR / Node.js)
+   * the field defaults to `undefined` and DPoP is not enabled.
    */
-  dpop?: DpopProofSigner;
+  dpop?: DpopProofSigner | 'auto' | false;
   now?: () => number;
 }
 
@@ -288,6 +295,8 @@ export interface ResolvedAuthConfig extends AuthConfig {
   userinfoEndpoint: string;
   silentRefreshIntervalMs: number;
   loginMethods: LoginMethodsConfig;
+  /** Always a concrete signer or undefined after resolution — never "auto" | false. */
+  dpop?: DpopProofSigner;
 }
 
 export interface AuthClient {
