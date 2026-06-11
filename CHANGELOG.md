@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [9.1.3] - 2026-06-11
+
+### Changed
+
+- Style-only: reformatted long `if` condition in `init()` for readability — no behaviour change.
+
 ## [9.1.2] - 2026-06-11
 
 ### Fixed
