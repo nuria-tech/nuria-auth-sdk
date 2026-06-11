@@ -164,6 +164,24 @@ export class DefaultAuthClient implements AuthClient {
     // non-sensitive "has session" marker, attempt a cookie-based silent
     // refresh to re-establish the in-memory access token (the refresh token
     // lives only in the __Host cookie). Failure just leaves us anonymous.
+    //
+    // Skip hydration when the current URL is an auth callback (has both `code`
+    // and `state` params). The app is about to call handleRedirectCallback(),
+    // which will establish a fresh session via the code exchange. Attempting a
+    // cookie refresh here would race against that exchange — potentially
+    // rotating the refresh token before the code can be redeemed — and blocks
+    // frameworks that await auth.ready before routing (e.g. Angular's
+    // provideAppInitializer), preventing the callback route from ever loading.
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has('code') && params.has('state')) {
+        this.notify(false);
+        if (this.config.enableRefreshToken && typeof setInterval !== 'undefined') {
+          this.startSilentRefresh();
+        }
+        return;
+      }
+    }
     if ((await safeGet(this.storage, STORAGE_KEYS.authed)) === '1') {
       // Fast path: restore from the cached AT if it is still valid. This
       // survives CTRL+SHIFT+R and any page reload — no network call needed.

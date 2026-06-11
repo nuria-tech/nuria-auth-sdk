@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [9.1.1] - 2026-06-11
+
+### Fixed
+
+- **`init()` callback URL race** — `autoInit` no longer attempts a cookie-based
+  silent refresh when the current URL contains both `code` and `state` query
+  parameters. On an OAuth callback, `handleRedirectCallback()` is about to
+  establish a fresh session via code exchange; an overlapping refresh would race
+  against that exchange (potentially rotating the refresh token before the code
+  can be redeemed) and — in frameworks that `await auth.ready` before routing,
+  such as Angular's `provideAppInitializer` — would block the callback route
+  from ever loading, producing an infinite spinner or a login loop.
+
 ## [9.0.7] - 2026-06-11
 
 ### Fixed
