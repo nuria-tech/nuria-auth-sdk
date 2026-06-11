@@ -176,7 +176,10 @@ export class DefaultAuthClient implements AuthClient {
       const params = new URLSearchParams(window.location.search);
       if (params.has('code') && params.has('state')) {
         this.notify(false);
-        if (this.config.enableRefreshToken && typeof setInterval !== 'undefined') {
+        if (
+          this.config.enableRefreshToken &&
+          typeof setInterval !== 'undefined'
+        ) {
           this.startSilentRefresh();
         }
         return;
