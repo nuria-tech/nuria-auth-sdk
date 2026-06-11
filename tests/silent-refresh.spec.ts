@@ -16,9 +16,11 @@ const BASE_CONFIG = {
   authorizationEndpoint: 'https://auth.example.com/authorize',
   tokenEndpoint: 'https://auth.example.com/token',
   redirectUri: 'https://app.example.com/callback',
-  // DPoP disabled: these tests measure refresh timing, not DPoP. AutoDpopSigner
-  // adds crypto.subtle/IndexedDB async overhead that makes setTimeout(0) flaky.
+  // DPoP and autoInit disabled: these tests measure refresh timing and control
+  // init() explicitly. AutoDpopSigner adds crypto/IndexedDB async overhead that
+  // makes setTimeout(0) flaky; autoInit would race with the explicit init() call.
   dpop: false as const,
+  autoInit: false as const,
 };
 
 /**

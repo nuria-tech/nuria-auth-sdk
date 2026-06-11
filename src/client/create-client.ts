@@ -196,6 +196,7 @@ export function createAuthClient(config: AuthConfig): AuthClient {
     baseUrl,
     logoutEndpoint,
     dpop: resolveDpop(config.dpop),
+    autoInit: config.autoInit ?? true,
     scope: String(config.scope ?? '').trim() || DEFAULT_SCOPE,
     enableRefreshToken: config.enableRefreshToken ?? true,
     silentRefreshIntervalMs: config.silentRefreshIntervalMs ?? 60_000,

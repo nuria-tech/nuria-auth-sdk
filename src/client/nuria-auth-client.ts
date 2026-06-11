@@ -105,6 +105,14 @@ export class DefaultAuthClient implements AuthClient {
   /** v7 self-service account management. See {@link AccountClient}. */
   public readonly account: AccountClient;
 
+  /**
+   * Resolves when `init()` has completed (session restored or determined to be
+   * anonymous). With `autoInit: true` (the default in browser environments)
+   * this resolves automatically; with `autoInit: false` it resolves once the
+   * caller awaits `init()` themselves.
+   */
+  public readonly ready: Promise<void>;
+
   constructor(private readonly config: ResolvedAuthConfig) {
     this.storage = config.storage ?? defaultStateStorage();
     this.transport = config.transport ?? new FetchAuthTransport();
@@ -142,6 +150,13 @@ export class DefaultAuthClient implements AuthClient {
         }
       };
     }
+    // autoInit: fire init() immediately in browser so the app doesn't have to.
+    // init() never throws (errors are caught internally), so this is safe as a
+    // fire-and-forget. ready resolves once init completes.
+    this.ready =
+      config.autoInit && typeof window !== 'undefined'
+        ? this.init()
+        : Promise.resolve();
   }
 
   async init(): Promise<void> {

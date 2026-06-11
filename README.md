@@ -462,10 +462,50 @@ interface AuthConfig {
   transport?: AuthTransport;
   onRedirect?: (url: string) => void | Promise<void>;
   enableRefreshToken?: boolean;
-  /** Enable DPoP (RFC 9449) sender-constrained tokens. See createDpopSigner(). */
-  dpop?: DpopProofSigner;
+  /**
+   * DPoP (RFC 9449) sender-constrained tokens.
+   * "auto" (default in browser) — SDK manages the ES256 key pair in IndexedDB.
+   * false — plain Bearer tokens.
+   * DpopProofSigner — custom signer.
+   */
+  dpop?: DpopProofSigner | 'auto' | false;
+  /**
+   * Auto-call init() on creation in browser environments (default: true).
+   * Set false to call init() yourself or to keep tests deterministic.
+   * Has no effect in SSR / Node.js.
+   */
+  autoInit?: boolean;
   now?: () => number;
 }
+```
+
+## Client initialization
+
+`createAuthClient()` returns a ready-to-use client. In browser environments,
+`init()` is called automatically (`autoInit: true` by default) so apps don't
+need any manual setup. Use `auth.ready` to wait for initialization when needed:
+
+```ts
+// Most apps — nothing extra required.
+const auth = createAuthClient({ clientId, redirectUri, storage });
+
+// If you need to wait for the session to be hydrated before rendering:
+await auth.ready;
+const session = auth.getSession(); // safe to call — init is done
+
+// Nuxt plugin / any async setup:
+export default defineNuxtPlugin(async () => {
+  const auth = createAuthClient({ ... });
+  await auth.ready;
+  return { provide: { auth } };
+});
+```
+
+Opt out of auto-init when you need explicit control:
+
+```ts
+const auth = createAuthClient({ ..., autoInit: false });
+await auth.init(); // you choose when
 ```
 
 ## Token storage (v8 — secure by default)
@@ -814,17 +854,29 @@ const session = await auth.handleOidcCallback();
 
 ### DPoP — sender-constrained tokens (RFC 9449)
 
+DPoP is enabled automatically in browser environments (default `dpop: "auto"`).
+The SDK generates an ES256 key pair, persists it in IndexedDB, and attaches the
+proof to every token request. No setup needed for most apps:
+
+```ts
+// Default — DPoP handled automatically in the browser.
+const auth = createAuthClient({ clientId, redirectUri });
+```
+
+To opt out (plain Bearer tokens):
+
+```ts
+const auth = createAuthClient({ clientId, redirectUri, dpop: false });
+```
+
+Custom signer (advanced — own key storage, HSM, etc.):
+
 ```ts
 import { createDpopSigner, persistDpopSigner, loadDpopSigner } from '@nuria-tech/auth-sdk';
 
-// Reuse a stable per-device key across reloads (or createDpopSigner() each session):
 const dpop = (await loadDpopSigner()) ?? await createDpopSigner();
 await persistDpopSigner(dpop);
-
 const auth = createAuthClient({ clientId, redirectUri, dpop });
-// Token requests now carry a binding proof (cnf.jkt); resource + account
-// requests present the token under the `DPoP` scheme with a fresh `ath` proof.
-// Leave `dpop` unset for plain Bearer tokens (unchanged v6 behavior).
 ```
 
 ### Step-up authentication (RFC 8176)

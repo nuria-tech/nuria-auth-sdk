@@ -271,6 +271,18 @@ export interface AuthConfig {
    * the field defaults to `undefined` and DPoP is not enabled.
    */
   dpop?: DpopProofSigner | 'auto' | false;
+  /**
+   * When `true` (the default in browser environments), `createAuthClient()`
+   * automatically calls `init()` so apps don't need to do it manually.
+   * `auth.ready` resolves when initialization completes.
+   *
+   * Set to `false` to opt out and call `auth.init()` yourself — useful when
+   * you need to sequence init after some other async setup, or in test
+   * environments that need deterministic control over when init fires.
+   *
+   * Has no effect in SSR / Node.js (`typeof window === 'undefined'`).
+   */
+  autoInit?: boolean;
   now?: () => number;
 }
 
@@ -297,9 +309,19 @@ export interface ResolvedAuthConfig extends AuthConfig {
   loginMethods: LoginMethodsConfig;
   /** Always a concrete signer or undefined after resolution — never "auto" | false. */
   dpop?: DpopProofSigner;
+  /** Resolved to a definite boolean — true in browser by default, false in SSR. */
+  autoInit: boolean;
 }
 
 export interface AuthClient {
+  /**
+   * Resolves when the client has finished initializing (session restored from
+   * cookie / cache, or determined to be anonymous). With `autoInit: true`
+   * (the default in browser environments) this happens automatically right
+   * after `createAuthClient()`. With `autoInit: false` this resolves only
+   * after you call `await auth.init()` yourself.
+   */
+  readonly ready: Promise<void>;
   init(): Promise<void>;
   startLogin(options?: StartLoginOptions): Promise<void>;
   handleRedirectCallback(callbackUrl?: string): Promise<Session>;
@@ -511,6 +533,14 @@ export interface ConsentInfo {
   updatedAt?: string;
 }
 
+/** Consent status returned by `GET /v2/oauth/consent/status`. */
+export interface ConsentStatusResult {
+  granted: boolean;
+  missing_scopes: string[];
+  granted_scopes: string[];
+  client_name: string;
+}
+
 /** A known device as returned by `GET /v2/me/devices`. */
 export interface DeviceInfo {
   deviceKey: string;
@@ -664,6 +694,10 @@ export interface AccountClient {
   listConsents(): Promise<ConsentInfo[]>;
   /** Revokes a previously granted consent by client id. */
   revokeConsent(clientId: string): Promise<void>;
+  /** Checks whether the user has consented to a client for the given scopes. */
+  getConsentStatus(clientId: string, scope: string): Promise<ConsentStatusResult>;
+  /** Records consent for a client+scope set. */
+  grantConsent(clientId: string, scope: string): Promise<void>;
 
   // ── Active sessions ────────────────────────────────────────────────
   /** Lists all active (non-expired, non-revoked) refresh-token sessions for the signed-in user. */

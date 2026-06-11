@@ -4,6 +4,36 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [9.0.6] - 2026-06-10
+
+### Added
+
+- **`autoInit` — zero-boilerplate client initialization.** `createAuthClient()`
+  now calls `init()` automatically in browser environments (`autoInit: true` by
+  default). Apps no longer need `void auth.init()` in their setup code.
+  Set `autoInit: false` to opt out and keep explicit control (e.g. in tests or
+  when init must be sequenced after other async work).
+
+- **`auth.ready: Promise<void>`** — resolves when initialization is complete.
+  Await it whenever you need to be sure the session has been hydrated before
+  proceeding (e.g. `await auth.ready` in a Nuxt plugin instead of
+  `await auth.init()`). Resolves immediately when `autoInit: false`.
+
+## [9.0.5] - 2026-06-10
+
+### Added
+
+- **DPoP auto-initialization in browser environments.** The `dpop` config field
+  now accepts `"auto"` (new default in browser) in addition to a custom
+  `DpopProofSigner` or `false` (disabled). When `"auto"`, the SDK generates and
+  persists an ES256 key pair in IndexedDB on first use. Subsequent page loads
+  restore the same key so the `cnf.jkt` binding is stable. Falls back to an
+  ephemeral in-memory key when IndexedDB is unavailable (e.g. Safari private
+  mode). SSR / Node.js: DPoP stays disabled (no `window`).
+
+  Apps that previously created and wired up a signer manually can now remove
+  that boilerplate — `createAuthClient({...})` handles it automatically.
+
 ## [9.0.4] - 2026-06-10
 
 ### Fixed
