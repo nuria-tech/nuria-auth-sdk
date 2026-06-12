@@ -80,6 +80,7 @@ function createMockAuth() {
     init: vi.fn(async () => {}),
     getClaims: vi.fn(() => null),
     getActor: vi.fn(() => null),
+    isImpersonating: vi.fn(() => false),
     getAssurance: vi.fn(() => null),
     satisfiesStepUp: vi.fn(() => false),
     stepUp: vi.fn(async () => {}),

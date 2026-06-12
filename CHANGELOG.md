@@ -4,6 +4,34 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [9.1.7] - 2026-06-12
+
+### Added
+
+- **`auth.isImpersonating()`** — returns `true` when the current session token
+  was issued via impersonation (JWT carries an `act` claim). Portals use this
+  to render the operator-identity banner without parsing the JWT directly.
+
+- **`AuthConfig.onSessionInvalidated`** — optional callback fired after a
+  permanent server-side refresh rejection (`invalid_grant`, revoked token, DPoP
+  mismatch). Fires after the in-memory session is cleared and
+  `onAuthStateChanged(null)` is sent. Use it to show a "sua sessão expirou" toast
+  so users understand they were logged out involuntarily.
+
+### Fixed
+
+- **bfcache re-bootstrap** — `startSilentRefresh()`'s `pageshow` handler now
+  calls `getAccessToken()` directly after nulling the in-memory session, instead
+  of delegating to `triggerCheck()` whose `if (this.session)` guard was
+  short-circuiting the refresh. Without the fix, a bfcache restore triggered by
+  `persisted=true` produced 0 transport calls instead of 1 — meaning the SDK
+  silently served an expired or SES-002-revoked token.
+
+- **`doRefresh` body param** — OAuth flows (`authorization_code`, `device_code`)
+  return the refresh token in the response body. `doRefresh` now includes it as
+  `refresh_token` in the POST body when available, avoiding DPoP-proof failures
+  in environments where the `__Host-nuria_rt` HttpOnly cookie cannot be sent.
+
 ## [9.1.5] - 2026-06-11
 
 ### Chore

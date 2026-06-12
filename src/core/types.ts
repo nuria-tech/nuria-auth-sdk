@@ -283,6 +283,20 @@ export interface AuthConfig {
    * Has no effect in SSR / Node.js (`typeof window === 'undefined'`).
    */
   autoInit?: boolean;
+  /**
+   * Called when the SDK silently invalidates the session due to a permanent
+   * server-side rejection (4xx on the refresh endpoint — e.g. `invalid_grant`,
+   * revoked token, or a DPoP binding mismatch). Fires AFTER the in-memory
+   * session has been cleared and `onAuthStateChanged(null)` has been sent.
+   *
+   * Use this to show a "sua sessão expirou" toast or log the event for
+   * observability, so users understand they were logged out involuntarily —
+   * not as a result of an explicit logout action.
+   *
+   * Not fired on explicit `logout()` calls or when `enableRefreshToken` is
+   * disabled and the token naturally expires.
+   */
+  onSessionInvalidated?: () => void;
   now?: () => number;
 }
 
@@ -397,6 +411,8 @@ export interface AuthClient {
    * `act` claim must never fail the call — it returns `null`.
    */
   getActor(): ActorClaim | null;
+  /** Returns `true` when the current session token was issued via impersonation (has an `act` claim). */
+  isImpersonating(): boolean;
   hasRole(role: string): boolean;
   hasGroup(group: string): boolean;
   getUserinfo(): Promise<Record<string, unknown>>;

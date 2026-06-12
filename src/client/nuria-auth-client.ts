@@ -197,6 +197,7 @@ export class DefaultAuthClient implements AuthClient {
         // the same guard in getAccessToken().
         if (isPermanentRefreshFailure(error)) {
           await this.clearStoredSession();
+          this.config.onSessionInvalidated?.();
         }
       }
     }
@@ -486,6 +487,7 @@ export class DefaultAuthClient implements AuthClient {
             this.session = null;
             await this.clearStoredSession();
             this.notify();
+            this.config.onSessionInvalidated?.();
           }
           return null;
         }
@@ -736,6 +738,10 @@ export class DefaultAuthClient implements AuthClient {
       name: typeof name === 'string' ? name : undefined,
       email: typeof email === 'string' ? email : undefined,
     };
+  }
+
+  isImpersonating(): boolean {
+    return this.getActor() !== null;
   }
 
   getAssurance(): AssuranceLevel | null {
@@ -1010,8 +1016,24 @@ export class DefaultAuthClient implements AuthClient {
       // `init()` does NOT re-run — `pageshow` with `persisted=true` is
       // the only reliable signal that we're resuming from cache and the
       // access token may have expired during the freeze.
+      //
+      // IMPORTANT: we null out the in-memory session before triggering the
+      // check. While this tab was frozen, another tab may have rotated the
+      // refresh token via its own silent-refresh cycle. The BroadcastChannel
+      // sync message is lost for bfcache-frozen tabs, so the in-memory session
+      // still holds the old RT. If we let getAccessToken() use it, the backend
+      // sees a replay of an already-rotated token and fires SES-002 (revoking
+      // ALL sessions). Nulling the session forces re-bootstrap via the
+      // __Host-nuria_rt cookie, which always carries the current RT.
       const pageshowHandler = (event: PageTransitionEvent) => {
-        if (event.persisted) triggerCheck();
+        if (event.persisted) {
+          // Null the in-memory session before re-bootstrapping so getAccessToken()
+          // reads the current RT from the cookie instead of replaying a potentially
+          // rotated token. Skip triggerCheck's `if (this.session)` guard because
+          // we deliberately want to refresh even with no in-memory session.
+          this.session = null;
+          this.getAccessToken().catch(() => {});
+        }
       };
       window.addEventListener('pageshow', pageshowHandler);
       this.reactivationListenerRemovers.push(() =>
@@ -1371,16 +1393,21 @@ export class DefaultAuthClient implements AuthClient {
   }
 
   private async doRefresh(): Promise<Session> {
-    // v8: the refresh token is never in JS. We identify the session purely by
-    // the HttpOnly `__Host-nuria_rt` cookie, so `credentials: 'include'` is
-    // mandatory and no refresh_token is ever placed in the body. The kernel's
-    // /v2/oauth/token resolves the cookie when the body omits the token, then
-    // rotates and re-sets it via Set-Cookie. With DPoP enabled, the proof
-    // re-binds the rotated token to our key.
     const body = new URLSearchParams({
       grant_type: 'refresh_token',
       client_id: this.config.clientId,
     });
+    // OAuth flows (authorization_code / device_code) return the refresh token
+    // in the response body, which normalizeTokenSet() stores in memory.
+    // When available, include it in the body: body-based refresh is accepted
+    // by the kernel without a DPoP proof and is immune to environments where
+    // the __Host-nuria_rt cookie can't be sent (IndexedDB unavailable, DPoP
+    // key lost after storage clear, private-mode restrictions).
+    // credentials:'include' is kept so the server still rotates and re-sets
+    // the cookie for direct-login sessions that carry no in-memory RT.
+    if (this.session?.tokens.refreshToken) {
+      body.set('refresh_token', this.session.tokens.refreshToken);
+    }
     const response = await this.transport.request<Record<string, unknown>>(
       this.config.tokenEndpoint,
       {
