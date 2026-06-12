@@ -50,6 +50,7 @@ import {
 import { DefaultAccountClient } from './account-client';
 
 const BROADCAST_CHANNEL_NAME = 'nuria:auth:sync';
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Time before `expiresAt` at which the SDK proactively rotates the access
 // token. Sized to absorb timer throttling: Chrome's intensive-throttling
@@ -726,11 +727,24 @@ export class DefaultAuthClient implements AuthClient {
     }
   }
 
+  /**
+   * Decodes the RFC 8693 `act` claim from the current access token.
+   *
+   * **Security note**: this is a client-side decode — the JWT signature is
+   * NOT verified here. Use the result only for UI rendering (e.g. an
+   * informational banner). Any authorization decision that depends on
+   * whether the session is delegated MUST be validated server-side.
+   */
   getActor(): ActorClaim | null {
     const raw = this.getClaims()?.act;
     if (!raw || typeof raw !== 'object') return null;
     const sub = (raw as { sub?: unknown }).sub;
-    if (typeof sub !== 'string' || !sub) return null;
+    // Require a well-formed UUID so UI code can rely on a stable format
+    // and stray strings in the claim don't silently surface as actor IDs.
+    if (typeof sub !== 'string' || !UUID_RE.test(sub)) return null;
+    // Delegated token: the actor must differ from the token subject.
+    const claims = this.getClaims();
+    if (claims?.sub === sub) return null;
     const name = (raw as { name?: unknown }).name;
     const email = (raw as { email?: unknown }).email;
     return {
@@ -740,6 +754,13 @@ export class DefaultAuthClient implements AuthClient {
     };
   }
 
+  /**
+   * Returns `true` when the current session carries an RFC 8693 `act` claim.
+   *
+   * **Security note**: client-side only — no signature verification.
+   * Never use as an authorization gate; validate server-side for any
+   * security-relevant decision.
+   */
   isImpersonating(): boolean {
     return this.getActor() !== null;
   }

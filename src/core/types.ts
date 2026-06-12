@@ -1,13 +1,13 @@
 /**
- * RFC 8693 §4.1 actor claim. Identifies the real principal acting on
- * behalf of the token's `sub` — populated only when a session was minted
- * through the support-impersonation flow; null on every regular login.
+ * RFC 8693 §4.1 actor claim. Identifies the principal that is acting on
+ * behalf of the token subject. Present only on delegated-access tokens;
+ * `null` on every regular login.
  *
- * Wire shape mirrors the kernel's `ActorReference` DTO:
- * `{ "sub": "<guid>", "name": "...", "email": "..." }`.
+ * **Security note**: This is decoded client-side from the JWT payload
+ * without signature verification. Use only for UI rendering.
  */
 export interface ActorClaim {
-  /** GUID of the support agent driving the impersonated session. */
+  /** Identifier of the acting principal. */
   sub: string;
   name?: string;
   email?: string;
@@ -15,19 +15,19 @@ export interface ActorClaim {
 
 export interface TokenClaims {
   // ── RFC 7519 standard claims ───────────────────────────────────────
-  /** Subject identifier (RFC 7519 §4.1.2). For Nuria tokens, the user/app GUID. */
+  /** Subject identifier (RFC 7519 §4.1.2). */
   sub?: string;
-  /** Issuer (RFC 7519 §4.1.1). Nuria tokens emit `https://auth.nuria.com.br`. */
+  /** Issuer (RFC 7519 §4.1.1). */
   iss?: string;
-  /** Audience (RFC 7519 §4.1.3). Nuria tokens emit `nuria` today. */
+  /** Audience (RFC 7519 §4.1.3). */
   aud?: string | string[];
   /** Expiration time, epoch seconds (RFC 7519 §4.1.4). */
   exp?: number;
   /** Issued at, epoch seconds (RFC 7519 §4.1.6). */
   iat?: number;
-  /** Not before, epoch seconds (RFC 7519 §4.1.5). Not currently emitted by Nuria. */
+  /** Not before, epoch seconds (RFC 7519 §4.1.5). */
   nbf?: number;
-  /** JWT id (RFC 7519 §4.1.7). Nuria stamps this on dev tokens for revocation. */
+  /** JWT id (RFC 7519 §4.1.7). */
   jti?: string;
   // ── OIDC ──────────────────────────────────────────────────────────
   nonce?: string;
@@ -81,8 +81,8 @@ export interface TokenClaims {
   /** Epoch seconds of the original authentication event (OIDC `auth_time`). */
   auth_time?: number;
   /**
-   * RFC 8693 §4.1 actor claim — present only on tokens minted via the
-   * support-impersonation flow. See {@link ActorClaim}.
+   * RFC 8693 §4.1 actor claim — present on delegated-access tokens.
+   * See {@link ActorClaim}.
    */
   act?: ActorClaim;
   [key: string]: unknown;
@@ -403,15 +403,23 @@ export interface AuthClient {
    */
   stepUp(options?: StepUpOptions): Promise<void>;
   /**
-   * Returns the RFC 8693 `act` claim when the current session was minted
-   * through support impersonation, or `null` for regular sessions and
-   * malformed payloads. UI surfaces should use this to render an
-   * "acting as" banner so the impersonator is never invisible to the
-   * end user. Defensive parsing mirrors the kernel: a missing or broken
-   * `act` claim must never fail the call — it returns `null`.
+   * Returns the RFC 8693 `act` claim for a delegated-access token, or
+   * `null` for regular sessions and malformed payloads. Use only to
+   * render informational UI (e.g. an "acting as" banner).
+   *
+   * **Security note**: decoded client-side without signature verification.
+   * Never use the return value for authorization decisions — always
+   * validate server-side.
    */
   getActor(): ActorClaim | null;
-  /** Returns `true` when the current session token was issued via impersonation (has an `act` claim). */
+  /**
+   * Returns `true` when the current session token carries an RFC 8693
+   * `act` claim (delegated-access token).
+   *
+   * **Security note**: client-side check only — no signature verification.
+   * Must not be used as an authorization gate; use server-side validation
+   * for any security-relevant decision.
+   */
   isImpersonating(): boolean;
   hasRole(role: string): boolean;
   hasGroup(group: string): boolean;

@@ -529,11 +529,11 @@ describe('AuthClient', () => {
 
     const transport = makeMockTransport({
       access_token: makeJwt({
-        sub: 'impersonated-user',
+        sub: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
         act: {
-          sub: 'support-agent-guid',
+          sub: 'b2c3d4e5-f6a7-8901-bcde-f12345678901',
           name: 'Support Agent',
-          email: 'support@nuria.com.br',
+          email: 'support@example.com',
         },
       }),
     });
@@ -544,9 +544,9 @@ describe('AuthClient', () => {
 
     const actor = client.getActor();
     expect(actor).toEqual({
-      sub: 'support-agent-guid',
+      sub: 'b2c3d4e5-f6a7-8901-bcde-f12345678901',
       name: 'Support Agent',
-      email: 'support@nuria.com.br',
+      email: 'support@example.com',
     });
   });
 
