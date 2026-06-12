@@ -50,7 +50,8 @@ import {
 import { DefaultAccountClient } from './account-client';
 
 const BROADCAST_CHANNEL_NAME = 'nuria:auth:sync';
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Time before `expiresAt` at which the SDK proactively rotates the access
 // token. Sized to absorb timer throttling: Chrome's intensive-throttling
