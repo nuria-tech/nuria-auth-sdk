@@ -50,6 +50,7 @@ import {
 import { DefaultAccountClient } from './account-client';
 
 const BROADCAST_CHANNEL_NAME = 'nuria:auth:sync';
+const IMP_COOKIE_NAME = 'nuria_imp';
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -187,6 +188,25 @@ export class DefaultAuthClient implements AuthClient {
         return;
       }
     }
+
+    // Cross-portal impersonation: if a valid nuria_imp cookie exists, enter
+    // impersonation mode directly. The operator's __Host-nuria_rt cookie is
+    // left untouched so stopImpersonation() can restore it. Silent refresh is
+    // deliberately NOT started — impersonation tokens have no refresh token.
+    const imp = this.readImpersonationCookie();
+    if (imp !== null) {
+      if (imp.e > this.now()) {
+        this.session = {
+          tokens: { accessToken: imp.t, expiresAt: imp.e },
+          createdAt: this.now(),
+        };
+        this.notify(false);
+        return;
+      }
+      // Cookie present but expired — clear it and fall through to normal bootstrap.
+      this.clearImpersonationCookie();
+    }
+
     if ((await safeGet(this.storage, STORAGE_KEYS.authed)) === '1') {
       try {
         await this.bootstrapFromCookie();
@@ -467,6 +487,21 @@ export class DefaultAuthClient implements AuthClient {
     }
     const exp = this.session.tokens.expiresAt;
     if (exp && exp - REFRESH_BUFFER_MS <= this.now()) {
+      // Impersonation tokens have no refresh token — the operator's __Host-nuria_rt
+      // cookie belongs to their own session, not the impersonated user. Attempting
+      // a refresh here would rotate the operator's RT and potentially clear their
+      // `authed` marker, breaking session restoration after stopImpersonation().
+      if (this.isImpersonating()) {
+        if (exp <= this.now()) {
+          // Impersonation token expired: discard only the cookie + in-memory
+          // session. The operator's `authed` marker must NOT be touched so
+          // stopImpersonation() / the next init() can restore their session.
+          this.clearImpersonationCookie();
+          this.session = null;
+          this.notify();
+        }
+        return this.session?.tokens.accessToken ?? null;
+      }
       if (this.config.enableRefreshToken) {
         if (!this.refreshPromise) {
           this.refreshPromise = this.doRefresh().finally(() => {
@@ -774,10 +809,16 @@ export class DefaultAuthClient implements AuthClient {
       tokens: { accessToken, expiresAt: expiresAtMs },
       createdAt: this.now(),
     };
+    // Persist to parent-domain cookie so F5 and cross-portal navigation
+    // restore impersonation automatically via init().
+    this.setImpersonationCookie(accessToken, expiresAtMs);
     this.notify();
   }
 
   async stopImpersonation(): Promise<void> {
+    // Clear cross-portal cookie before restoring operator session so no
+    // subsequent portal init() can re-enter impersonation mode.
+    this.clearImpersonationCookie();
     this.session = null;
     try {
       await this.bootstrapFromCookie();
@@ -1513,6 +1554,87 @@ export class DefaultAuthClient implements AuthClient {
     this.notify();
     return this.session;
   }
+
+  // ── Impersonation cookie helpers ──────────────────────────────────────────
+  // The nuria_imp cookie is set on the parent domain (.nuria.com.br) so all
+  // portals (hub, portal, RSD, accounts…) pick it up on init(). The cookie
+  // stores a compact payload: { t: accessToken, e: expiresAtMs }.
+  // It is NOT HttpOnly so the SDK can read it client-side.
+
+  private getCookieDomain(): string {
+    if (typeof window === 'undefined') return '';
+    const host = window.location.hostname;
+    if (host === 'localhost' || host === '127.0.0.1' || /^\[.*\]$/.test(host))
+      return '';
+    const parts = host.split('.');
+    if (parts.length <= 2) return '.' + host;
+    // Handle two-part SLDs like .com.br, .org.br, .gov.br, .co.uk, etc.
+    const sld = parts[parts.length - 2];
+    const twoPartSlds = new Set([
+      'com',
+      'org',
+      'gov',
+      'edu',
+      'net',
+      'co',
+      'ac',
+    ]);
+    const n = twoPartSlds.has(sld ?? '') ? 3 : 2;
+    return '.' + parts.slice(-n).join('.');
+  }
+
+  private setImpersonationCookie(
+    accessToken: string,
+    expiresAtMs: number,
+  ): void {
+    if (typeof document === 'undefined') return;
+    const domain = this.getCookieDomain();
+    const payload = JSON.stringify({ t: accessToken, e: expiresAtMs });
+    const maxAge = Math.max(0, Math.floor((expiresAtMs - this.now()) / 1000));
+    const domainPart = domain ? `; Domain=${domain}` : '';
+    const securePart = domain ? '; Secure' : ''; // Secure only on real domains
+    document.cookie =
+      `${IMP_COOKIE_NAME}=${encodeURIComponent(payload)}` +
+      `; Max-Age=${maxAge}; Path=/; SameSite=Lax${domainPart}${securePart}`;
+  }
+
+  private readImpersonationCookie(): { t: string; e: number } | null {
+    if (typeof document === 'undefined') return null;
+    const prefix = `${IMP_COOKIE_NAME}=`;
+    for (const part of document.cookie.split(';')) {
+      const trimmed = part.trim();
+      if (trimmed.startsWith(prefix)) {
+        try {
+          const raw = decodeURIComponent(trimmed.slice(prefix.length));
+          const parsed = JSON.parse(raw) as unknown;
+          if (
+            parsed !== null &&
+            typeof parsed === 'object' &&
+            't' in parsed &&
+            'e' in parsed &&
+            typeof (parsed as Record<string, unknown>).t === 'string' &&
+            typeof (parsed as Record<string, unknown>).e === 'number'
+          ) {
+            return parsed as { t: string; e: number };
+          }
+        } catch {
+          // malformed cookie — treat as absent
+        }
+        return null;
+      }
+    }
+    return null;
+  }
+
+  private clearImpersonationCookie(): void {
+    if (typeof document === 'undefined') return;
+    const domain = this.getCookieDomain();
+    const domainPart = domain ? `; Domain=${domain}` : '';
+    const securePart = domain ? '; Secure' : '';
+    document.cookie = `${IMP_COOKIE_NAME}=; Max-Age=0; Path=/; SameSite=Lax${domainPart}${securePart}`;
+  }
+
+  // ── End impersonation cookie helpers ──────────────────────────────────────
 
   private notify(broadcast = true): void {
     // Isolate listener throws — a buggy subscriber must not break the rest of
