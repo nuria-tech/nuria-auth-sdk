@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [9.3.1] - 2026-06-13
+
+### Fixed
+
+- **Tests**: add coverage for React `ImpersonationBanner`, `mountImpersonationBanner`,
+  `useAuthSession` impersonation state, `AuthContext` impersonation methods, and Angular
+  facade `startImpersonation`/`stopImpersonation` — restoring function coverage above 80%.
+- Fix `vue-entrypoint` test asserting `ImpersonationBanner` is a `function`; Vue components
+  defined with `defineComponent` are objects.
+
 ## [9.3.0] - 2026-06-13
 
 ### Added

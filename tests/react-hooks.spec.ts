@@ -358,4 +358,185 @@ describe('react hooks integration', () => {
     expect(referenceChanges).toEqual([]);
     view.unmount();
   });
+
+  it('useAuthSession exposes isImpersonating and actor, updated on auth events', async () => {
+    let impersonating = false;
+    const actor = { sub: 'op-1', name: 'Lucas', email: 'lucas@nuria.com.br' };
+    const auth = {
+      ...createMockAuthClient(),
+      isImpersonating: vi.fn(() => impersonating),
+      getActor: vi.fn(() => (impersonating ? actor : null)),
+    } satisfies AuthClient;
+
+    function TestComponent() {
+      const { isImpersonating, actor: a } = useAuthSession(auth);
+      return createElement(
+        'div',
+        {},
+        createElement('span', { 'data-testid': 'imp' }, String(isImpersonating)),
+        createElement('span', { 'data-testid': 'actor' }, a?.name ?? 'none'),
+      );
+    }
+
+    render(createElement(TestComponent));
+    await waitFor(() =>
+      expect(screen.getByTestId('imp').textContent).toBe('false'),
+    );
+    expect(screen.getByTestId('actor').textContent).toBe('none');
+
+    impersonating = true;
+    // trigger an auth state change
+    const onAuthStateChanged = auth.onAuthStateChanged as ReturnType<typeof vi.fn>;
+    const [handler] = onAuthStateChanged.mock.calls[0] as [(s: null) => void];
+    handler(null);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('imp').textContent).toBe('true'),
+    );
+    expect(screen.getByTestId('actor').textContent).toBe('Lucas');
+  });
+
+  it('AuthContext exposes startImpersonation and stopImpersonation', async () => {
+    const auth = createMockAuthClient();
+
+    function TestComponent() {
+      const { startImpersonation, stopImpersonation } = useAuth();
+      return createElement(
+        'div',
+        {},
+        createElement(
+          'button',
+          {
+            'data-testid': 'start',
+            onClick: () => startImpersonation('tok', 9999999999),
+          },
+          'start',
+        ),
+        createElement(
+          'button',
+          {
+            'data-testid': 'stop',
+            onClick: () => void stopImpersonation(),
+          },
+          'stop',
+        ),
+      );
+    }
+
+    render(
+      createElement(AuthProvider, {
+        auth,
+        children: createElement(TestComponent),
+      }),
+    );
+
+    fireEvent.click(screen.getByTestId('start'));
+    fireEvent.click(screen.getByTestId('stop'));
+
+    await waitFor(() => {
+      expect(auth.startImpersonation).toHaveBeenCalledWith('tok', 9999999999);
+      expect(auth.stopImpersonation).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('ImpersonationBanner renders when impersonating and hides when not', async () => {
+    let impersonating = false;
+    const listeners = new Set<(s: null) => void>();
+    const actor = { sub: 'op-1', name: 'Lucas', email: 'lucas@nuria.com.br' };
+    const auth = {
+      ...createMockAuthClient(),
+      isImpersonating: vi.fn(() => impersonating),
+      getActor: vi.fn(() => (impersonating ? actor : null)),
+      getClaims: vi.fn(() =>
+        impersonating
+          ? ({
+              sub: 'u-1',
+              name: 'Bianca',
+              email: 'b@test.com',
+            } as Parameters<AuthClient['getClaims']>[0] extends never
+              ? never
+              : ReturnType<AuthClient['getClaims']>)
+          : null,
+      ),
+      onAuthStateChanged: vi.fn((handler: (s: null) => void) => {
+        listeners.add(handler);
+        return () => listeners.delete(handler);
+      }),
+    } satisfies AuthClient;
+
+    const { ImpersonationBanner: Banner } = await import('../src/react');
+
+    render(createElement(Banner, { auth }));
+
+    expect(screen.queryByRole('alert')).toBeNull();
+
+    impersonating = true;
+    listeners.forEach((h) => h(null));
+
+    await waitFor(() =>
+      expect(screen.queryByRole('alert')).not.toBeNull(),
+    );
+    expect(screen.getByRole('alert').textContent).toContain('Lucas');
+    expect(screen.getByRole('alert').textContent).toContain('Bianca');
+
+    impersonating = false;
+    listeners.forEach((h) => h(null));
+
+    await waitFor(() =>
+      expect(screen.queryByRole('alert')).toBeNull(),
+    );
+  });
+
+  it('ImpersonationBanner stop button calls auth.stopImpersonation by default', async () => {
+    let impersonating = true;
+    const listeners = new Set<(s: null) => void>();
+    const auth = {
+      ...createMockAuthClient(),
+      isImpersonating: vi.fn(() => impersonating),
+      getActor: vi.fn(() => ({ sub: 'op', name: 'Op' })),
+      getClaims: vi.fn(() => ({ sub: 'u', name: 'User', email: 'u@t.com' } as never)),
+      stopImpersonation: vi.fn(async () => {
+        impersonating = false;
+        listeners.forEach((h) => h(null));
+      }),
+      onAuthStateChanged: vi.fn((handler: (s: null) => void) => {
+        listeners.add(handler);
+        return () => listeners.delete(handler);
+      }),
+    } satisfies AuthClient;
+
+    const { ImpersonationBanner: Banner } = await import('../src/react');
+    render(createElement(Banner, { auth }));
+
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeNull());
+
+    fireEvent.click(screen.getByRole('button', { name: /encerrar/i }));
+
+    await waitFor(() => {
+      expect(auth.stopImpersonation).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('mountImpersonationBanner mounts to body and is idempotent', async () => {
+    const auth = {
+      ...createMockAuthClient(),
+      isImpersonating: vi.fn(() => false),
+      onAuthStateChanged: vi.fn(() => () => {}),
+    } satisfies AuthClient;
+
+    const { mountImpersonationBanner: mount } = await import('../src/react');
+
+    const existing = document.getElementById('nuria-imp-banner-root');
+    existing?.remove();
+
+    const unmount = mount(auth);
+    expect(document.getElementById('nuria-imp-banner-root')).not.toBeNull();
+
+    const unmount2 = mount(auth);
+    expect(document.querySelectorAll('#nuria-imp-banner-root')).toHaveLength(1);
+
+    unmount();
+    unmount2();
+    expect(document.getElementById('nuria-imp-banner-root')).toBeNull();
+  });
 });

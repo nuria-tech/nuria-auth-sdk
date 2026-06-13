@@ -193,6 +193,35 @@ describe('angular entrypoint', () => {
 
     facade.destroy();
   });
+
+  it('facade exposes isImpersonating and actor in state', async () => {
+    const actor = { sub: 'op-1', name: 'Lucas', email: 'lucas@nuria.com.br' };
+    const { auth } = createMockAuth();
+    auth.isImpersonating = vi.fn(() => true);
+    auth.getActor = vi.fn(() => actor);
+
+    const facade = createAngularAuthFacade(auth);
+    await facade.refresh();
+
+    const snap = facade.snapshot();
+    expect(snap.isImpersonating).toBe(true);
+    expect(snap.actor).toEqual(actor);
+
+    facade.destroy();
+  });
+
+  it('facade startImpersonation and stopImpersonation delegate to auth client', async () => {
+    const { auth } = createMockAuth();
+    const facade = createAngularAuthFacade(auth);
+
+    facade.startImpersonation('tok', 9999999999);
+    expect(auth.startImpersonation).toHaveBeenCalledWith('tok', 9999999999);
+
+    await facade.stopImpersonation();
+    expect(auth.stopImpersonation).toHaveBeenCalledTimes(1);
+
+    facade.destroy();
+  });
 });
 
 describe('createBearerInterceptor', () => {
