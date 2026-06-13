@@ -2,4 +2,8 @@ export {
   useAuthSession,
   type UseVueAuthSessionResult,
 } from './use-auth-session';
-export { ImpersonationBanner } from './ImpersonationBanner';
+export {
+  ImpersonationBanner,
+  mountImpersonationBanner,
+  type MountImpersonationBannerOptions,
+} from './ImpersonationBanner';

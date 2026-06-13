@@ -1,12 +1,26 @@
 import {
+  createApp,
   defineComponent,
   h,
   onMounted,
   onUnmounted,
   ref,
+  type App,
   type PropType,
 } from 'vue';
 import type { ActorClaim, AuthClient, TokenClaims } from '../core/types';
+
+/** Options accepted by {@link mountImpersonationBanner}. */
+export interface MountImpersonationBannerOptions {
+  /** Label for the stop button. Defaults to `"Encerrar sessão"`. */
+  stopLabel?: string;
+  /**
+   * Custom handler called when the operator clicks the stop button.
+   * If omitted the SDK calls `auth.stopImpersonation()` directly.
+   * Use this to add post-stop navigation or cleanup in your app.
+   */
+  onStop?: () => void | Promise<void>;
+}
 
 const HEIGHT = 44;
 const CSS_VAR = '--nuria-imp-banner-height';
@@ -185,3 +199,49 @@ export const ImpersonationBanner = defineComponent({
     );
   },
 });
+
+const BANNER_ROOT_ID = 'nuria-imp-banner-root';
+
+/**
+ * Mounts the {@link ImpersonationBanner} as a standalone Vue app appended to
+ * `document.body`. Call once during app initialization — subsequent calls are
+ * no-ops (idempotent).
+ *
+ * The banner renders itself only while `auth.isImpersonating()` is true and
+ * cannot be dismissed by the operator — only the stop button ends the session.
+ *
+ * The function sets the CSS custom property `--nuria-imp-banner-height` on
+ * `<html>` (`44px` when active, `0px` when not), so your layout can adjust:
+ * ```css
+ * .app-shell {
+ *   margin-top: var(--nuria-imp-banner-height, 0px);
+ *   height: calc(100dvh - var(--nuria-imp-banner-height, 0px));
+ * }
+ * ```
+ *
+ * Returns an `unmount` function — call it only if you need to tear down the
+ * banner (e.g. during hot-module replacement in dev).
+ */
+export function mountImpersonationBanner(
+  auth: AuthClient,
+  options?: MountImpersonationBannerOptions,
+): () => void {
+  if (typeof document === 'undefined') return () => {};
+  if (document.getElementById(BANNER_ROOT_ID)) return () => {};
+
+  const container = document.createElement('div');
+  container.id = BANNER_ROOT_ID;
+  document.body.appendChild(container);
+
+  const props: Record<string, unknown> = { auth };
+  if (options?.stopLabel !== undefined) props.stopLabel = options.stopLabel;
+  if (options?.onStop !== undefined) props.onStop = options.onStop;
+
+  const app: App = createApp(ImpersonationBanner, props);
+  app.mount(container);
+
+  return () => {
+    app.unmount();
+    container.remove();
+  };
+}

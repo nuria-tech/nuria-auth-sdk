@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [9.2.3] - 2026-06-13
+
+### Added
+
+- **`mountImpersonationBanner(auth, options?)`** exported from `@nuria-tech/auth-sdk/vue` — mounts
+  `ImpersonationBanner` as a standalone Vue app appended to `document.body`. Call once in your auth
+  plugin and the banner appears automatically on every page without any template changes. Idempotent
+  (safe to call multiple times). Returns an `unmount()` teardown function.
+- **`docs/impersonation-banner.md`** — full usage guide covering automatic setup, custom stop
+  handlers, layout offset via `--nuria-imp-banner-height`, the declarative component alternative,
+  and the security rationale for non-dismissability.
+
 ## [9.2.2] - 2026-06-13
 
 ### Added

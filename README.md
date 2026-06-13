@@ -54,7 +54,7 @@ Published on [npm](https://www.npmjs.com/package/@nuria-tech/auth-sdk).
 
 - `@nuria-tech/auth-sdk`: core client + adapters + utilities (`extractRoles`, `extractCompanyOrigin`, `extractAvatarUrl`, `extractDisplayName`, `getInitials`, `buildOAuthAuthorizeUrl`, Google OAuth helpers)
 - `@nuria-tech/auth-sdk/react`: `useAuthSession`, `AuthProvider`, `useAuth`
-- `@nuria-tech/auth-sdk/vue`: `useAuthSession` composable
+- `@nuria-tech/auth-sdk/vue`: `useAuthSession` composable · `ImpersonationBanner` component · `mountImpersonationBanner()` helper
 - `@nuria-tech/auth-sdk/nuxt`: Nuxt cookie adapter helpers
 - `@nuria-tech/auth-sdk/next`: Next cookie adapter helpers
 - `@nuria-tech/auth-sdk/angular`: `createAngularAuthFacade` (RxJS facade) + `createBearerInterceptor` (HttpInterceptorFn)
@@ -341,18 +341,24 @@ export function App() {
 
 ```ts
 import { createAuthClient } from '@nuria-tech/auth-sdk';
-import { useAuthSession } from '@nuria-tech/auth-sdk/vue';
+import { useAuthSession, mountImpersonationBanner } from '@nuria-tech/auth-sdk/vue';
 
 const auth = createAuthClient({
   clientId: 'your-client-id',
   redirectUri: `${window.location.origin}/callback`,
 });
 
+// Mount the impersonation banner once — it appears automatically whenever an
+// operator session is active and cannot be dismissed by the user.
+mountImpersonationBanner(auth);
+
 export function usePageAuth() {
   const { session, isLoading, refresh } = useAuthSession(auth);
   return { session, isLoading, refresh };
 }
 ```
+
+See [docs/impersonation-banner.md](./docs/impersonation-banner.md) for layout offset, custom stop handlers, and the declarative `<ImpersonationBanner>` component alternative.
 
 ## Nuxt quick start
 
@@ -662,7 +668,7 @@ The `accounts.nuria.com.br` portal does this in its own logout handler.
 - `globalLogout({ returnTo })` calls the server logout endpoint and redirects. `returnTo` must be `https://` (or `http://localhost` for dev); URLs with embedded credentials are rejected.
 - `isAuthenticated()` returns `true` when the token is expired but `enableRefreshToken: true` — `getAccessToken()` will silently renew it.
 - `getClaims()` decodes the JWT payload client-side via `atob()` without verifying the signature — trust comes from the server that issued the token.
-- `getActor()` returns the RFC 8693 §4.1 `act` claim when the current session was minted via support impersonation (shape: `{ sub, name?, email? }`); returns `null` for regular sessions and malformed payloads. UIs should render an "acting as" banner whenever it is non-null so the impersonator is never invisible to the end user.
+- `getActor()` returns the RFC 8693 §4.1 `act` claim when the current session was minted via support impersonation (shape: `{ sub, name?, email? }`); returns `null` for regular sessions and malformed payloads. Call `mountImpersonationBanner(auth)` once in your Vue/Nuxt plugin to automatically render a fixed, non-dismissable notice bar whenever an operator session is active — see [docs/impersonation-banner.md](./docs/impersonation-banner.md).
 - Browser cookie storage encodes/decodes values safely (`encodeURIComponent`/`decodeURIComponent`).
 
 Full policy and reporting process: [SECURITY.md](./SECURITY.md).
