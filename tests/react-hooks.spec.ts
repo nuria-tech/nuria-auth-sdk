@@ -82,6 +82,8 @@ function createMockAuthClient(): AuthClient {
     getClaims: vi.fn(() => null),
     getActor: vi.fn(() => null),
     isImpersonating: vi.fn(() => false),
+    startImpersonation: vi.fn(),
+    stopImpersonation: vi.fn(async () => {}),
     getAssurance: vi.fn(() => null),
     satisfiesStepUp: vi.fn(() => false),
     stepUp: vi.fn(async () => {}),

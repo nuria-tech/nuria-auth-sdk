@@ -766,6 +766,34 @@ export class DefaultAuthClient implements AuthClient {
     return this.getActor() !== null;
   }
 
+  startImpersonation(accessToken: string, expiresAt: string | number): void {
+    this.stopSilentRefresh();
+    const expiresAtMs =
+      typeof expiresAt === 'number' ? expiresAt : new Date(expiresAt).getTime();
+    this.session = {
+      tokens: { accessToken, expiresAt: expiresAtMs },
+      createdAt: this.now(),
+    };
+    this.notify();
+  }
+
+  async stopImpersonation(): Promise<void> {
+    this.session = null;
+    try {
+      await this.bootstrapFromCookie();
+      // bootstrapFromCookie → doRefresh → createSession → notify() already called
+      if (
+        this.config.enableRefreshToken &&
+        typeof setInterval !== 'undefined'
+      ) {
+        this.startSilentRefresh();
+      }
+    } catch {
+      await this.clearStoredSession();
+      this.notify();
+    }
+  }
+
   getAssurance(): AssuranceLevel | null {
     if (!this.session) return null;
     return readAssurance(this.getClaims());

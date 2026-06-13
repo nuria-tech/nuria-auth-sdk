@@ -566,6 +566,50 @@ describe('AuthClient', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // startImpersonation / stopImpersonation
+  // ---------------------------------------------------------------------------
+
+  it('startImpersonation sets the impersonation token in-memory', () => {
+    const client = createAuthClient({ ...BASE_CONFIG });
+    const actorSub = 'b2c3d4e5-f6a7-8901-bcde-f12345678901';
+    const targetSub = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
+    const impersonationToken = makeJwt({ sub: targetSub, act: { sub: actorSub } });
+
+    expect(client.isImpersonating()).toBe(false);
+    client.startImpersonation(impersonationToken, Date.now() + 15 * 60 * 1000);
+    expect(client.isImpersonating()).toBe(true);
+    expect(client.getActor()?.sub).toBe(actorSub);
+  });
+
+  it('startImpersonation accepts ISO string for expiresAt', () => {
+    const client = createAuthClient({ ...BASE_CONFIG });
+    const impersonationToken = makeJwt({
+      sub: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+      act: { sub: 'b2c3d4e5-f6a7-8901-bcde-f12345678901' },
+    });
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    client.startImpersonation(impersonationToken, expiresAt);
+    expect(client.isImpersonating()).toBe(true);
+  });
+
+  it('stopImpersonation clears the impersonation session on bootstrap failure', async () => {
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      enableRefreshToken: false,
+    });
+    const impersonationToken = makeJwt({
+      sub: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+      act: { sub: 'b2c3d4e5-f6a7-8901-bcde-f12345678901' },
+    });
+    client.startImpersonation(impersonationToken, Date.now() + 15 * 60 * 1000);
+    expect(client.isImpersonating()).toBe(true);
+
+    await client.stopImpersonation();
+    expect(client.isImpersonating()).toBe(false);
+    expect(client.isAuthenticated()).toBe(false);
+  });
+
+  // ---------------------------------------------------------------------------
   // hasRole / hasGroup
   // ---------------------------------------------------------------------------
 

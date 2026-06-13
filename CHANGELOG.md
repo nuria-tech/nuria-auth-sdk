@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [9.2.0] - 2026-06-13
+
+### Added
+
+- **`auth.startImpersonation(accessToken, expiresAt)`** — switches the
+  in-memory session to an impersonation token obtained from the management
+  API (`POST /v2/management/users/{id}/impersonate`). Silent refresh is
+  paused for the duration; the operator's HttpOnly refresh cookie is left
+  intact so `stopImpersonation()` can restore the original session.
+
+- **`auth.stopImpersonation()`** — ends impersonation by bootstrapping the
+  operator's own session from the HttpOnly refresh cookie and resuming
+  silent refresh. If the cookie is invalid or expired the session is cleared
+  (normal logout behaviour).
+
 ## [9.1.7] - 2026-06-12
 
 ### Added

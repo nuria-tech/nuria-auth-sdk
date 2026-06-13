@@ -421,6 +421,19 @@ export interface AuthClient {
    * for any security-relevant decision.
    */
   isImpersonating(): boolean;
+  /**
+   * Switches the in-memory session to an impersonation token obtained from
+   * the management API (`POST /v2/management/users/{id}/impersonate`).
+   * Silent refresh is paused — impersonation tokens are short-lived and have
+   * no associated refresh token. Call `stopImpersonation()` to restore the
+   * operator's own session.
+   */
+  startImpersonation(accessToken: string, expiresAt: string | number): void;
+  /**
+   * Ends impersonation and restores the operator's own session from the
+   * HttpOnly refresh cookie. Resumes silent refresh on success.
+   */
+  stopImpersonation(): Promise<void>;
   hasRole(role: string): boolean;
   hasGroup(group: string): boolean;
   getUserinfo(): Promise<Record<string, unknown>>;
