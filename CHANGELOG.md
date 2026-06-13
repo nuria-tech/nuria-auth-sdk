@@ -4,6 +4,32 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [9.3.0] - 2026-06-13
+
+### Added
+
+- **React — `ImpersonationBanner` + `mountImpersonationBanner`** exported from
+  `@nuria-tech/auth-sdk/react`. Same API as the Vue counterpart: call
+  `mountImpersonationBanner(auth, options?)` once in your root and the banner
+  mounts automatically via `ReactDOM.createRoot`. Requires `react-dom >= 18`.
+
+- **React — impersonation state in `useAuthSession` and `useAuth`**: `UseAuthSessionResult`
+  now includes `isImpersonating: boolean` and `actor: ActorClaim | null`, updated on every
+  `onAuthStateChanged` event.
+
+- **React — impersonation methods in `AuthContextValue`**: `useAuth()` now exposes
+  `startImpersonation(accessToken, expiresAt)` and `stopImpersonation()` so React apps
+  can drive impersonation from context without reaching into `auth` directly.
+
+- **Angular — `isImpersonating` and `actor` in `AngularAuthState`**: state observable
+  now reflects impersonation status on every auth change.
+
+- **Angular — impersonation methods in `AngularAuthFacade`**: `createAngularAuthFacade`
+  now exposes `startImpersonation(accessToken, expiresAt)` and `stopImpersonation()`.
+
+- **`react-dom >= 18`** added to `peerDependencies` (required by `mountImpersonationBanner`
+  in the React subpath).
+
 ## [9.2.3] - 2026-06-13
 
 ### Added

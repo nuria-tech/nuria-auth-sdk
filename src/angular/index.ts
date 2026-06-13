@@ -2,6 +2,7 @@ import { BehaviorSubject, from, type Observable } from 'rxjs';
 import { switchMap } from 'rxjs/operators';
 import type { HttpInterceptorFn } from '@angular/common/http';
 import type {
+  ActorClaim,
   AuthClient,
   LogoutOptions,
   Session,
@@ -11,6 +12,8 @@ import type {
 export interface AngularAuthState {
   session: Session | null;
   isAuthenticated: boolean;
+  isImpersonating: boolean;
+  actor: ActorClaim | null;
   isLoading: boolean;
   error: unknown;
 }
@@ -27,10 +30,15 @@ export interface AngularAuthFacade {
   logout: (options?: LogoutOptions) => Promise<void>;
   /** Clears the local session AND calls the server logout endpoint, then redirects. */
   globalLogout: (options?: { returnTo?: string }) => Promise<void>;
+  /** Starts an operator impersonation session using a delegated access token. */
+  startImpersonation: (accessToken: string, expiresAt: string | number) => void;
+  /** Ends the impersonation session and restores the operator's own session. */
+  stopImpersonation: () => Promise<void>;
   destroy: () => void;
 }
 
 function toState(
+  auth: AuthClient,
   session: Session | null,
   isLoading: boolean,
   error: unknown,
@@ -38,6 +46,8 @@ function toState(
   return {
     session,
     isAuthenticated: session !== null,
+    isImpersonating: auth.isImpersonating(),
+    actor: auth.getActor(),
     isLoading,
     error,
   };
@@ -57,22 +67,22 @@ export function createBearerInterceptor(auth: AuthClient): HttpInterceptorFn {
 
 export function createAngularAuthFacade(auth: AuthClient): AngularAuthFacade {
   const subject = new BehaviorSubject<AngularAuthState>(
-    toState(auth.getSession(), auth.getSession() === null, null),
+    toState(auth, auth.getSession(), auth.getSession() === null, null),
   );
 
   const unsubscribe = auth.onAuthStateChanged((nextSession) => {
-    subject.next(toState(nextSession, false, null));
+    subject.next(toState(auth, nextSession, false, null));
   });
 
   const refresh = async (): Promise<Session | null> => {
-    subject.next(toState(subject.value.session, true, null));
+    subject.next({ ...subject.value, isLoading: true });
     try {
       await auth.getAccessToken();
       const session = auth.getSession();
-      subject.next(toState(session, false, null));
+      subject.next(toState(auth, session, false, null));
       return session;
     } catch (error) {
-      subject.next(toState(auth.getSession(), false, error));
+      subject.next(toState(auth, auth.getSession(), false, error));
       return null;
     }
   };
@@ -86,6 +96,9 @@ export function createAngularAuthFacade(auth: AuthClient): AngularAuthFacade {
     login: (options) => auth.startLogin(options),
     logout: (options) => auth.logout(options),
     globalLogout: (options) => auth.globalLogout(options),
+    startImpersonation: (accessToken, expiresAt) =>
+      auth.startImpersonation(accessToken, expiresAt),
+    stopImpersonation: () => auth.stopImpersonation(),
     destroy: () => {
       unsubscribe();
       subject.complete();

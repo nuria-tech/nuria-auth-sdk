@@ -53,11 +53,11 @@ Published on [npm](https://www.npmjs.com/package/@nuria-tech/auth-sdk).
 ## Entrypoints
 
 - `@nuria-tech/auth-sdk`: core client + adapters + utilities (`extractRoles`, `extractCompanyOrigin`, `extractAvatarUrl`, `extractDisplayName`, `getInitials`, `buildOAuthAuthorizeUrl`, Google OAuth helpers)
-- `@nuria-tech/auth-sdk/react`: `useAuthSession`, `AuthProvider`, `useAuth`
+- `@nuria-tech/auth-sdk/react`: `useAuthSession` (includes `isImpersonating`, `actor`), `AuthProvider`, `useAuth` (includes `startImpersonation`, `stopImpersonation`) · `ImpersonationBanner` component · `mountImpersonationBanner()` helper
 - `@nuria-tech/auth-sdk/vue`: `useAuthSession` composable · `ImpersonationBanner` component · `mountImpersonationBanner()` helper
 - `@nuria-tech/auth-sdk/nuxt`: Nuxt cookie adapter helpers
 - `@nuria-tech/auth-sdk/next`: Next cookie adapter helpers
-- `@nuria-tech/auth-sdk/angular`: `createAngularAuthFacade` (RxJS facade) + `createBearerInterceptor` (HttpInterceptorFn)
+- `@nuria-tech/auth-sdk/angular`: `createAngularAuthFacade` (RxJS facade — includes `isImpersonating`, `actor`, `startImpersonation`, `stopImpersonation`) + `createBearerInterceptor` (HttpInterceptorFn)
 
 ## Auth flows matrix
 

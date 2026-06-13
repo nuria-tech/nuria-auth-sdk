@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { AuthClient, Session } from '../core/types';
+import type { ActorClaim, AuthClient, Session } from '../core/types';
 
 export interface UseAuthSessionResult {
   session: Session | null;
   isAuthenticated: boolean;
+  isImpersonating: boolean;
+  actor: ActorClaim | null;
   isLoading: boolean;
   error: unknown;
   refresh: () => Promise<Session | null>;
@@ -13,6 +15,10 @@ export function useAuthSession(auth: AuthClient): UseAuthSessionResult {
   const [session, setSession] = useState<Session | null>(() =>
     auth.getSession(),
   );
+  const [isImpersonating, setIsImpersonating] = useState<boolean>(() =>
+    auth.isImpersonating(),
+  );
+  const [actor, setActor] = useState<ActorClaim | null>(() => auth.getActor());
   const [isLoading, setIsLoading] = useState<boolean>(
     () => auth.getSession() === null,
   );
@@ -23,6 +29,8 @@ export function useAuthSession(auth: AuthClient): UseAuthSessionResult {
     const unsubscribe = auth.onAuthStateChanged((nextSession) => {
       if (!mounted) return;
       setSession(nextSession);
+      setIsImpersonating(auth.isImpersonating());
+      setActor(auth.getActor());
       setIsLoading(false);
     });
 
@@ -31,6 +39,8 @@ export function useAuthSession(auth: AuthClient): UseAuthSessionResult {
         await auth.getAccessToken();
         if (!mounted) return;
         setSession(auth.getSession());
+        setIsImpersonating(auth.isImpersonating());
+        setActor(auth.getActor());
         setError(null);
       } catch (err) {
         if (!mounted) return;
@@ -67,6 +77,8 @@ export function useAuthSession(auth: AuthClient): UseAuthSessionResult {
   return {
     session,
     isAuthenticated: session !== null,
+    isImpersonating,
+    actor,
     isLoading,
     error,
     refresh,

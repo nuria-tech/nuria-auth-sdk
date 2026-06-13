@@ -1,6 +1,6 @@
 {
   "name": "@nuria-tech/auth-sdk",
-  "version": "9.2.3",
+  "version": "9.3.0",
   "description": "Browser OAuth 2.1 (Authorization Code + PKCE) client SDK. Google login uses Google Identity Services (FedCM); federated OIDC IdPs use code+PKCE bridge exchange; magic-link (passwordless), password, 2FA, and passkey (WebAuthn) login; optional DPoP sender-constrained tokens and step-up auth; self-service account management.",
   "license": "MIT",
   "author": "Nuria Tech",
@@ -81,6 +81,7 @@
     "next": ">=13.0.0",
     "nuxt": ">=3.0.0",
     "react": ">=18",
+    "react-dom": ">=18",
     "rxjs": ">=7.8",
     "vue": ">=3.3"
   },
@@ -114,6 +115,7 @@
     "@testing-library/react": "^16.3.2",
     "@types/node": "^25.9.2",
     "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
     "@typescript-eslint/eslint-plugin": "^8.60.1",
     "@typescript-eslint/parser": "^8.60.1",
     "@vitest/coverage-v8": "^4.1.8",

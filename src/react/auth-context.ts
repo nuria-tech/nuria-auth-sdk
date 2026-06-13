@@ -23,6 +23,10 @@ export interface AuthContextValue extends UseAuthSessionResult {
   logout: (options?: LogoutOptions) => Promise<void>;
   /** Clears the local session AND calls the server logout endpoint, then redirects. */
   globalLogout: (options?: { returnTo?: string }) => Promise<void>;
+  /** Starts an operator impersonation session using a delegated access token. */
+  startImpersonation: (accessToken: string, expiresAt: string | number) => void;
+  /** Ends the impersonation session and restores the operator's own session. */
+  stopImpersonation: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -48,6 +52,12 @@ export function AuthProvider({
     (options?: { returnTo?: string }) => auth.globalLogout(options),
     [auth],
   );
+  const startImpersonation = useCallback(
+    (accessToken: string, expiresAt: string | number) =>
+      auth.startImpersonation(accessToken, expiresAt),
+    [auth],
+  );
+  const stopImpersonation = useCallback(() => auth.stopImpersonation(), [auth]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -56,8 +66,18 @@ export function AuthProvider({
       login,
       logout,
       globalLogout,
+      startImpersonation,
+      stopImpersonation,
     }),
-    [state, auth, login, logout, globalLogout],
+    [
+      state,
+      auth,
+      login,
+      logout,
+      globalLogout,
+      startImpersonation,
+      stopImpersonation,
+    ],
   );
 
   return createElement(AuthContext.Provider, { value }, children);
