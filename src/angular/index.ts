@@ -3,10 +3,12 @@ import { switchMap } from 'rxjs/operators';
 import type { HttpInterceptorFn } from '@angular/common/http';
 import type {
   ActorClaim,
+  AssuranceLevel,
   AuthClient,
   LogoutOptions,
   Session,
   StartLoginOptions,
+  StepUpOptions,
 } from '../core/types';
 
 export interface AngularAuthState {
@@ -16,6 +18,8 @@ export interface AngularAuthState {
   actor: ActorClaim | null;
   isLoading: boolean;
   error: unknown;
+  hasRole: (role: string) => boolean;
+  hasGroup: (group: string) => boolean;
 }
 
 export interface AngularAuthFacade {
@@ -34,6 +38,9 @@ export interface AngularAuthFacade {
   startImpersonation: (accessToken: string, expiresAt: string | number) => void;
   /** Ends the impersonation session and restores the operator's own session. */
   stopImpersonation: () => Promise<void>;
+  stepUp: (options?: StepUpOptions) => Promise<void>;
+  getAssurance: () => AssuranceLevel | null;
+  satisfiesStepUp: (requiredAcr?: string, maxAgeSeconds?: number) => boolean;
   destroy: () => void;
 }
 
@@ -50,6 +57,8 @@ function toState(
     actor: auth.getActor(),
     isLoading,
     error,
+    hasRole: (role: string) => auth.hasRole(role),
+    hasGroup: (group: string) => auth.hasGroup(group),
   };
 }
 
@@ -73,6 +82,8 @@ export function createAngularAuthFacade(auth: AuthClient): AngularAuthFacade {
   const unsubscribe = auth.onAuthStateChanged((nextSession) => {
     subject.next(toState(auth, nextSession, false, null));
   });
+
+  auth.startSilentRefresh();
 
   const refresh = async (): Promise<Session | null> => {
     subject.next({ ...subject.value, isLoading: true });
@@ -99,9 +110,33 @@ export function createAngularAuthFacade(auth: AuthClient): AngularAuthFacade {
     startImpersonation: (accessToken, expiresAt) =>
       auth.startImpersonation(accessToken, expiresAt),
     stopImpersonation: () => auth.stopImpersonation(),
+    stepUp: (options) => auth.stepUp(options),
+    getAssurance: () => auth.getAssurance(),
+    satisfiesStepUp: (requiredAcr, maxAgeSeconds) =>
+      auth.satisfiesStepUp(requiredAcr, maxAgeSeconds),
     destroy: () => {
+      auth.stopSilentRefresh();
       unsubscribe();
       subject.complete();
     },
   };
+}
+
+import {
+  mountImpersonationBanner as _mountVue,
+  type MountImpersonationBannerOptions,
+} from '../vue/ImpersonationBanner';
+
+export type { MountImpersonationBannerOptions };
+
+/**
+ * Mounts the impersonation banner as a standalone Vue app appended to
+ * `document.body`. Angular portals are DOM-based so the Vue DOM mount works
+ * without an Ivy component context.
+ */
+export function mountImpersonationBanner(
+  auth: AuthClient,
+  options?: MountImpersonationBannerOptions,
+): () => void {
+  return _mountVue(auth, options);
 }

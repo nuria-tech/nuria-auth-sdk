@@ -769,6 +769,8 @@ export interface AccountClient {
   enrollPasskey(name?: string): Promise<void>;
   /** Removes a registered passkey by its credential id. */
   deletePasskey(credentialId: string): Promise<void>;
+  /** Renames a registered passkey by its credential id. */
+  renamePasskey(credentialId: string, name: string): Promise<void>;
 
   // ── Federated identity links ───────────────────────────────────────
   listIdentities(): Promise<FederatedIdentityInfo[]>;

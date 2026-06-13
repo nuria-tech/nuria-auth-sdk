@@ -206,6 +206,15 @@ export class DefaultAccountClient implements AccountClient {
     });
   }
 
+  async renamePasskey(credentialId: string, name: string): Promise<void> {
+    const id = requireValue(credentialId, 'credentialId');
+    const n = requireValue(name, 'name');
+    await this.authed(`/v2/me/passkeys/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: { name: n },
+    });
+  }
+
   // ── Federated identity links ─────────────────────────────────────────
 
   async listIdentities(): Promise<FederatedIdentityInfo[]> {

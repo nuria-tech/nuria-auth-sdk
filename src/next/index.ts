@@ -29,3 +29,9 @@ export function createNextAuthClient(
     storage: createNextCookieStorageAdapter(cookies),
   });
 }
+
+export {
+  ImpersonationBanner,
+  mountImpersonationBanner,
+  type MountImpersonationBannerOptions,
+} from '../react/ImpersonationBanner';

@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { ActorClaim, AuthClient, Session } from '../core/types';
+import type {
+  ActorClaim,
+  AssuranceLevel,
+  AuthClient,
+  Session,
+} from '../core/types';
 
 export interface UseAuthSessionResult {
   session: Session | null;
@@ -9,6 +14,10 @@ export interface UseAuthSessionResult {
   isLoading: boolean;
   error: unknown;
   refresh: () => Promise<Session | null>;
+  hasRole: (role: string) => boolean;
+  hasGroup: (group: string) => boolean;
+  getAssurance: () => AssuranceLevel | null;
+  satisfiesStepUp: (requiredAcr?: string, maxAgeSeconds?: number) => boolean;
 }
 
 export function useAuthSession(auth: AuthClient): UseAuthSessionResult {
@@ -74,6 +83,15 @@ export function useAuthSession(auth: AuthClient): UseAuthSessionResult {
     }
   }, [auth]);
 
+  const hasRole = useCallback((role: string) => auth.hasRole(role), [auth]);
+  const hasGroup = useCallback((group: string) => auth.hasGroup(group), [auth]);
+  const getAssurance = useCallback(() => auth.getAssurance(), [auth]);
+  const satisfiesStepUp = useCallback(
+    (requiredAcr?: string, maxAgeSeconds?: number) =>
+      auth.satisfiesStepUp(requiredAcr, maxAgeSeconds),
+    [auth],
+  );
+
   return {
     session,
     isAuthenticated: session !== null,
@@ -82,5 +100,9 @@ export function useAuthSession(auth: AuthClient): UseAuthSessionResult {
     isLoading,
     error,
     refresh,
+    hasRole,
+    hasGroup,
+    getAssurance,
+    satisfiesStepUp,
   };
 }

@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [9.4.0] - 2026-06-13
+
+### Added
+
+- **All frameworks — `hasRole` / `hasGroup`**: `useAuthSession` (Vue, React), `useAuth` (React context), `AngularAuthState` (Angular) now expose `hasRole(role)` and `hasGroup(group)` delegates so portals can drive role-based UI without reaching the raw `AuthClient`.
+
+- **All frameworks — step-up methods**: `getAssurance()`, `satisfiesStepUp()`, and `stepUp()` exposed in React `AuthContextValue`, Vue `UseVueAuthSessionResult`, and `AngularAuthFacade`.
+
+- **All frameworks — silent refresh auto-start**: `AuthProvider` (React), `useAuthSession` (Vue), and `createAngularAuthFacade` (Angular) now call `auth.startSilentRefresh()` automatically on mount and `stopSilentRefresh()` on unmount/destroy. Portals no longer need to call it manually.
+
+- **Vue — `provideAuth` / `useAuth`**: New provide/inject helpers in `@nuria-tech/auth-sdk/vue`. Equivalent of React's `AuthProvider` + `useAuth()` context pattern.
+
+- **Vue — `isImpersonating` and `actor` in `useAuthSession`**: Reactive `Ref` values updated on every `onAuthStateChanged` event, bringing Vue to parity with React.
+
+- **Angular — `mountImpersonationBanner`**: Now exported from `@nuria-tech/auth-sdk/angular`. Re-uses the Vue DOM mount — works in any Angular portal that renders to the DOM.
+
+- **Nuxt — `ImpersonationBanner` / `mountImpersonationBanner`**: Re-exported from `@nuria-tech/auth-sdk/nuxt` (wraps the Vue component).
+
+- **Next — `ImpersonationBanner` / `mountImpersonationBanner`**: Re-exported from `@nuria-tech/auth-sdk/next` (wraps the React component).
+
+- **`AccountClient.renamePasskey`**: New method to rename a passkey via `PATCH /v2/me/passkeys/{credentialId}`.
+
 ## [9.3.1] - 2026-06-13
 
 ### Fixed

@@ -3,13 +3,16 @@ import {
   createElement,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   type ReactNode,
 } from 'react';
 import type {
+  AssuranceLevel,
   AuthClient,
   LogoutOptions,
   StartLoginOptions,
+  StepUpOptions,
 } from '../core/types';
 import { useAuthSession, type UseAuthSessionResult } from './use-auth-session';
 
@@ -27,6 +30,11 @@ export interface AuthContextValue extends UseAuthSessionResult {
   startImpersonation: (accessToken: string, expiresAt: string | number) => void;
   /** Ends the impersonation session and restores the operator's own session. */
   stopImpersonation: () => Promise<void>;
+  hasRole: (role: string) => boolean;
+  hasGroup: (group: string) => boolean;
+  stepUp: (options?: StepUpOptions) => Promise<void>;
+  getAssurance: () => AssuranceLevel | null;
+  satisfiesStepUp: (requiredAcr?: string, maxAgeSeconds?: number) => boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -39,6 +47,13 @@ export function AuthProvider({
   children: ReactNode;
 }) {
   const state = useAuthSession(auth);
+
+  useEffect(() => {
+    auth.startSilentRefresh();
+    return () => {
+      auth.stopSilentRefresh();
+    };
+  }, [auth]);
 
   const login = useCallback(
     (options?: StartLoginOptions) => auth.startLogin(options),
@@ -58,6 +73,18 @@ export function AuthProvider({
     [auth],
   );
   const stopImpersonation = useCallback(() => auth.stopImpersonation(), [auth]);
+  const hasRole = useCallback((role: string) => auth.hasRole(role), [auth]);
+  const hasGroup = useCallback((group: string) => auth.hasGroup(group), [auth]);
+  const stepUp = useCallback(
+    (options?: StepUpOptions) => auth.stepUp(options),
+    [auth],
+  );
+  const getAssurance = useCallback(() => auth.getAssurance(), [auth]);
+  const satisfiesStepUp = useCallback(
+    (requiredAcr?: string, maxAgeSeconds?: number) =>
+      auth.satisfiesStepUp(requiredAcr, maxAgeSeconds),
+    [auth],
+  );
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -68,6 +95,11 @@ export function AuthProvider({
       globalLogout,
       startImpersonation,
       stopImpersonation,
+      hasRole,
+      hasGroup,
+      stepUp,
+      getAssurance,
+      satisfiesStepUp,
     }),
     [
       state,
@@ -77,6 +109,11 @@ export function AuthProvider({
       globalLogout,
       startImpersonation,
       stopImpersonation,
+      hasRole,
+      hasGroup,
+      stepUp,
+      getAssurance,
+      satisfiesStepUp,
     ],
   );
 

@@ -29,3 +29,9 @@ export function createNuxtAuthClient(
     storage: createNuxtCookieStorageAdapter(cookies),
   });
 }
+
+export {
+  ImpersonationBanner,
+  mountImpersonationBanner,
+  type MountImpersonationBannerOptions,
+} from '../vue/ImpersonationBanner';
