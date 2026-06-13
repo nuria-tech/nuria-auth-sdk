@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [9.2.2] - 2026-06-13
+
+### Added
+
+- **`ImpersonationBanner` Vue component** — exported from `@nuria-tech/auth-sdk/vue`. Renders a
+  fixed-position banner (`position: fixed; top: 0; z-index: 10000`) that overlays all content when
+  an operator session is active. The banner cannot be dismissed while impersonation is in progress
+  — only the "Encerrar sessão" button (which calls `stopImpersonation()`) removes it. Sets the
+  `--nuria-imp-banner-height` CSS custom property (`44px` when active, `0px` when inactive) on
+  `<html>` so layouts can adjust their top offset. Displays actor name/email, target user name/email,
+  and a LGPD compliance notice. Accepts optional `stopLabel` and `onStop` props for customization.
+
 ## [9.2.1] - 2026-06-13
 
 ### Added
