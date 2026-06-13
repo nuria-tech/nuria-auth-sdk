@@ -449,13 +449,7 @@ describe('react hooks integration', () => {
       getActor: vi.fn(() => (impersonating ? actor : null)),
       getClaims: vi.fn(() =>
         impersonating
-          ? ({
-              sub: 'u-1',
-              name: 'Bianca',
-              email: 'b@test.com',
-            } as Parameters<AuthClient['getClaims']>[0] extends never
-              ? never
-              : ReturnType<AuthClient['getClaims']>)
+          ? ({ sub: 'u-1', name: 'Bianca', email: 'b@test.com' } as ReturnType<AuthClient['getClaims']>)
           : null,
       ),
       onAuthStateChanged: vi.fn((handler: (s: null) => void) => {
