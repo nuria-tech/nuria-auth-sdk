@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [9.2.1] - 2026-06-13
+
+### Added
+
+- **Cross-portal impersonation persistence via `nuria_imp` cookie** — `startImpersonation()` now
+  writes a parent-domain cookie (`Domain=.nuria.com.br`) so F5 and cross-portal navigation
+  (hub, portal, RSD, accounts…) automatically restore impersonation state via `init()` without
+  any extra setup in each portal.
+
+### Fixed
+
+- **`init()` impersonation bootstrap** — reads `nuria_imp` cookie before the normal `authed`
+  marker check. If the cookie is present and not expired, enters impersonation mode directly
+  and skips silent refresh (impersonation tokens have no refresh token).
+
+- **`stopImpersonation()` cookie cleanup** — clears `nuria_imp` before bootstrapping the
+  operator's own session, preventing subsequent `init()` calls from re-entering impersonation.
+
+- **`getAccessToken()` during impersonation** — no longer attempts a refresh-token rotation when
+  an impersonation token nears expiry. On expiry, discards only the cookie and in-memory session
+  without touching the operator's `authed` marker, ensuring `stopImpersonation()` can still
+  restore the original session.
+
 ## [9.2.0] - 2026-06-13
 
 ### Added
