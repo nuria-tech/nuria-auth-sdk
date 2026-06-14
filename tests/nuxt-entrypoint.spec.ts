@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  ImpersonationBanner,
   createNuxtAuthClient,
   createNuxtCookieStorageAdapter,
+  mountImpersonationBanner,
 } from '../src/nuxt';
 
 const BASE_CONFIG = {
@@ -68,5 +70,10 @@ describe('nuxt entrypoint', () => {
     expect(cookies.remove).toHaveBeenCalledWith('nuria:auth:has_session');
     expect(cookies.remove).toHaveBeenCalledWith('nuria:oauth:state');
     expect(cookies.remove).toHaveBeenCalledWith('nuria:oauth:code_verifier');
+  });
+
+  it('exports ImpersonationBanner and mountImpersonationBanner from Vue integration', () => {
+    expect(ImpersonationBanner).toBeDefined();
+    expect(typeof mountImpersonationBanner).toBe('function');
   });
 });

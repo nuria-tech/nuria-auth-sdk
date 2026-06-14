@@ -222,6 +222,50 @@ describe('angular entrypoint', () => {
 
     facade.destroy();
   });
+
+  it('facade auto-starts silent refresh and stops on destroy', () => {
+    const { auth } = createMockAuth();
+    const facade = createAngularAuthFacade(auth);
+
+    expect(auth.startSilentRefresh).toHaveBeenCalledTimes(1);
+
+    facade.destroy();
+    expect(auth.stopSilentRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('facade state includes hasRole and hasGroup delegates', async () => {
+    const { auth } = createMockAuth();
+    auth.hasRole = vi.fn((role) => role === 'admin');
+    auth.hasGroup = vi.fn((group) => group === 'engineering');
+
+    const facade = createAngularAuthFacade(auth);
+    await facade.refresh();
+
+    const snap = facade.snapshot();
+    expect(snap.hasRole('admin')).toBe(true);
+    expect(snap.hasRole('other')).toBe(false);
+    expect(snap.hasGroup('engineering')).toBe(true);
+    expect(snap.hasGroup('other')).toBe(false);
+
+    facade.destroy();
+  });
+
+  it('facade exposes stepUp, getAssurance, satisfiesStepUp', async () => {
+    const { auth } = createMockAuth();
+    auth.stepUp = vi.fn(async () => {});
+    auth.getAssurance = vi.fn(() => 'aal1' as never);
+    auth.satisfiesStepUp = vi.fn(() => true);
+
+    const facade = createAngularAuthFacade(auth);
+
+    await facade.stepUp();
+    expect(auth.stepUp).toHaveBeenCalledTimes(1);
+
+    expect(facade.getAssurance()).toBe('aal1');
+    expect(facade.satisfiesStepUp('aal2')).toBe(true);
+
+    facade.destroy();
+  });
 });
 
 describe('createBearerInterceptor', () => {

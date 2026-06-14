@@ -511,6 +511,135 @@ describe('react hooks integration', () => {
     });
   });
 
+  it('useAuthSession exposes hasRole and hasGroup delegates', async () => {
+    const auth = {
+      ...createMockAuthClient(),
+      hasRole: vi.fn((role: string) => role === 'admin'),
+      hasGroup: vi.fn((group: string) => group === 'engineering'),
+    } satisfies AuthClient;
+
+    function TestComponent() {
+      const { hasRole, hasGroup } = useAuthSession(auth);
+      return createElement(
+        'div',
+        {},
+        createElement('span', { 'data-testid': 'role' }, String(hasRole('admin'))),
+        createElement('span', { 'data-testid': 'group' }, String(hasGroup('engineering'))),
+      );
+    }
+
+    render(createElement(TestComponent));
+    await waitFor(() => {
+      expect(screen.getByTestId('role').textContent).toBe('true');
+      expect(screen.getByTestId('group').textContent).toBe('true');
+    });
+  });
+
+  it('useAuthSession exposes getAssurance and satisfiesStepUp delegates', async () => {
+    const auth = {
+      ...createMockAuthClient(),
+      getAssurance: vi.fn(() => 'aal1' as never),
+      satisfiesStepUp: vi.fn(() => true),
+    } satisfies AuthClient;
+
+    function TestComponent() {
+      const { getAssurance, satisfiesStepUp } = useAuthSession(auth);
+      return createElement(
+        'div',
+        {},
+        createElement('span', { 'data-testid': 'hook-assurance' }, String(getAssurance())),
+        createElement('span', { 'data-testid': 'hook-step' }, String(satisfiesStepUp('aal2'))),
+      );
+    }
+
+    render(createElement(TestComponent));
+    await waitFor(() => {
+      expect(screen.getByTestId('hook-assurance').textContent).toBe('aal1');
+      expect(screen.getByTestId('hook-step').textContent).toBe('true');
+    });
+  });
+
+  it('AuthProvider auto-starts and stops silent refresh', async () => {
+    const auth = createMockAuthClient();
+
+    function TestComponent() {
+      useAuth();
+      return createElement('div');
+    }
+
+    const view = render(
+      createElement(AuthProvider, { auth, children: createElement(TestComponent) }),
+    );
+
+    await waitFor(() => {
+      expect(auth.startSilentRefresh).toHaveBeenCalledTimes(1);
+    });
+
+    view.unmount();
+    expect(auth.stopSilentRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('AuthContext exposes stepUp, getAssurance, satisfiesStepUp', async () => {
+    const auth = {
+      ...createMockAuthClient(),
+      stepUp: vi.fn(async () => {}),
+      getAssurance: vi.fn(() => 'aal1' as never),
+      satisfiesStepUp: vi.fn(() => true),
+    } satisfies AuthClient;
+
+    function TestComponent() {
+      const { stepUp, getAssurance, satisfiesStepUp } = useAuth();
+      return createElement(
+        'div',
+        {},
+        createElement(
+          'button',
+          { 'data-testid': 'ctx-stepup', onClick: () => void stepUp() },
+          'stepup',
+        ),
+        createElement('span', { 'data-testid': 'ctx-assurance' }, String(getAssurance())),
+        createElement('span', { 'data-testid': 'ctx-step' }, String(satisfiesStepUp('aal2'))),
+      );
+    }
+
+    render(createElement(AuthProvider, { auth, children: createElement(TestComponent) }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('ctx-assurance').textContent).toBe('aal1');
+      expect(screen.getByTestId('ctx-step').textContent).toBe('true');
+    });
+
+    fireEvent.click(screen.getByTestId('ctx-stepup'));
+    await waitFor(() => {
+      expect(auth.stepUp).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('AuthContext exposes hasRole and hasGroup', async () => {
+    const auth = {
+      ...createMockAuthClient(),
+      hasRole: vi.fn((role: string) => role === 'admin'),
+      hasGroup: vi.fn((group: string) => group === 'engineering'),
+    } satisfies AuthClient;
+
+    function TestComponent() {
+      const { hasRole, hasGroup } = useAuth();
+      return createElement(
+        'div',
+        {},
+        createElement('span', { 'data-testid': 'ctx-role' }, String(hasRole('admin'))),
+        createElement('span', { 'data-testid': 'ctx-group' }, String(hasGroup('engineering'))),
+      );
+    }
+
+    render(createElement(AuthProvider, { auth, children: createElement(TestComponent) }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('ctx-role').textContent).toBe('true');
+      expect(screen.getByTestId('ctx-group').textContent).toBe('true');
+    });
+  });
+
   it('mountImpersonationBanner mounts to body and is idempotent', async () => {
     const auth = {
       ...createMockAuthClient(),

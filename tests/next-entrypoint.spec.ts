@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  ImpersonationBanner,
   createNextAuthClient,
   createNextCookieStorageAdapter,
+  mountImpersonationBanner,
 } from '../src/next';
 
 const BASE_CONFIG = {
@@ -68,5 +70,10 @@ describe('next entrypoint', () => {
     expect(cookies.remove).toHaveBeenCalledWith('nuria:auth:has_session');
     expect(cookies.remove).toHaveBeenCalledWith('nuria:oauth:state');
     expect(cookies.remove).toHaveBeenCalledWith('nuria:oauth:code_verifier');
+  });
+
+  it('exports ImpersonationBanner and mountImpersonationBanner from React integration', () => {
+    expect(typeof ImpersonationBanner).toBe('function');
+    expect(typeof mountImpersonationBanner).toBe('function');
   });
 });
