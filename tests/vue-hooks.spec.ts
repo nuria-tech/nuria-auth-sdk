@@ -170,8 +170,9 @@ describe('vue useAuthSession', () => {
     expect(result.actor.value).toBeNull();
 
     impersonating = true;
-    const [[handler]] = (auth.onAuthStateChanged as ReturnType<typeof vi.fn>).mock.calls;
-    (handler as (s: null) => void)(null);
+    const onAuthStateChanged = auth.onAuthStateChanged as ReturnType<typeof vi.fn>;
+    const [handler] = onAuthStateChanged.mock.calls[0] as [(s: null) => void];
+    handler(null);
     await nextTick();
 
     expect(result.isImpersonating.value).toBe(true);
