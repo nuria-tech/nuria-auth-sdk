@@ -138,7 +138,10 @@ const CSS_VAR = '--nuria-imp-banner-height';
 
 function setBannerHeight(active: boolean): void {
   if (typeof document === 'undefined') return;
-  document.documentElement.style.setProperty(CSS_VAR, active ? `${HEIGHT}px` : '0px');
+  document.documentElement.style.setProperty(
+    CSS_VAR,
+    active ? `${HEIGHT}px` : '0px',
+  );
 }
 
 /**
@@ -172,16 +175,19 @@ export function mountImpersonationBanner(
   const wrapper = document.createElement('div');
   Object.assign(wrapper.style, {
     position: 'fixed',
-    top: '0', left: '0', right: '0',
+    top: '0',
+    left: '0',
+    right: '0',
     zIndex: '10000',
-    display: 'none',          // hidden until impersonation starts
+    display: 'none', // hidden until impersonation starts
     alignItems: 'center',
     gap: '8px',
     padding: '0 20px',
     height: `${HEIGHT}px`,
     background: 'linear-gradient(90deg, #4f1d96 0%, #6d28d9 100%)',
     color: '#ffffff',
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+    fontFamily:
+      "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
     fontSize: '13.5px',
     fontWeight: '400',
     lineHeight: '1.3',
@@ -269,7 +275,9 @@ export function mountImpersonationBanner(
 
     if (impersonating && actor) {
       const actorName = (actor.name ?? actor.email ?? 'Operador') as string;
-      const targetName = (claims?.['name'] ?? claims?.['email'] ?? 'usuário') as string;
+      const targetName = (claims?.['name'] ??
+        claims?.['email'] ??
+        'usuário') as string;
 
       text.innerHTML = '';
       const strong1 = document.createElement('strong');
@@ -277,9 +285,17 @@ export function mountImpersonationBanner(
       const strong2 = document.createElement('strong');
       strong2.textContent = targetName;
       text.appendChild(strong1);
-      text.appendChild(document.createTextNode(` — ${actorName} está visualizando a conta de `));
+      text.appendChild(
+        document.createTextNode(
+          ` — ${actorName} está visualizando a conta de `,
+        ),
+      );
       text.appendChild(strong2);
-      text.appendChild(document.createTextNode('. Esta sessão é auditada em conformidade com a LGPD (Lei 13.709/2018).'));
+      text.appendChild(
+        document.createTextNode(
+          '. Esta sessão é auditada em conformidade com a LGPD (Lei 13.709/2018).',
+        ),
+      );
 
       wrapper.style.display = 'flex';
     } else {
