@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [9.6.0] - 2026-07-09
+
+### Added
+
+- **`buildOAuthAuthorizeUrl({ resource })`**: forwards an RFC 8707 Resource Indicators `resource` request across the accounts sign-in handoff. Without this, a client requesting a `resource` on `/v2/oauth/authorize` while the user needed a fresh login silently lost it on the round-trip through the IdP's sign-in page — the token minted afterward lacked the resource audience, with no error surfaced. Apps building their own post-login redirect (e.g. accounts/IdP portals) should pass through `route.query.resource` here alongside `scope`/`nonce`.
+
 ## [9.5.0] - 2026-07-09
 
 ### Added
