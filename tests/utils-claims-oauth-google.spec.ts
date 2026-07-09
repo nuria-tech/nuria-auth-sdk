@@ -304,6 +304,18 @@ describe('buildOAuthAuthorizeUrl', () => {
     expect(url).not.toContain('scope=');
     expect(url).not.toContain('nonce=');
   });
+
+  it('includes resource when provided', () => {
+    const url = buildOAuthAuthorizeUrl({
+      ...base,
+      resource: 'https://mcp.nuria.com.br',
+    });
+    expect(url).toContain('resource=https%3A%2F%2Fmcp.nuria.com.br');
+  });
+
+  it('omits resource when not provided', () => {
+    expect(buildOAuthAuthorizeUrl(base)).not.toContain('resource=');
+  });
 });
 
 // ─── Google Identity Services (GIS) ─────────────────────────────────────────

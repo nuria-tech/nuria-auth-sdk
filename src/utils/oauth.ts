@@ -12,6 +12,8 @@ export interface OAuthAuthorizeParams {
   nonce?: string;
   /** OIDC `prompt` (Core §3.1.2.1). Forwarded so the kernel can honor it on the next hop. */
   prompt?: string;
+  /** RFC 8707 Resource Indicators. Forwarded so a `resource` request survives the post-login handoff back to /v2/oauth/authorize. */
+  resource?: string;
 }
 
 /**
@@ -32,5 +34,6 @@ export function buildOAuthAuthorizeUrl(params: OAuthAuthorizeParams): string {
   if (params.scope) urlParams.set('scope', params.scope);
   if (params.nonce) urlParams.set('nonce', params.nonce);
   if (params.prompt) urlParams.set('prompt', params.prompt);
+  if (params.resource) urlParams.set('resource', params.resource);
   return `${params.baseUrl}/v2/oauth/authorize?${urlParams.toString()}`;
 }
