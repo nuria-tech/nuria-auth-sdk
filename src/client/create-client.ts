@@ -199,6 +199,7 @@ export function createAuthClient(config: AuthConfig): AuthClient {
     autoInit: config.autoInit ?? true,
     scope: String(config.scope ?? '').trim() || DEFAULT_SCOPE,
     enableRefreshToken: config.enableRefreshToken ?? true,
+    redirectOnSessionInvalidated: config.redirectOnSessionInvalidated ?? true,
     silentRefreshIntervalMs: config.silentRefreshIntervalMs ?? 60_000,
     authorizationEndpoint: resolveEndpoint(
       baseUrl,

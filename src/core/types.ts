@@ -248,10 +248,9 @@ export interface AuthConfig {
   enableRefreshToken?: boolean;
   silentRefreshIntervalMs?: number;
   /**
-   * Which login flows the UI should expose. Defaults to `password + google`
-   * enabled and `passwordless + aws_sso` advertised as "coming soon" — that
-   * matches the legacy Nuria signin page state. Override per app/deploy.
-   * Either field can be omitted to fall back to its default.
+   * Which login flows the UI should expose. Defaults to `password + google
+   * + passwordless` all enabled, nothing marked "coming soon". Override per
+   * app/deploy. Either field can be omitted to fall back to its default.
    */
   loginMethods?: LoginMethodsConfigInput;
   /**
@@ -297,6 +296,31 @@ export interface AuthConfig {
    * disabled and the token naturally expires.
    */
   onSessionInvalidated?: () => void;
+  /**
+   * When `true` (the default), a permanent session invalidation (see
+   * {@link onSessionInvalidated}) automatically calls `startLogin()` right
+   * after clearing the session — no app code required.
+   *
+   * This closes a gap every route-middleware-based auth guard has: guards
+   * only re-run on navigation, so a session that dies while the user sits
+   * idle on an already-loaded page (background silent-refresh failure) never
+   * triggers a redirect — the user is left on a stale page making calls that
+   * 401 forever. Since `onSessionInvalidated` only ever fires on a
+   * *definitive* rejection (never on a transient network/5xx blip — see its
+   * own doc), auto-redirecting here is safe by default.
+   *
+   * `onSessionInvalidated` (if set) still fires — this flag only adds the
+   * redirect alongside it, in this order: session cleared → `onAuthStateChanged(null)`
+   * → `onSessionInvalidated()` → (if this flag is true) `startLogin()`.
+   *
+   * Set to `false` when the app has its own dedicated sign-in route (not an
+   * OAuth relying party bouncing through `startLogin()`) and wants full
+   * control — e.g. the accounts/IdP portal itself, which redirects to its
+   * local `/signin` instead of round-tripping through its own authorize
+   * endpoint. Do the redirect yourself inside `onSessionInvalidated` in that
+   * case; don't just log it.
+   */
+  redirectOnSessionInvalidated?: boolean;
   now?: () => number;
 }
 

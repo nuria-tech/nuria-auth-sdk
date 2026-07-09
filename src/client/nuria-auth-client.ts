@@ -219,7 +219,7 @@ export class DefaultAuthClient implements AuthClient {
         // the same guard in getAccessToken().
         if (isPermanentRefreshFailure(error)) {
           await this.clearStoredSession();
-          this.config.onSessionInvalidated?.();
+          this.handleSessionInvalidated();
         }
       }
     }
@@ -524,7 +524,17 @@ export class DefaultAuthClient implements AuthClient {
             this.session = null;
             await this.clearStoredSession();
             this.notify();
-            this.config.onSessionInvalidated?.();
+            this.handleSessionInvalidated();
+            return null;
+          }
+          // Transient failure inside the proactive REFRESH_BUFFER_MS window
+          // (a losing 429 from a concurrent-refresh race, a network blip, a
+          // cold-start 5xx) — the current access token is not yet actually
+          // expired. Keep serving it so in-flight callers don't see a
+          // spurious logout; the next silentRefresh tick or reactivation
+          // listener retries the refresh before the real expiry hits.
+          if (exp && exp > this.now()) {
+            return this.session?.tokens.accessToken ?? null;
           }
           return null;
         }
@@ -920,10 +930,17 @@ export class DefaultAuthClient implements AuthClient {
       );
       await this.transport.request(this.config.userinfoEndpoint, { headers });
       return true;
-    } catch {
-      this.session = null;
-      await this.clearStoredSession();
-      this.notify();
+    } catch (error) {
+      // Same posture as getAccessToken(): only a definitive 4xx means the
+      // session is actually invalid. A transient network blip or 5xx from
+      // userinfo must not nuke a perfectly good refresh cookie / in-memory
+      // access token — that would force a spurious re-login for a hiccup
+      // unrelated to the session's validity.
+      if (isPermanentRefreshFailure(error)) {
+        this.session = null;
+        await this.clearStoredSession();
+        this.notify();
+      }
       return false;
     }
   }
@@ -1635,6 +1652,27 @@ export class DefaultAuthClient implements AuthClient {
   }
 
   // ── End impersonation cookie helpers ──────────────────────────────────────
+
+  /**
+   * Runs after the session has already been cleared (`this.session = null`,
+   * storage wiped, `onAuthStateChanged(null)` sent) due to a *definitive*
+   * server-side rejection. Fires the app's `onSessionInvalidated` hook, then
+   * — unless the app opted out via `redirectOnSessionInvalidated: false` —
+   * kicks off `startLogin()` so the user lands back on a sign-in screen
+   * instead of being stranded on a page that will 401 forever. See the
+   * `redirectOnSessionInvalidated` doc for why this closes a real gap: route
+   * guards only re-run on navigation, and a session that dies while the user
+   * sits idle on an already-loaded page never triggers one on its own.
+   */
+  private handleSessionInvalidated(): void {
+    this.config.onSessionInvalidated?.();
+    if (this.config.redirectOnSessionInvalidated === false) return;
+    // Fire-and-forget: startLogin() already knows how to navigate — via
+    // config.onRedirect if set, else window.location.assign in a browser, else
+    // it throws (e.g. SSR/Node with no onRedirect configured). Swallow that
+    // failure; there's nothing meaningful to do with it here.
+    void this.startLogin().catch(() => {});
+  }
 
   private notify(broadcast = true): void {
     // Isolate listener throws — a buggy subscriber must not break the rest of

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   createAuthClient,
   MemoryStorageAdapter,
+  AuthError,
   AuthErrorCode,
   type AuthTransportRequest,
   type AuthTransportResponse,
@@ -1151,6 +1152,182 @@ describe('AuthClient', () => {
 
     const token = await client.getAccessToken();
     expect(token).toBe('almost-expired-tok');
+  });
+
+  // ---------------------------------------------------------------------------
+  // getAccessToken — transient vs permanent refresh failure
+  // ---------------------------------------------------------------------------
+
+  it('keeps serving the still-valid token when refresh fails transiently (e.g. 429)', async () => {
+    // Regression test: a losing 429 from a concurrent-refresh race (or any
+    // other transient hiccup — network blip, cold-start 5xx) inside the
+    // REFRESH_BUFFER_MS window used to make getAccessToken() return null
+    // even though the current access token had not actually expired yet —
+    // a spurious session break for callers on that one tick.
+    const storage = new MemoryStorageAdapter();
+    await storage.set('nuria:auth:has_session', '1');
+    const now = Date.now();
+    let call = 0;
+    const transport = {
+      request: vi.fn().mockImplementation(async () => {
+        call++;
+        if (call === 1) {
+          // Cookie-bootstrap refresh on init(): mints a token inside the
+          // 5-min buffer so the next getAccessToken() attempts a refresh.
+          return {
+            status: 200,
+            data: { access_token: 'live-tok', expiresAt: now + 4 * 60 * 1000 },
+            headers: new Headers(),
+          };
+        }
+        throw new AuthError(AuthErrorCode.HTTP_ERROR, 'HTTP 429', undefined, {
+          status: 429,
+        });
+      }),
+    };
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      storage,
+      transport,
+      now: () => now,
+    });
+    await client.init();
+    expect(client.getSession()?.tokens.accessToken).toBe('live-tok');
+
+    const sessionListener = vi.fn();
+    client.onAuthStateChanged(sessionListener);
+
+    const token = await client.getAccessToken();
+
+    // Still the old (not-yet-expired) token — no spurious null/logout.
+    expect(token).toBe('live-tok');
+    expect(client.getSession()).not.toBeNull();
+    expect(sessionListener).not.toHaveBeenCalled();
+  });
+
+  it('clears the session when refresh fails permanently (e.g. 400 invalid_grant)', async () => {
+    const storage = new MemoryStorageAdapter();
+    await storage.set('nuria:auth:has_session', '1');
+    const now = Date.now();
+    let call = 0;
+    const transport = {
+      request: vi.fn().mockImplementation(async () => {
+        call++;
+        if (call === 1) {
+          return {
+            status: 200,
+            data: { access_token: 'live-tok', expiresAt: now + 4 * 60 * 1000 },
+            headers: new Headers(),
+          };
+        }
+        throw new AuthError(AuthErrorCode.HTTP_ERROR, 'HTTP 400', undefined, {
+          status: 400,
+        });
+      }),
+    };
+    const onSessionInvalidated = vi.fn();
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      storage,
+      transport,
+      now: () => now,
+      onSessionInvalidated,
+    });
+    await client.init();
+    expect(client.getSession()?.tokens.accessToken).toBe('live-tok');
+
+    const token = await client.getAccessToken();
+
+    expect(token).toBeNull();
+    expect(client.getSession()).toBeNull();
+    expect(onSessionInvalidated).toHaveBeenCalledOnce();
+  });
+
+  // ---------------------------------------------------------------------------
+  // redirectOnSessionInvalidated — default auto-redirect to login
+  // ---------------------------------------------------------------------------
+
+  function makePermanentRefreshFailureTransport(now: number) {
+    let call = 0;
+    return vi.fn().mockImplementation(async () => {
+      call++;
+      if (call === 1) {
+        return {
+          status: 200,
+          data: { access_token: 'live-tok', expiresAt: now + 4 * 60 * 1000 },
+          headers: new Headers(),
+        };
+      }
+      throw new AuthError(AuthErrorCode.HTTP_ERROR, 'HTTP 400', undefined, {
+        status: 400,
+      });
+    });
+  }
+
+  it('auto-redirects to login on permanent session invalidation by default', async () => {
+    // Regression test: route-middleware-based auth guards only re-run on
+    // navigation. A session that dies while the user sits idle on an
+    // already-loaded page never triggers one on its own — the user was
+    // stranded on a stale page 401-ing forever. redirectOnSessionInvalidated
+    // defaults to true precisely to close that gap without any app code.
+    const storage = new MemoryStorageAdapter();
+    await storage.set('nuria:auth:has_session', '1');
+    const now = Date.now();
+    // handleSessionInvalidated() fires startLogin() fire-and-forget, so the
+    // redirect lands a few microtask ticks after getAccessToken() resolves —
+    // await a promise that resolves from inside onRedirect rather than
+    // racing a fixed number of ticks.
+    let resolveRedirect!: (url: string) => void;
+    const redirected = new Promise<string>((resolve) => {
+      resolveRedirect = resolve;
+    });
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      storage,
+      transport: { request: makePermanentRefreshFailureTransport(now) },
+      now: () => now,
+      onRedirect: (url) => {
+        resolveRedirect(url);
+      },
+    });
+    await client.init();
+    expect(client.getSession()?.tokens.accessToken).toBe('live-tok');
+
+    await client.getAccessToken();
+
+    expect(client.getSession()).toBeNull();
+    const capturedUrl = await redirected;
+    const parsed = new URL(capturedUrl);
+    expect(parsed.origin + parsed.pathname).toBe(BASE_CONFIG.authorizationEndpoint);
+    expect(parsed.searchParams.get('client_id')).toBe(BASE_CONFIG.clientId);
+  });
+
+  it('does not auto-redirect when redirectOnSessionInvalidated is false, but still calls onSessionInvalidated', async () => {
+    // Escape hatch for apps with their own dedicated sign-in route (e.g. the
+    // accounts/IdP portal) that want to handle the redirect themselves
+    // instead of bouncing through startLogin()'s OAuth round-trip.
+    const storage = new MemoryStorageAdapter();
+    await storage.set('nuria:auth:has_session', '1');
+    const now = Date.now();
+    const onRedirect = vi.fn();
+    const onSessionInvalidated = vi.fn();
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      storage,
+      transport: { request: makePermanentRefreshFailureTransport(now) },
+      now: () => now,
+      onRedirect,
+      onSessionInvalidated,
+      redirectOnSessionInvalidated: false,
+    });
+    await client.init();
+    expect(client.getSession()?.tokens.accessToken).toBe('live-tok');
+
+    await client.getAccessToken();
+
+    expect(client.getSession()).toBeNull();
+    expect(onSessionInvalidated).toHaveBeenCalledOnce();
+    expect(onRedirect).not.toHaveBeenCalled();
   });
 
   it('loginWithGoogleCode posts code to /v2/google/code and stores the session', async () => {

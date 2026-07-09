@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [9.5.0] - 2026-07-09
+
+### Added
+
+- **`redirectOnSessionInvalidated` config option (defaults to `true`)**: when a permanent session invalidation fires (see `onSessionInvalidated`), the SDK now automatically calls `startLogin()` right after clearing the session — no app code required. This closes a real gap in every route-middleware-based auth guard: guards only re-run on navigation, so a session that dies while the user sits idle on an already-loaded page (e.g. a background silent-refresh failure) never triggered a redirect on its own — the user was left stranded on a stale page making calls that 401 forever. `onSessionInvalidated` still fires as before; this flag only adds the redirect alongside it. Apps with their own dedicated sign-in route (e.g. the accounts/IdP portal itself) should set this to `false` and do the redirect themselves inside `onSessionInvalidated`.
+
+### Fixed
+
+- Corrected a stale doc comment on `loginMethods` — the default is `password + google + passwordless` all enabled with nothing marked "coming soon" (previously documented `passwordless`/`aws_sso` as "coming soon", which no longer matched `DEFAULT_LOGIN_METHODS`).
+
+## [9.4.3] - 2026-07-08
+
+### Fixed
+
+- **`getAccessToken` — spurious session breaks on transient refresh failures**: a losing 429 from a concurrent-refresh race, a network blip, or a cold-start 5xx inside the proactive `REFRESH_BUFFER_MS` window used to make `getAccessToken()` return `null` even though the current access token had not actually expired yet. Now the still-valid token keeps being served on transient failures; only a definitive 4xx rejection (invalid_grant, etc.) clears the session. The next `startSilentRefresh` tick or reactivation listener retries the refresh before real expiry.
+- **`checkSession` — same hardening**: a transient `userinfoEndpoint` failure (5xx, network error) no longer clears the in-memory session / refresh cookie state. Only a definitive 4xx does.
+
 ## [9.4.0] - 2026-06-13
 
 ### Added

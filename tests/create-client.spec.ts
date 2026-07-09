@@ -684,7 +684,9 @@ describe('createAuthClient', () => {
 
   it('checkSession clears session and returns false when server rejects token', async () => {
     // v8: bootstrap a real in-memory session (token endpoint succeeds), then
-    // have the userinfo probe reject — checkSession must clear the session.
+    // have the userinfo probe reject with a definitive 401 — checkSession
+    // must clear the session. A transient error (network blip, 5xx) must
+    // NOT clear it — see the hardening test below.
     const storage = authedStorage();
     const transport = {
       request: vi.fn().mockImplementation(async (url: string) => {
@@ -699,7 +701,9 @@ describe('createAuthClient', () => {
             headers: new Headers(),
           };
         }
-        throw new Error('Unauthorized');
+        throw new AuthError(AuthErrorCode.HTTP_ERROR, 'HTTP 401', undefined, {
+          status: 401,
+        });
       }),
     };
     const client = createAuthClient({
@@ -730,6 +734,45 @@ describe('createAuthClient', () => {
     });
     await client.init();
     expect(await client.checkSession()).toBe(true);
+  });
+
+  it('checkSession does NOT clear session on a transient userinfo failure (e.g. 503)', async () => {
+    // Regression test: checkSession() used to nuke the in-memory session on
+    // ANY userinfo error, including transient ones. A 503 from a restarting
+    // backend, or a network blip, is not proof the session is invalid — the
+    // refresh cookie and access token are still perfectly good.
+    const storage = authedStorage();
+    const transport = {
+      request: vi.fn().mockImplementation(async (url: string) => {
+        if (url === BASE_CONFIG.tokenEndpoint) {
+          return {
+            status: 200,
+            data: {
+              access_token: 'boot-tok',
+              token_type: 'Bearer',
+              expires_in: 3600,
+            },
+            headers: new Headers(),
+          };
+        }
+        throw new AuthError(AuthErrorCode.HTTP_ERROR, 'HTTP 503', undefined, {
+          status: 503,
+        });
+      }),
+    };
+    const client = createAuthClient({
+      ...BASE_CONFIG,
+      storage,
+      transport,
+      userinfoEndpoint: 'https://auth.example.com/userinfo',
+    });
+    await client.init();
+    expect(client.getSession()).not.toBeNull();
+
+    expect(await client.checkSession()).toBe(false);
+    // The probe itself failed (so this call reports false), but the
+    // session must survive for the next check to succeed.
+    expect(client.getSession()).not.toBeNull();
   });
 
   it('handleRedirectCallback throws on error param', async () => {
