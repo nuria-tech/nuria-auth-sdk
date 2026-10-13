@@ -20,8 +20,10 @@ overrides:
   defu: '>=6.1.5'
   vite: '>=7.3.2'
   unhead: '>=2.1.13'
-  postcss: '>=8.5.10'
+  postcss: '>=8.5.23'
   esbuild: '>=0.28.1'
+  nanoid: '>=3.3.18'
+  source-map-js: '>=1.2.2'
 
 # Allow the build scripts the toolchain needs (tsup/vitest use esbuild).
 onlyBuiltDependencies:
