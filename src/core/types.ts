@@ -610,6 +610,10 @@ export interface DeviceInfo {
   trusted: boolean;
   firstSeenAt: number;
   lastSeenAt: number;
+  clientId?: string | null;
+  clientName?: string | null;
+  activeSessions?: number;
+  canTrust?: boolean;
 }
 
 /** A linked federated identity as returned by `GET /v2/me/identities`. */
