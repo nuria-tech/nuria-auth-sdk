@@ -119,6 +119,8 @@ export type {
   UpdateProfileResult,
   VerifyLoginCodeOptions,
   TwoFactorChallenge,
+  MfaChallenge,
+  VerifyMfaLoginOptions,
   StorageAdapter,
   TokenSet,
   TransportInterceptor,

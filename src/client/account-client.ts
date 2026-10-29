@@ -50,14 +50,23 @@ export class DefaultAccountClient implements AccountClient {
   // ── Two-factor (TOTP) ────────────────────────────────────────────────
 
   async getTwoFactorStatus(): Promise<TwoFactorStatus> {
-    const data = await this.authed<{ totpEnabled?: boolean }>('/v2/me/2fa');
-    return { totpEnabled: data?.totpEnabled === true };
+    const data = await this.authed<{
+      totpEnabled?: boolean;
+      backupCodesRemaining?: number | null;
+    }>('/v2/me/2fa');
+    return {
+      totpEnabled: data?.totpEnabled === true,
+      backupCodesRemaining:
+        typeof data?.backupCodesRemaining === 'number'
+          ? data.backupCodesRemaining
+          : null,
+    };
   }
 
-  async enrollTotp(): Promise<TotpEnrollment> {
+  async enrollTotp(options?: { code?: string }): Promise<TotpEnrollment> {
     const data = await this.authed<{ secret?: string; otpauthUri?: string }>(
       '/v2/me/2fa/totp/enroll',
-      { method: 'POST' },
+      { method: 'POST', ...optionalCodeBody(options) },
     );
     return { secret: data?.secret ?? '', otpauthUri: data?.otpauthUri ?? '' };
   }
@@ -78,14 +87,20 @@ export class DefaultAccountClient implements AccountClient {
     };
   }
 
-  async disableTotp(): Promise<void> {
-    await this.authed('/v2/me/2fa/totp', { method: 'DELETE' });
+  async disableTotp(options?: { code?: string }): Promise<void> {
+    await this.authed('/v2/me/2fa/totp', {
+      method: 'DELETE',
+      ...optionalCodeBody(options),
+    });
   }
 
-  async getRecoveryCodes(): Promise<string[] | null> {
+  async getRecoveryCodes(options?: {
+    code?: string;
+  }): Promise<string[] | null> {
     try {
       const data = await this.authed<{ recovery_codes?: string[] }>(
-        '/v2/me/2fa/totp/recovery-codes',
+        '/v2/me/2fa/totp/recovery-codes/view',
+        { method: 'POST', ...optionalCodeBody(options) },
       );
       return Array.isArray(data?.recovery_codes) ? data.recovery_codes : null;
     } catch (e: unknown) {
@@ -94,10 +109,12 @@ export class DefaultAccountClient implements AccountClient {
     }
   }
 
-  async regenerateRecoveryCodes(): Promise<string[]> {
+  async regenerateRecoveryCodes(options?: {
+    code?: string;
+  }): Promise<string[]> {
     const data = await this.authed<{ recovery_codes?: string[] }>(
       '/v2/me/2fa/totp/recovery-codes',
-      { method: 'POST' },
+      { method: 'POST', ...optionalCodeBody(options) },
     );
     return Array.isArray(data?.recovery_codes) ? data.recovery_codes : [];
   }
@@ -340,6 +357,13 @@ export class DefaultAccountClient implements AccountClient {
     });
     return response.data;
   }
+}
+
+function optionalCodeBody(options?: {
+  code?: string;
+}): { body: { code: string } } | Record<string, never> {
+  const code = options?.code?.trim();
+  return code ? { body: { code } } : {};
 }
 
 function requireValue(value: string, name: string): string {

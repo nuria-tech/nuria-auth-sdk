@@ -23,6 +23,7 @@ import type {
   TokenSet,
   TwoFactorChallenge,
   VerifyLoginCodeOptions,
+  VerifyMfaLoginOptions,
 } from '../core/types';
 import {
   normalizeTokenSet,
@@ -92,6 +93,17 @@ function isPermanentRefreshFailure(error: unknown): boolean {
   // succeed once the limiter resets. Don't drop the session on those.
   if (status === 408 || status === 425 || status === 429) return false;
   return status >= 400 && status < 500;
+}
+
+function normalizeChallenge(raw: unknown): TwoFactorChallenge {
+  const data = (raw ?? {}) as Record<string, unknown>;
+  return {
+    challengeId: String(data.challengeId ?? ''),
+    channel: String(data.channel ?? ''),
+    destinationMasked: String(data.destinationMasked ?? ''),
+    expiresAt: Number(data.expiresAt ?? 0),
+    purpose: String(data.purpose ?? 'login'),
+  };
 }
 
 export class DefaultAuthClient implements AuthClient {
@@ -996,8 +1008,51 @@ export class DefaultAuthClient implements AuthClient {
         },
       },
     );
+    this.throwIfChallengeRequired(response.data);
     const tokens = normalizeTokenSet(response.data, this.now);
     return this.createSession(tokens);
+  }
+
+  async verifyMfaLogin(options: VerifyMfaLoginOptions): Promise<Session> {
+    const challengeId = options?.challengeId?.trim();
+    const code = options?.code?.trim();
+    const recoveryCode = options?.recoveryCode?.trim();
+    if (!challengeId || (!code && !recoveryCode) || (code && recoveryCode)) {
+      throw new AuthError(
+        AuthErrorCode.INVALID_CONFIG,
+        'challengeId and exactly one of code or recoveryCode are required for verifyMfaLogin',
+      );
+    }
+
+    const response = await this.transport.request<Record<string, unknown>>(
+      `${this.config.baseUrl}/v2/login/mfa/verify`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        body: code ? { challengeId, code } : { challengeId, recoveryCode },
+      },
+    );
+    const tokens = normalizeTokenSet(response.data, this.now);
+    return this.createSession(tokens);
+  }
+
+  private throwIfChallengeRequired(data: Record<string, unknown>): void {
+    if (data?.mfaRequired === true) {
+      throw new AuthError(
+        AuthErrorCode.MFA_REQUIRED,
+        'MFA code required, call verifyMfaLogin() with the challenge from AuthError.details.mfa',
+        undefined,
+        { body: data, mfa: normalizeChallenge(data.mfa) },
+      );
+    }
+    if (data?.stepUpRequired === true) {
+      throw new AuthError(
+        AuthErrorCode.STEP_UP_REQUIRED,
+        'Step-up required, call verifyLoginCode() with the challenge from AuthError.details.stepUp',
+        undefined,
+        { body: data, stepUp: normalizeChallenge(data.stepUp) },
+      );
+    }
   }
 
   async loginWithGoogleCode(options: GoogleCodeLoginOptions): Promise<Session> {
@@ -1081,6 +1136,7 @@ export class DefaultAuthClient implements AuthClient {
         body: { token: options.token },
       },
     );
+    this.throwIfChallengeRequired(response.data);
     const tokens = normalizeTokenSet(response.data, this.now);
     return this.createSession(tokens);
   }
@@ -1235,6 +1291,7 @@ export class DefaultAuthClient implements AuthClient {
         { body: response.data },
       );
     }
+    this.throwIfChallengeRequired(response.data);
     const tokens = normalizeTokenSet(response.data, this.now);
     return this.createSession(tokens);
   }
@@ -1252,6 +1309,7 @@ export class DefaultAuthClient implements AuthClient {
         body: { newPassword },
       },
     );
+    this.throwIfChallengeRequired(response.data);
     const tokens = normalizeTokenSet(response.data, this.now);
     return this.createSession(tokens);
   }
