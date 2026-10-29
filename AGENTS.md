@@ -160,19 +160,19 @@ flow were dropped in v6 (see CHANGELOG).
   `confirmPhoneVerification({ challengeId, code })` (`POST /v2/me/phone/verify/confirm`).
 - **`forceResetPassword(newPassword, resetToken)`** — `POST /v2/password/force-reset`.
   Called when `loginWithPassword` throws `FORCE_PASSWORD_RESET`.
-- **MFA login (v9.7.0):** with the server flag `AUTH_MFA_ENFORCED` on and an account that has
+- **MFA login (v9.7.0):** when the server enforces MFA and the account has
   TOTP, `loginWithPassword`, `loginWithMagicLink`, `verifyLoginCode` and `forceResetPassword`
   do not return a `Session`. They throw `AuthError` with `code === AuthErrorCode.MFA_REQUIRED`
   and `error.details.mfa` (`MfaChallenge`, same shape as `TwoFactorChallenge`: `challengeId`,
   `channel: 'totp'`, `destinationMasked`, `expiresAt`, `purpose`). `error.details.body` has the
   raw response. Finish with `verifyMfaLogin({ challengeId, code?, recoveryCode? })`
   (`POST /v2/login/mfa/verify`): pass exactly one of `code` (6-digit TOTP) or `recoveryCode`
-  (`xxxx-xxxx-xxxx`, single use). The challenge expires in 5 minutes and accepts 5 attempts.
+  (`xxxx-xxxx-xxxx`, single use). The challenge is short-lived and the number of attempts is limited.
   New exported types: `MfaChallenge`, `VerifyMfaLoginOptions`.
-- **Risk step-up (v9.7.0):** with `RISK_STEPUP_ENFORCED` on, the same four calls throw
+- **Risk step-up (v9.7.0):** when the server's risk step-up policy is on, the same four calls throw
   `AuthErrorCode.STEP_UP_REQUIRED` with `error.details.stepUp` (an e-mail code challenge),
   finished with `verifyLoginCode`.
-- Both behaviors appear only with the server flags on. Against a server without them nothing changes.
+- Both behaviors appear only when the server enables them. Against a server without them nothing changes.
 
 ### v7 surface notes
 
@@ -183,15 +183,16 @@ flow were dropped in v6 (see CHANGELOG).
 - **`auth.account` TOTP and passkey signatures (v9.7.0):**
   - `getTwoFactorStatus()` returns `{ totpEnabled, backupCodesRemaining: number | null }`.
   - `enrollTotp({ code? })` and `regenerateRecoveryCodes({ code? })` accept the current
-    TOTP code. The server requires it when `AUTH_MFA_ENFORCED` is on and TOTP is already active.
+    TOTP code. The server may require the current TOTP code.
   - `disableTotp({ code })` sends the code in the body (the server always required it).
   - `getRecoveryCodes({ code })` calls `POST /v2/me/2fa/totp/recovery-codes/view`
     (it used to call a route that does not exist).
   - `PasskeyInfo` gains `backupEligible` and `backupState` (`boolean | null`, `null` = unknown).
     A passkey with `backupEligible === false` or `backupState === false` is bound to one
     device: warn the user in the UI.
-  - Passkey login is unchanged in the API. With the server flag on, the server requires
-    user verification (UV) and caps an account at 10 passkeys (`invalid_operation` beyond that).
+  - Passkey login is unchanged in the API. The server may require user verification (UV)
+    for passkey sign-in and limits how many passkeys an account can have
+    (`invalid_operation` when the limit is reached).
 - **DPoP (RFC 9449)** — opt in with `createAuthClient({ dpop: createDpopSigner() })`.
   Token requests attach a binding proof (kernel stamps `cnf.jkt`); resource +
   account requests switch from `Authorization: Bearer` to `DPoP <token>` plus a

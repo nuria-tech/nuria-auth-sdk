@@ -81,7 +81,7 @@ sign-in surface across all apps.
 
 ### MFA and risk step-up (v9.7.0)
 
-When the server has `AUTH_MFA_ENFORCED` on and the account has an authenticator
+When the server enforces MFA and the account has an authenticator
 (TOTP), `loginWithPassword`, `loginWithMagicLink`, `verifyLoginCode` and
 `forceResetPassword` do not return a `Session`. They throw an `AuthError` with
 `code === AuthErrorCode.MFA_REQUIRED` and `error.details.mfa`, an `MfaChallenge`
@@ -109,14 +109,14 @@ try {
 }
 ```
 
-Pass exactly one of `code` and `recoveryCode`. The challenge expires in 5
-minutes and accepts 5 attempts.
+Pass exactly one of `code` and `recoveryCode`. The challenge is short-lived and
+the number of attempts is limited.
 
-With the risk step-up policy on (`RISK_STEPUP_ENFORCED`), the same four calls
+When the server's risk step-up policy is on, the same four calls
 throw `AuthErrorCode.STEP_UP_REQUIRED` with `error.details.stepUp` (an e-mail
 code challenge); finish it with `verifyLoginCode`.
 
-All of this only shows up with the server flags on. Against a server without
+All of this only shows up when the server enables it. Against a server without
 MFA enforcement nothing changes.
 
 ### Login methods config
@@ -811,11 +811,11 @@ interface AccountClient {
   confirmPhoneVerification(options: { challengeId: string; code: string }): Promise<void>;
   // Two-factor (TOTP)
   getTwoFactorStatus(): Promise<TwoFactorStatus>; // { totpEnabled, backupCodesRemaining: number | null }
-  enrollTotp(options?: { code?: string }): Promise<TotpEnrollment>; // code: current TOTP, required by the server when AUTH_MFA_ENFORCED is on and TOTP is already active
+  enrollTotp(options?: { code?: string }): Promise<TotpEnrollment>; // the server may require the current TOTP code
   confirmTotp(code: string): Promise<{ enabled: boolean; recoveryCodes: string[] }>;
   disableTotp(options: { code: string }): Promise<void>; // code sent in the body (always required by the server)
   getRecoveryCodes(options: { code: string }): Promise<string[] | null>; // POST /v2/me/2fa/totp/recovery-codes/view, needs a live TOTP code
-  regenerateRecoveryCodes(options?: { code?: string }): Promise<string[]>; // code required when AUTH_MFA_ENFORCED is on and TOTP is active
+  regenerateRecoveryCodes(options?: { code?: string }): Promise<string[]>; // the server may require the current TOTP code
   // Passkeys (WebAuthn / FIDO2)
   listPasskeys(): Promise<PasskeyInfo[]>; // PasskeyInfo adds backupEligible / backupState (boolean | null)
   enrollPasskey(name?: string): Promise<void>; // begin → navigator.credentials.create() → finish
@@ -889,9 +889,9 @@ await auth.account.deletePasskey(passkeys[0].credentialId);
 await auth.loginWithPasskey({ email: 'me@nuria.com.br' }); // omit email for usernameless
 ```
 
-Passkey login is unchanged on the SDK side. With the server MFA flag on, the
-server requires user verification (UV) and caps an account at 10 passkeys
-(`invalid_operation` beyond that).
+Passkey login is unchanged on the SDK side. The server may require user
+verification (UV) for passkey sign-in and limits how many passkeys an account
+can have (`invalid_operation` when the limit is reached).
 
 `PasskeyInfo` also carries `backupEligible` and `backupState` (`boolean | null`,
 `null` = unknown). A passkey with `backupEligible === false` or
@@ -904,7 +904,7 @@ on it as their only way in.
 const status = await auth.account.getTwoFactorStatus();
 // { totpEnabled, backupCodesRemaining: number | null }
 
-// Server requires the current TOTP code when AUTH_MFA_ENFORCED is on and TOTP is already active:
+// The server may require the current TOTP code:
 await auth.account.enrollTotp({ code });
 await auth.account.regenerateRecoveryCodes({ code });
 
