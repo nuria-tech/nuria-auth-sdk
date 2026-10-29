@@ -193,6 +193,14 @@ export interface TwoFactorChallenge {
   purpose: string;
 }
 
+export type MfaChallenge = TwoFactorChallenge;
+
+export interface VerifyMfaLoginOptions {
+  challengeId: string;
+  code?: string;
+  recoveryCode?: string;
+}
+
 export interface StorageAdapter {
   get(key: string): Promise<string | null> | string | null;
   set(key: string, value: string): Promise<void> | void;
@@ -466,6 +474,8 @@ export interface AuthClient {
     options: LoginCodeChallengeOptions,
   ): Promise<TwoFactorChallenge>;
   verifyLoginCode(options: VerifyLoginCodeOptions): Promise<Session>;
+  /** Completes a login that threw `AuthErrorCode.MFA_REQUIRED` with a TOTP or recovery code. */
+  verifyMfaLogin(options: VerifyMfaLoginOptions): Promise<Session>;
   loginWithGoogleCode(options: GoogleCodeLoginOptions): Promise<Session>;
   /**
    * Direct password login against `/v2/login`. First-class v2 method —
@@ -623,6 +633,7 @@ export interface FederatedIdentityInfo {
 
 export interface TwoFactorStatus {
   totpEnabled: boolean;
+  backupCodesRemaining: number | null;
 }
 
 /**
@@ -701,6 +712,8 @@ export interface PasskeyInfo {
   aaguid?: string;
   createdAt: string;
   lastUsedAt?: string;
+  backupEligible?: boolean | null;
+  backupState?: boolean | null;
 }
 
 /** Options for passwordless passkey login (`AuthClient.loginWithPasskey`). */
@@ -744,17 +757,17 @@ export interface AccountClient {
   /** Current 2FA status for the signed-in user. */
   getTwoFactorStatus(): Promise<TwoFactorStatus>;
   /** Begins TOTP enrollment; returns the one-time secret + otpauth URI. */
-  enrollTotp(): Promise<TotpEnrollment>;
+  enrollTotp(options?: { code?: string }): Promise<TotpEnrollment>;
   /** Confirms enrollment with a code from the authenticator app. Returns the initial recovery codes — show once. */
   confirmTotp(
     code: string,
   ): Promise<{ enabled: boolean; recoveryCodes: string[] }>;
   /** Disables TOTP for the account. */
-  disableTotp(): Promise<void>;
+  disableTotp(options?: { code?: string }): Promise<void>;
   /** Returns the existing TOTP recovery codes, or null if TOTP is not enabled. */
-  getRecoveryCodes(): Promise<string[] | null>;
+  getRecoveryCodes(options?: { code?: string }): Promise<string[] | null>;
   /** Regenerates 10 fresh recovery codes, invalidating the previous set. */
-  regenerateRecoveryCodes(): Promise<string[]>;
+  regenerateRecoveryCodes(options?: { code?: string }): Promise<string[]>;
 
   // ── OAuth consents ─────────────────────────────────────────────────
   /** Lists the apps the user has granted access to. */

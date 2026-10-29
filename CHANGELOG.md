@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [9.7.0] - 2026-10-29
+
+Adds client support for multi-factor sign-in. Against a server that does not enforce it, nothing changes: no new field appears in any response and every existing call behaves as before.
+
+### Added
+
+- **`AuthErrorCode.MFA_REQUIRED` and `verifyMfaLogin({ challengeId, code?, recoveryCode? })`**: when the account has an authenticator app and the server enforces MFA, `loginWithPassword`, `loginWithMagicLink`, `verifyLoginCode` and `forceResetPassword` throw `MFA_REQUIRED` with the challenge in `error.details.mfa` (same shape as `TwoFactorChallenge`, channel `totp`). Pass the TOTP code or a single-use recovery code to `verifyMfaLogin` to get the `Session`. The challenge is short-lived and the number of attempts is limited. Passkey login never asks for it.
+- **`AuthErrorCode.STEP_UP_REQUIRED`**: the risk step-up (`stepUpRequired` in the login response) used to fall through to a generic token error. It now throws `STEP_UP_REQUIRED` with the e-mail code challenge in `error.details.stepUp`; finish it with `verifyLoginCode`.
+- **`auth.account.getTwoFactorStatus()`** also returns `backupCodesRemaining` (`number | null`).
+- **`PasskeyInfo.backupEligible` and `backupState`** (`boolean | null`, `null` when unknown): a passkey with either one `false` is bound to its device, so a UI can warn the user before it becomes their only way in. The server limits how many passkeys an account can have (`invalid_operation` when the limit is reached).
+- New exported types `MfaChallenge` and `VerifyMfaLoginOptions`.
+
+### Changed
+
+- **`enrollTotp`, `regenerateRecoveryCodes`, `disableTotp` and `getRecoveryCodes` accept `{ code }`** (current TOTP code). The server may require the current TOTP code to re-enroll or regenerate, and it always required it to disable TOTP and to view recovery codes. The parameter is optional in the types, so existing call sites still compile.
+
+### Fixed
+
+- **`getRecoveryCodes`** called a `GET` route that does not exist. It now calls `POST /v2/me/2fa/totp/recovery-codes/view` with the TOTP code.
+- **`disableTotp`** sent no body although the server always required the TOTP code, so it could never succeed. It now sends `{ code }` when given.
+
 ## [9.6.0] - 2026-07-09
 
 ### Added

@@ -1,3 +1,5 @@
+import type { TwoFactorChallenge } from '../core/types';
+
 export enum AuthErrorCode {
   INVALID_CONFIG = 'INVALID_CONFIG',
   STATE_MISMATCH = 'STATE_MISMATCH',
@@ -11,6 +13,8 @@ export enum AuthErrorCode {
   HTTP_ERROR = 'HTTP_ERROR',
   UNAUTHENTICATED = 'UNAUTHENTICATED',
   FORCE_PASSWORD_RESET = 'FORCE_PASSWORD_RESET',
+  MFA_REQUIRED = 'MFA_REQUIRED',
+  STEP_UP_REQUIRED = 'STEP_UP_REQUIRED',
 }
 
 export interface AuthErrorDetails {
@@ -21,6 +25,8 @@ export interface AuthErrorDetails {
   traceId?: string;
   feature?: string;
   body?: unknown;
+  mfa?: TwoFactorChallenge;
+  stepUp?: TwoFactorChallenge;
 }
 
 export class AuthError extends Error {

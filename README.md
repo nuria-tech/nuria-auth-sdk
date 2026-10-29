@@ -67,8 +67,9 @@ Published on [npm](https://www.npmjs.com/package/@nuria-tech/auth-sdk).
 | Google (auth code / custom button) | `POST /v2/google/code` | `loginWithGoogleCode({ code, redirectUri? })` | `Session` tokens |
 | Code sent (passwordless OTP) | `POST /v2/login-code/challenge` + `POST /v2/2fa/verify-login` | `startLoginCodeChallenge(...)` + `verifyLoginCode(...)` | `Session` tokens after code verify |
 | Magic link (passwordless, email-delivered) | `POST /v2/login/magic/send` + `POST /v2/login/magic/verify` | `sendMagicLink({ email })` + `loginWithMagicLink({ token })` | `Session` tokens after link click |
-| Login + password (portal-only) | `POST /v2/login` | `loginWithPassword(...)` | `Session` tokens (or `FORCE_PASSWORD_RESET` error) |
-| Force password reset | `POST /v2/password/force-reset` | `forceResetPassword(newPassword, resetToken)` | `Session` tokens |
+| Login + password (portal-only) | `POST /v2/login` | `loginWithPassword(...)` | `Session` tokens (or `FORCE_PASSWORD_RESET` / `MFA_REQUIRED` / `STEP_UP_REQUIRED` error) |
+| Force password reset | `POST /v2/password/force-reset` | `forceResetPassword(newPassword, resetToken)` | `Session` tokens (or `MFA_REQUIRED` / `STEP_UP_REQUIRED` error) |
+| MFA login (TOTP or recovery code) | `POST /v2/login/mfa/verify` | `verifyMfaLogin({ challengeId, code? \| recoveryCode? })` | `Session` tokens after the `MFA_REQUIRED` challenge is answered |
 | Password reset request | `POST /v2/password/reset` | `resetPassword({ email })` | `void` — sends reset email |
 | Password recovery | `POST /v2/password/recover` | `recoverPassword({ token, newPassword })` | `void` — resets password using token |
 | Change password | `PATCH /v2/me/password` | `changePassword({ oldPassword, newPassword })` | `void` — requires active session |
@@ -77,6 +78,46 @@ Published on [npm](https://www.npmjs.com/package/@nuria-tech/auth-sdk).
 `loginWithPassword` is intended for the SSO portal (`accounts.nuria.com.br`)
 only — consumer SPAs should use `startLogin()` so the user sees a single
 sign-in surface across all apps.
+
+### MFA and risk step-up (v9.7.0)
+
+When the server enforces MFA and the account has an authenticator
+(TOTP), `loginWithPassword`, `loginWithMagicLink`, `verifyLoginCode` and
+`forceResetPassword` do not return a `Session`. They throw an `AuthError` with
+`code === AuthErrorCode.MFA_REQUIRED` and `error.details.mfa`, an `MfaChallenge`
+(same shape as `TwoFactorChallenge`: `challengeId`, `channel: 'totp'`,
+`destinationMasked`, `expiresAt`, `purpose`). `error.details.body` carries the raw
+server response. Answer it with `verifyMfaLogin`:
+
+```ts
+import { AuthError, AuthErrorCode } from '@nuria-tech/auth-sdk';
+
+try {
+  await auth.loginWithPassword({ email, password });
+} catch (error) {
+  if (error instanceof AuthError && error.code === AuthErrorCode.MFA_REQUIRED) {
+    const { challengeId } = error.details.mfa;
+
+    // 6-digit TOTP code from the authenticator app:
+    const session = await auth.verifyMfaLogin({ challengeId, code: '123456' });
+
+    // or a single-use recovery code (xxxx-xxxx-xxxx) when the device is lost:
+    // const session = await auth.verifyMfaLogin({ challengeId, recoveryCode: 'abcd-efgh-ijkl' });
+  } else {
+    throw error;
+  }
+}
+```
+
+Pass exactly one of `code` and `recoveryCode`. The challenge is short-lived and
+the number of attempts is limited.
+
+When the server's risk step-up policy is on, the same four calls
+throw `AuthErrorCode.STEP_UP_REQUIRED` with `error.details.stepUp` (an e-mail
+code challenge); finish it with `verifyLoginCode`.
+
+All of this only shows up when the server enables it. Against a server without
+MFA enforcement nothing changes.
 
 ### Login methods config
 
@@ -706,8 +747,10 @@ interface AuthClient {
   startLoginCodeChallenge(options: LoginCodeChallengeOptions): Promise<TwoFactorChallenge>;
   verifyLoginCode(options: VerifyLoginCodeOptions): Promise<Session>;
   loginWithGoogleCode(options: GoogleCodeLoginOptions): Promise<Session>;
-  /** Direct password login against /v2/login. Portal-only — consumer SPAs should use startLogin (OAuth + PKCE). Throws FORCE_PASSWORD_RESET when server requires a password upgrade. */
+  /** Direct password login against /v2/login. Portal-only: consumer SPAs should use startLogin (OAuth + PKCE). Throws FORCE_PASSWORD_RESET when server requires a password upgrade, MFA_REQUIRED (details.mfa) or STEP_UP_REQUIRED (details.stepUp) when the server enforces them. */
   loginWithPassword(options: PasswordLoginOptions): Promise<Session>;
+  /** Answers an MFA_REQUIRED challenge with a TOTP code or a single-use recovery code (exactly one). POST /v2/login/mfa/verify. */
+  verifyMfaLogin(options: VerifyMfaLoginOptions): Promise<Session>;
   /** Exchanges a scoped reset token (from a FORCE_PASSWORD_RESET error) for a full session. POST /v2/password/force-reset. */
   forceResetPassword(newPassword: string, resetToken: string): Promise<Session>;
   /** Passwordless passkey (WebAuthn) login. Drives navigator.credentials.get() then mints a session. Browser only. */
@@ -767,12 +810,14 @@ interface AccountClient {
   sendPhoneVerification(): Promise<PhoneVerificationChallenge>;
   confirmPhoneVerification(options: { challengeId: string; code: string }): Promise<void>;
   // Two-factor (TOTP)
-  getTwoFactorStatus(): Promise<TwoFactorStatus>;
-  enrollTotp(): Promise<TotpEnrollment>;
+  getTwoFactorStatus(): Promise<TwoFactorStatus>; // { totpEnabled, backupCodesRemaining: number | null }
+  enrollTotp(options?: { code?: string }): Promise<TotpEnrollment>; // the server may require the current TOTP code
   confirmTotp(code: string): Promise<{ enabled: boolean; recoveryCodes: string[] }>;
-  disableTotp(): Promise<void>;
+  disableTotp(options: { code: string }): Promise<void>; // code sent in the body (always required by the server)
+  getRecoveryCodes(options: { code: string }): Promise<string[] | null>; // POST /v2/me/2fa/totp/recovery-codes/view, needs a live TOTP code
+  regenerateRecoveryCodes(options?: { code?: string }): Promise<string[]>; // the server may require the current TOTP code
   // Passkeys (WebAuthn / FIDO2)
-  listPasskeys(): Promise<PasskeyInfo[]>;
+  listPasskeys(): Promise<PasskeyInfo[]>; // PasskeyInfo adds backupEligible / backupState (boolean | null)
   enrollPasskey(name?: string): Promise<void>; // begin → navigator.credentials.create() → finish
   deletePasskey(credentialId: string): Promise<void>;
   // OAuth consents
@@ -842,6 +887,29 @@ await auth.account.deletePasskey(passkeys[0].credentialId);
 
 // Passwordless login (portal): begin → get() → finish → session.
 await auth.loginWithPasskey({ email: 'me@nuria.com.br' }); // omit email for usernameless
+```
+
+Passkey login is unchanged on the SDK side. The server may require user
+verification (UV) for passkey sign-in and limits how many passkeys an account
+can have (`invalid_operation` when the limit is reached).
+
+`PasskeyInfo` also carries `backupEligible` and `backupState` (`boolean | null`,
+`null` = unknown). A passkey with `backupEligible === false` or
+`backupState === false` is bound to one device: warn the user before they rely
+on it as their only way in.
+
+### Two-factor (TOTP) management
+
+```ts
+const status = await auth.account.getTwoFactorStatus();
+// { totpEnabled, backupCodesRemaining: number | null }
+
+// The server may require the current TOTP code:
+await auth.account.enrollTotp({ code });
+await auth.account.regenerateRecoveryCodes({ code });
+
+await auth.account.getRecoveryCodes({ code }); // POST /v2/me/2fa/totp/recovery-codes/view
+await auth.account.disableTotp({ code }); // code is always sent in the body
 ```
 
 ### Federated OIDC IdP login
