@@ -767,9 +767,9 @@ export interface AccountClient {
     code: string,
   ): Promise<{ enabled: boolean; recoveryCodes: string[] }>;
   /** Disables TOTP for the account. */
-  disableTotp(options?: { code?: string }): Promise<void>;
+  disableTotp(options: { code: string }): Promise<void>;
   /** Returns the existing TOTP recovery codes, or null if TOTP is not enabled. */
-  getRecoveryCodes(options?: { code?: string }): Promise<string[] | null>;
+  getRecoveryCodes(options: { code: string }): Promise<string[] | null>;
   /** Regenerates 10 fresh recovery codes, invalidating the previous set. */
   regenerateRecoveryCodes(options?: { code?: string }): Promise<string[]>;
 

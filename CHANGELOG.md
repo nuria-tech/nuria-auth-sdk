@@ -24,12 +24,14 @@ Adds client support for multi-factor sign-in. Against a server that does not enf
 
 ### Changed
 
-- **`enrollTotp`, `regenerateRecoveryCodes`, `disableTotp` and `getRecoveryCodes` accept `{ code }`** (current TOTP code). The server may require the current TOTP code to re-enroll or regenerate, and it always required it to disable TOTP and to view recovery codes. The parameter is optional in the types, so existing call sites still compile.
+- **`enrollTotp` and `regenerateRecoveryCodes` accept an optional `{ code }`** (current TOTP code), because the server may require it to re-enroll or regenerate. Existing call sites still compile.
+- **`disableTotp` and `getRecoveryCodes` now require `{ code }`**, because the server always required the current TOTP code for both. A missing, empty or blank code throws `INVALID_CONFIG` before any request. Call sites that passed no argument stop compiling, and they could never succeed against the server anyway.
+- **`AuthClient` and `TwoFactorStatus` gained required members** (`verifyMfaLogin`, `backupCodesRemaining`). Code that implements or mocks these interfaces by hand must add them.
 
 ### Fixed
 
 - **`getRecoveryCodes`** called a `GET` route that does not exist. It now calls `POST /v2/me/2fa/totp/recovery-codes/view` with the TOTP code.
-- **`disableTotp`** sent no body although the server always required the TOTP code, so it could never succeed. It now sends `{ code }` when given.
+- **`disableTotp`** sent no body although the server always required the TOTP code, so it could never succeed. It now sends the required `{ code }`.
 
 ## [9.6.0] - 2026-07-09
 

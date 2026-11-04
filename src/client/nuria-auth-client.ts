@@ -980,13 +980,7 @@ export class DefaultAuthClient implements AuthClient {
       },
     );
 
-    return {
-      challengeId: String(response.data.challengeId ?? ''),
-      channel: String(response.data.channel ?? ''),
-      destinationMasked: String(response.data.destinationMasked ?? ''),
-      expiresAt: Number(response.data.expiresAt ?? 0),
-      purpose: String(response.data.purpose ?? 'login'),
-    };
+    return normalizeChallenge(response.data);
   }
 
   async verifyLoginCode(options: VerifyLoginCodeOptions): Promise<Session> {

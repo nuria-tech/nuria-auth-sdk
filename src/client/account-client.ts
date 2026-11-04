@@ -87,20 +87,20 @@ export class DefaultAccountClient implements AccountClient {
     };
   }
 
-  async disableTotp(options?: { code?: string }): Promise<void> {
+  async disableTotp(options: { code: string }): Promise<void> {
+    const code = requireValue(options?.code ?? '', 'code');
     await this.authed('/v2/me/2fa/totp', {
       method: 'DELETE',
-      ...optionalCodeBody(options),
+      body: { code },
     });
   }
 
-  async getRecoveryCodes(options?: {
-    code?: string;
-  }): Promise<string[] | null> {
+  async getRecoveryCodes(options: { code: string }): Promise<string[] | null> {
+    const code = requireValue(options?.code ?? '', 'code');
     try {
       const data = await this.authed<{ recovery_codes?: string[] }>(
         '/v2/me/2fa/totp/recovery-codes/view',
-        { method: 'POST', ...optionalCodeBody(options) },
+        { method: 'POST', body: { code } },
       );
       return Array.isArray(data?.recovery_codes) ? data.recovery_codes : null;
     } catch (e: unknown) {

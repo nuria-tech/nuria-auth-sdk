@@ -313,6 +313,44 @@ describe('AccountClient MFA surface', () => {
     expect(codes).toEqual(['AAAA-1111', 'BBBB-2222']);
   });
 
+  it.each([
+    [
+      'disableTotp',
+      (c: Awaited<ReturnType<typeof authedClient>>, o: unknown) =>
+        c.account.disableTotp(o as { code: string }),
+    ],
+    [
+      'getRecoveryCodes',
+      (c: Awaited<ReturnType<typeof authedClient>>, o: unknown) =>
+        c.account.getRecoveryCodes(o as { code: string }),
+    ],
+  ])(
+    '%s rejects a missing, empty or blank code without calling the server',
+    async (_name, call) => {
+      const transport = makeAccountTransport({ recovery_codes: [] });
+      const client = await authedClient(transport);
+      const callsBefore = transport.request.mock.calls.length;
+
+      for (const options of [undefined, {}, { code: '' }, { code: '   ' }]) {
+        await expect(call(client, options)).rejects.toMatchObject({
+          code: AuthErrorCode.INVALID_CONFIG,
+        });
+      }
+      expect(transport.request.mock.calls.length).toBe(callsBefore);
+    },
+  );
+
+  it('disableTotp and getRecoveryCodes send the trimmed code', async () => {
+    const transport = makeAccountTransport({ recovery_codes: ['AAAA-1111'] });
+    const client = await authedClient(transport);
+
+    await client.account.disableTotp({ code: ' 123456 ' });
+    expect(lastCall(transport)[1].body).toEqual({ code: '123456' });
+
+    await client.account.getRecoveryCodes({ code: ' 654321 ' });
+    expect(lastCall(transport)[1].body).toEqual({ code: '654321' });
+  });
+
   it('regenerateRecoveryCodes sends the code only when given', async () => {
     const transport = makeAccountTransport({ recovery_codes: ['CCCC-3333'] });
     const client = await authedClient(transport);

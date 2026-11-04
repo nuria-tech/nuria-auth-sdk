@@ -1,4 +1,4 @@
-import type { TwoFactorChallenge } from '../core/types';
+import type { MfaChallenge } from '../core/types';
 
 export enum AuthErrorCode {
   INVALID_CONFIG = 'INVALID_CONFIG',
@@ -25,8 +25,8 @@ export interface AuthErrorDetails {
   traceId?: string;
   feature?: string;
   body?: unknown;
-  mfa?: TwoFactorChallenge;
-  stepUp?: TwoFactorChallenge;
+  mfa?: MfaChallenge;
+  stepUp?: MfaChallenge;
 }
 
 export class AuthError extends Error {
