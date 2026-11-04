@@ -313,6 +313,50 @@ describe('AccountClient MFA surface', () => {
     expect(codes).toEqual(['AAAA-1111', 'BBBB-2222']);
   });
 
+  it('getRecoveryCodes returns null when the kernel answers 404 (TOTP off)', async () => {
+    const transport = makeAccountTransport();
+    const client = await authedClient(transport);
+    transport.request.mockImplementation(async (url: string) => {
+      if (url === BASE_CONFIG.tokenEndpoint) {
+        return {
+          status: 200,
+          data: {
+            access_token: 'access-123',
+            token_type: 'Bearer',
+            expires_in: 3600,
+          },
+          headers: new Headers(),
+        };
+      }
+      throw new AuthError(AuthErrorCode.HTTP_ERROR, 'HTTP 404', undefined, {
+        status: 404,
+        error: 'not_found',
+        body: {
+          error: 'not_found',
+          error_description: 'No recovery codes found. Enable TOTP first.',
+        },
+      });
+    });
+
+    expect(
+      await client.account.getRecoveryCodes({ code: '654321' }),
+    ).toBeNull();
+  });
+
+  it('getRecoveryCodes rethrows non-404 HTTP errors', async () => {
+    const transport = makeAccountTransport();
+    const client = await authedClient(transport);
+    transport.request.mockImplementation(async () => {
+      throw new AuthError(AuthErrorCode.HTTP_ERROR, 'HTTP 401', undefined, {
+        status: 401,
+      });
+    });
+
+    await expect(
+      client.account.getRecoveryCodes({ code: '654321' }),
+    ).rejects.toMatchObject({ details: { status: 401 } });
+  });
+
   it.each([
     [
       'disableTotp',

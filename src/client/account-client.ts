@@ -21,23 +21,11 @@ import {
   type PasskeyRegistrationOptionsJSON,
 } from '../utils/webauthn';
 
-/**
- * Implements the v7 {@link AccountClient} surface. Thin Bearer-authenticated
- * wrappers over the kernel's `/v2/me/*` endpoints. The access token is pulled
- * lazily via the injected `getAccessToken` (which the owning auth client keeps
- * fresh through silent refresh), so these calls ride the same session as the
- * rest of the SDK without holding their own token state.
- */
 export class DefaultAccountClient implements AccountClient {
   constructor(
     private readonly baseUrl: string,
     private readonly transport: AuthTransport,
     private readonly getAccessToken: () => Promise<string | null>,
-    /**
-     * Builds the auth headers for a request. Injected by the owning auth
-     * client so DPoP-bound sessions present the `DPoP` scheme + proof; falls
-     * back to a plain Bearer header when omitted.
-     */
     private readonly buildAuthHeaders: (
       method: string,
       url: string,
@@ -46,8 +34,6 @@ export class DefaultAccountClient implements AccountClient {
       Authorization: `Bearer ${token}`,
     }),
   ) {}
-
-  // ── Two-factor (TOTP) ────────────────────────────────────────────────
 
   async getTwoFactorStatus(): Promise<TwoFactorStatus> {
     const data = await this.authed<{
@@ -104,7 +90,7 @@ export class DefaultAccountClient implements AccountClient {
       );
       return Array.isArray(data?.recovery_codes) ? data.recovery_codes : null;
     } catch (e: unknown) {
-      if ((e as { status?: number })?.status === 404) return null;
+      if (e instanceof AuthError && e.details.status === 404) return null;
       throw e;
     }
   }
@@ -118,8 +104,6 @@ export class DefaultAccountClient implements AccountClient {
     );
     return Array.isArray(data?.recovery_codes) ? data.recovery_codes : [];
   }
-
-  // ── OAuth consents ───────────────────────────────────────────────────
 
   async listConsents(): Promise<ConsentInfo[]> {
     const data = await this.authed<ConsentInfo[]>('/v2/me/consents');
@@ -152,8 +136,6 @@ export class DefaultAccountClient implements AccountClient {
     });
   }
 
-  // ── Active sessions ──────────────────────────────────────────────────
-
   async listSessions(): Promise<SessionInfo[]> {
     const data = await this.authed<SessionInfo[]>('/v2/me/sessions');
     return Array.isArray(data) ? data : [];
@@ -165,8 +147,6 @@ export class DefaultAccountClient implements AccountClient {
       method: 'DELETE',
     });
   }
-
-  // ── Known devices ────────────────────────────────────────────────────
 
   async listDevices(): Promise<DeviceInfo[]> {
     const data = await this.authed<DeviceInfo[]>('/v2/me/devices');
@@ -194,17 +174,12 @@ export class DefaultAccountClient implements AccountClient {
     });
   }
 
-  // ── Passkeys (WebAuthn / FIDO2) ──────────────────────────────────────
-
   async listPasskeys(): Promise<PasskeyInfo[]> {
     const data = await this.authed<PasskeyInfo[]>('/v2/me/passkeys');
     return Array.isArray(data) ? data : [];
   }
 
   async enrollPasskey(name?: string): Promise<void> {
-    // begin → navigator.credentials.create() → finish. The challenge is
-    // single-use and bound to this subject server-side, so the whole dance
-    // must complete on one in-flight session.
     const options = await this.authed<PasskeyRegistrationOptionsJSON>(
       '/v2/me/passkeys/register/begin',
       { method: 'POST', body: name?.trim() ? { name: name.trim() } : {} },
@@ -232,8 +207,6 @@ export class DefaultAccountClient implements AccountClient {
     });
   }
 
-  // ── Federated identity links ─────────────────────────────────────────
-
   async listIdentities(): Promise<FederatedIdentityInfo[]> {
     const data =
       await this.authed<FederatedIdentityInfo[]>('/v2/me/identities');
@@ -246,8 +219,6 @@ export class DefaultAccountClient implements AccountClient {
       method: 'DELETE',
     });
   }
-
-  // ── Profile ──────────────────────────────────────────────────────────
 
   async updateProfile(
     options: UpdateProfileOptions,
@@ -267,23 +238,18 @@ export class DefaultAccountClient implements AccountClient {
     });
   }
 
-  // ── Email verification ────────────────────────────────────────────────
-
   async sendEmailVerification(): Promise<void> {
     await this.authed('/v2/me/email/verify/send', { method: 'POST' });
   }
 
   async confirmEmailVerification(token: string): Promise<void> {
     const t = requireValue(token, 'token');
-    // No session required — token is self-authenticating. Use transport directly.
     await this.transport.request(`${this.baseUrl}/v2/email/verify/confirm`, {
       method: 'POST',
       body: { token: t },
       timeoutMs: 8_000,
     });
   }
-
-  // ── Phone verification ────────────────────────────────────────────────
 
   async sendPhoneVerification(): Promise<PhoneVerificationChallenge> {
     const data = await this.authed<Record<string, unknown>>(
@@ -314,8 +280,6 @@ export class DefaultAccountClient implements AccountClient {
     });
   }
 
-  // ── LGPD data-subject rights ─────────────────────────────────────────
-
   async exportData(): Promise<DataExport> {
     return this.authed<DataExport>('/v2/me/data');
   }
@@ -327,8 +291,6 @@ export class DefaultAccountClient implements AccountClient {
       body: { confirmEmail: email },
     });
   }
-
-  // ── internal ─────────────────────────────────────────────────────────
 
   private async authed<T = unknown>(
     path: string,
