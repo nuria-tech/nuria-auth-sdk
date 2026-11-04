@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- **`DeviceInfo` new optional fields**: `clientId` (`string | null`, `null` means a browser), `clientName` (`string | null`), `activeSessions` (`number`) and `canTrust` (`boolean`), as returned by `GET /v2/me/devices`. They depend on nuria-auth with PR #31 deployed. All four are optional, so the change is backward compatible: payloads from older backends, without these fields, remain valid and `listDevices()` passes the JSON through unchanged.
+
 ## [9.7.0] - 2026-10-29
 
 Adds client support for multi-factor sign-in. Against a server that does not enforce it, nothing changes: no new field appears in any response and every existing call behaves as before.
