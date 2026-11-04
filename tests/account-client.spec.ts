@@ -151,6 +151,69 @@ describe('AccountClient (v7)', () => {
     expect(forgetReq.method).toBe('DELETE');
   });
 
+  it('listDevices passes the client, session and trust fields through intact', async () => {
+    const transport = makeTransport([
+      {
+        deviceKey: 'dev1',
+        ipAddress: '203.0.113.10',
+        userAgent: 'Mozilla/5.0',
+        trusted: false,
+        firstSeenAt: 1700000000,
+        lastSeenAt: 1700000500,
+        clientId: null,
+        clientName: null,
+        activeSessions: 2,
+        canTrust: true,
+      },
+      {
+        deviceKey: 'dev2',
+        trusted: true,
+        firstSeenAt: 1700000000,
+        lastSeenAt: 1700000500,
+        clientId: 'nuria-hub',
+        clientName: 'Nuria Hub',
+        activeSessions: 0,
+        canTrust: false,
+      },
+    ]);
+    const client = await authedClient(transport);
+    const devices = await client.account.listDevices();
+    expect(lastCall(transport)[0]).toBe(
+      'https://auth.example.com/v2/me/devices',
+    );
+    expect(devices).toHaveLength(2);
+    expect(devices[0]).toMatchObject({
+      clientId: null,
+      clientName: null,
+      activeSessions: 2,
+      canTrust: true,
+    });
+    expect(devices[1]).toMatchObject({
+      clientId: 'nuria-hub',
+      clientName: 'Nuria Hub',
+      activeSessions: 0,
+      canTrust: false,
+    });
+  });
+
+  it('listDevices still accepts a legacy payload without the new fields', async () => {
+    const legacy = {
+      deviceKey: 'dev1',
+      ipAddress: '203.0.113.10',
+      userAgent: 'Mozilla/5.0',
+      trusted: true,
+      firstSeenAt: 1700000000,
+      lastSeenAt: 1700000500,
+    };
+    const transport = makeTransport([legacy]);
+    const client = await authedClient(transport);
+    const devices = await client.account.listDevices();
+    expect(devices).toEqual([legacy]);
+    expect(devices[0]!.clientId).toBeUndefined();
+    expect(devices[0]!.activeSessions).toBeUndefined();
+    expect(devices[0]!.canTrust).toBeUndefined();
+  });
+
   it('listPasskeys returns the array and tolerates a non-array payload', async () => {
     const transport = makeTransport([
       { credentialId: 'AAAA', name: 'YubiKey', createdAt: '2026-01-01' },
