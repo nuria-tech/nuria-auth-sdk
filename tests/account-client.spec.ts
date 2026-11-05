@@ -111,6 +111,7 @@ describe('AccountClient (v7)', () => {
     const client = await authedClient(transport);
     expect(await client.account.getTwoFactorStatus()).toEqual({
       totpEnabled: true,
+      backupCodesRemaining: null,
     });
   });
 

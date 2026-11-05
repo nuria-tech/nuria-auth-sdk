@@ -127,12 +127,13 @@ flow were dropped in v6 (see CHANGELOG).
 | Method | Backend endpoint | Input |
 |--------|-----------------|-------|
 | `startLogin()` + `handleRedirectCallback()` | `/v2/oauth/authorize` → `/v2/oauth/token` | PKCE redirect (recommended for consumer SPAs) |
-| `loginWithPassword({ email, password })` | `POST /v2/login` | Direct password — portal-only (accounts.nuria.com.br). Throws `FORCE_PASSWORD_RESET` when server requires a password upgrade. |
-| `forceResetPassword(newPassword, resetToken)` | `POST /v2/password/force-reset` | Exchanges the scoped reset token (from `FORCE_PASSWORD_RESET` error) for a full session. |
+| `loginWithPassword({ email, password })` | `POST /v2/login` | Direct password, portal-only (accounts.nuria.com.br). Throws `FORCE_PASSWORD_RESET` when server requires a password upgrade, `MFA_REQUIRED` (`details.mfa`) when the account has TOTP and the server enforces MFA, `STEP_UP_REQUIRED` (`details.stepUp`) on risk step-up. |
+| `forceResetPassword(newPassword, resetToken)` | `POST /v2/password/force-reset` | Exchanges the scoped reset token (from `FORCE_PASSWORD_RESET` error) for a full session. May throw `MFA_REQUIRED` / `STEP_UP_REQUIRED`. |
 | `loginWithGoogleCode({ code, redirectUri? })` | `POST /v2/google/code` | Google authorization code (custom button / `google.accounts.oauth2.initCodeClient`); backend does the `/token` exchange |
 | `sendMagicLink({ email })` | `POST /v2/login/magic/send` | Sends a magic-link email. |
-| `loginWithMagicLink({ token })` | `POST /v2/login/magic/verify` | Exchanges the magic-link token for a session. `credentials: 'include'` so the RT cookie is set. |
-| `startLoginCodeChallenge()` + `verifyLoginCode()` | `/v2/login-code/challenge` → `/v2/2fa/verify-login` | Passwordless OTP |
+| `loginWithMagicLink({ token })` | `POST /v2/login/magic/verify` | Exchanges the magic-link token for a session. `credentials: 'include'` so the RT cookie is set. May throw `MFA_REQUIRED` / `STEP_UP_REQUIRED`. |
+| `startLoginCodeChallenge()` + `verifyLoginCode()` | `/v2/login-code/challenge` → `/v2/2fa/verify-login` | Passwordless OTP. May throw `MFA_REQUIRED` / `STEP_UP_REQUIRED` (see v9.7.0 notes below); also finishes a `STEP_UP_REQUIRED` challenge. |
+| `verifyMfaLogin({ challengeId, code?, recoveryCode? })` *(v9.7.0)* | `POST /v2/login/mfa/verify` | Answers an `MFA_REQUIRED` challenge. Exactly one of `code` (6-digit TOTP) or `recoveryCode` (`xxxx-xxxx-xxxx`, single use). Returns `Session`. |
 | `resetPassword({ email })` | `POST /v2/password/reset` | Public — sends reset email |
 | `recoverPassword({ token, newPassword })` | `POST /v2/password/recover` | Recovery token in `Authorization: Bearer` header |
 | `changePassword({ oldPassword, newPassword })` | `PATCH /v2/me/password` | Requires active session |
@@ -159,6 +160,19 @@ flow were dropped in v6 (see CHANGELOG).
   `confirmPhoneVerification({ challengeId, code })` (`POST /v2/me/phone/verify/confirm`).
 - **`forceResetPassword(newPassword, resetToken)`** — `POST /v2/password/force-reset`.
   Called when `loginWithPassword` throws `FORCE_PASSWORD_RESET`.
+- **MFA login (v9.7.0):** when the server enforces MFA and the account has
+  TOTP, `loginWithPassword`, `loginWithMagicLink`, `verifyLoginCode` and `forceResetPassword`
+  do not return a `Session`. They throw `AuthError` with `code === AuthErrorCode.MFA_REQUIRED`
+  and `error.details.mfa` (`MfaChallenge`, same shape as `TwoFactorChallenge`: `challengeId`,
+  `channel: 'totp'`, `destinationMasked`, `expiresAt`, `purpose`). `error.details.body` has the
+  raw response. Finish with `verifyMfaLogin({ challengeId, code?, recoveryCode? })`
+  (`POST /v2/login/mfa/verify`): pass exactly one of `code` (6-digit TOTP) or `recoveryCode`
+  (`xxxx-xxxx-xxxx`, single use). The challenge is short-lived and the number of attempts is limited.
+  New exported types: `MfaChallenge`, `VerifyMfaLoginOptions`.
+- **Risk step-up (v9.7.0):** when the server's risk step-up policy is on, the same four calls throw
+  `AuthErrorCode.STEP_UP_REQUIRED` with `error.details.stepUp` (an e-mail code challenge),
+  finished with `verifyLoginCode`.
+- Both behaviors appear only when the server enables them. Against a server without them nothing changes.
 
 ### v7 surface notes
 
@@ -166,6 +180,19 @@ flow were dropped in v6 (see CHANGELOG).
   verification, TOTP, passkeys (`enrollPasskey`/`listPasskeys`/`deletePasskey`),
   consents, devices, federated identities, LGPD export/erase. Bearer-auth via the
   shared `getAccessToken`.
+- **`auth.account` TOTP and passkey signatures (v9.7.0):**
+  - `getTwoFactorStatus()` returns `{ totpEnabled, backupCodesRemaining: number | null }`.
+  - `enrollTotp({ code? })` and `regenerateRecoveryCodes({ code? })` accept the current
+    TOTP code. The server may require the current TOTP code.
+  - `disableTotp({ code })` sends the code in the body (the server always required it).
+  - `getRecoveryCodes({ code })` calls `POST /v2/me/2fa/totp/recovery-codes/view`
+    (it used to call a route that does not exist).
+  - `PasskeyInfo` gains `backupEligible` and `backupState` (`boolean | null`, `null` = unknown).
+    A passkey with `backupEligible === false` or `backupState === false` is bound to one
+    device: warn the user in the UI.
+  - Passkey login is unchanged in the API. The server may require user verification (UV)
+    for passkey sign-in and limits how many passkeys an account can have
+    (`invalid_operation` when the limit is reached).
 - **DPoP (RFC 9449)** — opt in with `createAuthClient({ dpop: createDpopSigner() })`.
   Token requests attach a binding proof (kernel stamps `cnf.jkt`); resource +
   account requests switch from `Authorization: Bearer` to `DPoP <token>` plus a

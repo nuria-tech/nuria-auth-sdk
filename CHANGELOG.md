@@ -10,6 +10,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **`DeviceInfo` new optional fields**: `clientId` (`string | null`, `null` means a browser), `clientName` (`string | null`), `activeSessions` (`number`) and `canTrust` (`boolean`), as returned by `GET /v2/me/devices`. They depend on nuria-auth with PR #31 deployed. All four are optional, so the change is backward compatible: payloads from older backends, without these fields, remain valid and `listDevices()` passes the JSON through unchanged.
 
+### Fixed
+
+- **`getRecoveryCodes`** now returns `null` when the server answers 404 (TOTP off or no recovery codes). The 404 check read `error.status`, which `AuthError` does not have, so the call threw instead; it now reads `error.details.status`.
+
+## [9.7.0] - 2026-10-29
+
+Adds client support for multi-factor sign-in. Against a server that does not enforce it, nothing changes: no new field appears in any response and every existing call behaves as before.
+
+### Added
+
+- **`AuthErrorCode.MFA_REQUIRED` and `verifyMfaLogin({ challengeId, code?, recoveryCode? })`**: when the account has an authenticator app and the server enforces MFA, `loginWithPassword`, `loginWithMagicLink`, `verifyLoginCode` and `forceResetPassword` throw `MFA_REQUIRED` with the challenge in `error.details.mfa` (same shape as `TwoFactorChallenge`, channel `totp`). Pass the TOTP code or a single-use recovery code to `verifyMfaLogin` to get the `Session`. The challenge is short-lived and the number of attempts is limited. Passkey login never asks for it.
+- **`AuthErrorCode.STEP_UP_REQUIRED`**: the risk step-up (`stepUpRequired` in the login response) used to fall through to a generic token error. It now throws `STEP_UP_REQUIRED` with the e-mail code challenge in `error.details.stepUp`; finish it with `verifyLoginCode`.
+- **`auth.account.getTwoFactorStatus()`** also returns `backupCodesRemaining` (`number | null`).
+- **`PasskeyInfo.backupEligible` and `backupState`** (`boolean | null`, `null` when unknown): a passkey with either one `false` is bound to its device, so a UI can warn the user before it becomes their only way in. The server limits how many passkeys an account can have (`invalid_operation` when the limit is reached).
+- New exported types `MfaChallenge` and `VerifyMfaLoginOptions`.
+
+### Changed
+
+- **`enrollTotp` and `regenerateRecoveryCodes` accept an optional `{ code }`** (current TOTP code), because the server may require it to re-enroll or regenerate. Existing call sites still compile.
+- **`disableTotp` and `getRecoveryCodes` now require `{ code }`**, because the server always required the current TOTP code for both. A missing, empty or blank code throws `INVALID_CONFIG` before any request. Call sites that passed no argument stop compiling, and they could never succeed against the server anyway.
+- **`AuthClient` and `TwoFactorStatus` gained required members** (`verifyMfaLogin`, `backupCodesRemaining`). Code that implements or mocks these interfaces by hand must add them.
+
+### Fixed
+
+- **`getRecoveryCodes`** called a `GET` route that does not exist. It now calls `POST /v2/me/2fa/totp/recovery-codes/view` with the TOTP code.
+- **`disableTotp`** sent no body although the server always required the TOTP code, so it could never succeed. It now sends the required `{ code }`.
+
 ## [9.6.0] - 2026-07-09
 
 ### Added

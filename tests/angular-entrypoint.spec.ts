@@ -24,6 +24,10 @@ function createMockAuth() {
       tokens: { accessToken: 'token-from-code' },
       createdAt: Date.now(),
     })),
+    verifyMfaLogin: vi.fn(async () => ({
+      tokens: { accessToken: 'token-from-mfa' },
+      createdAt: Date.now(),
+    })),
     loginWithGoogleCode: vi.fn(async () => ({
       tokens: { accessToken: 'token-from-google-code' },
       createdAt: Date.now(),
